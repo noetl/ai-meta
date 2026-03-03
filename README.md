@@ -1,16 +1,12 @@
-# NoETL ai-meta (Private)
+# NoETL ai-meta
 
-Private meta-repository (`ai-meta`) for coordinating all NoETL repositories via Git submodules and maintaining centralized AI working instructions.
+The meta-repository (`ai-meta`) for coordinating all NoETL repositories via Git submodules and maintaining centralized AI working instructions.
 
 ## Purpose
 
 - Keep one control point for cross-repo development.
 - Provide shared AI instructions and change orchestration rules.
 - Track exact submodule SHAs used for coordinated releases.
-
-## Repository type
-
-This repository must remain **private**.
 
 ## Layout
 
