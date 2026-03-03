@@ -14,14 +14,16 @@ This file defines mandatory behavior for AI agents operating in this repository.
 
 ## Hard rules
 
-1. This repository is **private** and must stay private.
+1. This repository is public; never store secrets or sensitive values.
 2. Do not store product code here.
 3. Allowed content:
    - AI instruction files
    - orchestration docs/checklists
    - submodule pointer updates
-4. Prefer minimal, atomic pointer updates per change set.
-5. Never rewrite history on `main`.
+   - AI memory entries and compactions
+4. Memory updates must be append-only through Git history.
+5. Prefer minimal, atomic pointer updates per change set.
+6. Never rewrite history on `main`.
 
 ## Submodule handling
 
@@ -39,6 +41,8 @@ This file defines mandatory behavior for AI agents operating in this repository.
 
 - `chore(sync): bump <repo1>, <repo2> to merged SHAs`
 - `docs(agents): update cross-repo workflow guidance`
+- `memory(add): <topic>`
+- `memory(compact): <scope or date>`
 
 ## Validation before merge
 
