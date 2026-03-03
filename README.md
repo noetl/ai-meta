@@ -39,6 +39,10 @@ git submodule foreach --recursive 'git fetch --all --tags'
 3. In this repo, bump submodule pointers to merged SHAs.
 4. Commit pointer updates with one coordination message.
 
+Day-to-day operating guide:
+
+- `playbooks/how_to_use_ai_meta_day_to_day.md`
+
 ## Commit policy for this repo
 
 Only commit:
