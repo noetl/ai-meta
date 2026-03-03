@@ -72,3 +72,33 @@ git commit -m "memory(compact): <date/scope>"
 ```
 
 This keeps a durable memory chain in Git commits and a compact working state in `memory/current.md`.
+
+## Contributor checklist (cross-repo / ecosystem changes)
+
+Use this repo when a change spans multiple NoETL repositories (server/worker/CLI/gateway/plugins/docs).
+
+### Before you start
+- [ ] Confirm the list of impacted repos under `repos/` (submodules).
+- [ ] Create a short plan: what changes per repo, expected order, and compatibility concerns.
+- [ ] Add a memory entry if this is a non-trivial effort (decision record / plan).
+
+### Implementing changes
+- [ ] Make code changes inside the appropriate submodule(s), not in `ai-meta` root.
+- [ ] Open PRs in the upstream repos (each submodule has its own PR lifecycle).
+- [ ] Keep PRs small and composable when possible; note any ordering constraints.
+
+### After merges
+- [ ] Update pinned submodule SHAs in `ai-meta`:
+  - `git submodule update --remote --recursive`
+  - commit: `chore(sync): bump submodules for <topic>`
+- [ ] Add a sync note under `sync/YYYY/MM/` with:
+  - summary, repo scope, PR links, and resulting SHAs/tags
+- [ ] Add a memory entry capturing decisions, compatibility notes, and follow-ups.
+- [ ] Run memory compaction periodically:
+  - `./scripts/memory_compact.sh`
+  - commit: `memory(compact): <scope>`
+
+### Safety / hygiene
+- [ ] Do not commit secrets, tokens, private credentials, or customer data.
+- [ ] Keep memory entries public-safe and vendor-neutral.
+- [ ] Prefer linking to upstream PRs/issues rather than copying large diffs into `ai-meta`.
