@@ -1,0 +1,36 @@
+[submodule "repos/apt"]
+	path = repos/apt
+	url = git@github.com:noetl/apt.git
+[submodule "repos/cli"]
+	path = repos/cli
+	url = git@github.com:noetl/cli.git
+[submodule "repos/docs"]
+	path = repos/docs
+	url = git@github.com:noetl/docs.git
+[submodule "repos/gateway"]
+	path = repos/gateway
+	url = git@github.com:noetl/gateway.git
+[submodule "repos/gui"]
+	path = repos/gui
+	url = git@github.com:noetl/gui.git
+[submodule "repos/homebrew-tap"]
+	path = repos/homebrew-tap
+	url = git@github.com:noetl/homebrew-tap.git
+[submodule "repos/noetl"]
+	path = repos/noetl
+	url = git@github.com:noetl/noetl.git
+[submodule "repos/noetl.io"]
+	path = repos/noetl.io
+	url = git@github.com:noetl/noetl.io.git
+[submodule "repos/ops"]
+	path = repos/ops
+	url = git@github.com:noetl/ops.git
+[submodule "repos/server"]
+	path = repos/server
+	url = git@github.com:noetl/server.git
+[submodule "repos/tools"]
+	path = repos/tools
+	url = git@github.com:noetl/tools.git
+[submodule "repos/worker"]
+	path = repos/worker
+	url = git@github.com:noetl/worker.git
