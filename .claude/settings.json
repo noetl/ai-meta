@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git submodule *)",
+      "Bash(./scripts/memory_add.sh *)",
+      "Bash(./scripts/memory_compact.sh)",
+      "Read(*)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git reset --hard *)",
+      "Bash(git rebase -i *)",
+      "Bash(rm -rf repos/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "echo '--- ai-meta memory status ---' && echo 'Inbox entries:' && find memory/inbox -name '*.md' 2>/dev/null | wc -l | tr -d ' ' && echo 'Latest compaction:' && ls -t memory/compactions/*.md 2>/dev/null | head -1 || echo 'none' && echo 'Submodule state:' && git submodule status --recursive 2>/dev/null | head -5"
+      }
+    ],
+    "Stop": [
+      {
+        "type": "prompt",
+        "prompt": "If meaningful work was done in this session (code changes, decisions, investigations), remind the user to run: ./scripts/memory_add.sh \"<topic>\" \"<summary>\" \"<tags>\""
+      }
+    ]
+  },
+  "env": {
+    "AI_META_ROOT": "."
+  }
+}

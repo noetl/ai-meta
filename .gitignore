@@ -1,4 +1,8 @@
 .DS_Store
 *.swp
 *.swo
-.claude/
+
+# Claude Code local state (do not track)
+.claude/worktrees/
+.claude/settings.local.json
+.claude/agent-memory-local/
