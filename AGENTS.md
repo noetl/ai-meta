@@ -61,3 +61,11 @@ This keeps build/deploy behavior consistent with project automation defaults.
 - `git submodule status --recursive` is clean and expected.
 - Changed pointers map to merged commits in upstream repos.
 - Instruction docs remain internally consistent.
+
+## Logging hygiene
+
+- Keep logs minimal by default. Avoid INFO-level logs for high-frequency health/internal polling paths.
+- When adding new health/check/poll endpoints, either:
+  - suppress access logs for those paths, or
+  - log at DEBUG with rate-limiting/sampling.
+- Any change that can increase request log volume must include a quick flood check and an explicit rationale.
