@@ -37,6 +37,17 @@ This file defines mandatory behavior for AI agents operating in this repository.
   3. update submodule pointer here
   4. commit pointer bump with summary
 
+## NoETL image build/deploy workflow (local dev)
+
+When validating `repos/noetl` changes in local kind, use **ops playbooks from `repos/ops`** instead of ad-hoc kubectl/image scripts whenever possible.
+
+- Preferred playbook:
+  - `repos/ops/automation/development/noetl.yaml`
+- Typical redeploy command (from `repos/ops`):
+  - `noetl run automation/development/noetl.yaml --runtime local --set action=redeploy --set noetl_repo_dir=../noetl`
+
+This keeps build/deploy behavior consistent with project automation defaults.
+
 ## Suggested commit message format
 
 - `chore(sync): bump <repo1>, <repo2> to merged SHAs`
