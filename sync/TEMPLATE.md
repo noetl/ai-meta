@@ -28,6 +28,10 @@
 - [ ] <action item>
 - [ ] <action item>
 
+## Memory Entries
+- <path to related memory/inbox/ entry>
+- <path to related memory/inbox/ entry>
+
 ## Verification
 - Tests run: <local/ci + what>
 - Environments verified: <local/kind/staging/prod>

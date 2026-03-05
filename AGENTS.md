@@ -43,6 +43,7 @@ This file defines mandatory behavior for AI agents operating in this repository.
 - `docs(agents): update cross-repo workflow guidance`
 - `memory(add): <topic>`
 - `memory(compact): <scope or date>`
+- `memory(curate): refresh current.md for <scope>`
 
 ## Validation before merge
 
