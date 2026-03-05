@@ -10,17 +10,22 @@ Read these files at session start (in order):
 ## Project structure
 
 ```
+agents/                          # SHARED (all agents)
+  rules/                         #   modular rule files (auto-loaded via .claude/rules symlink)
+  skills/                        #   workflow definitions (auto-loaded via .claude/skills symlink)
+  profiles/                      #   per-agent behavioral profiles
 .claude/
-  settings.json          # permissions, hooks, env
-  rules/                 # modular rules (auto-loaded by Claude Code)
-  skills/                # slash commands: /memory-add, /memory-compact, /sync-note, /bump-pointer
-  agents/                # subagent definitions: claude, codex
-agents/                  # legacy profiles (kept for non-Claude agents)
-memory/                  # Git-tracked shared memory
-playbooks/               # operational runbooks
-scripts/                 # memory_add.sh, memory_compact.sh
-sync/                    # cross-repo coordination notes
-repos/                   # Git submodules (the actual codebases)
+  settings.json                  #   Claude Code permissions, hooks, env
+  rules -> ../agents/rules       #   symlink to shared rules
+  skills -> ../agents/skills     #   symlink to shared skills
+  agents/                        #   Claude-specific subagent definitions (frontmatter + @import)
+.github/copilot-instructions.md  # Copilot entry point (references agents/)
+.cursorrules                     # Cursor entry point (references agents/)
+memory/                          # Git-tracked shared memory
+playbooks/                       # operational runbooks
+scripts/                         # memory_add.sh, memory_compact.sh
+sync/                            # cross-repo coordination notes
+repos/                           # Git submodules (the actual codebases)
 ```
 
 ## Skills (slash commands)
