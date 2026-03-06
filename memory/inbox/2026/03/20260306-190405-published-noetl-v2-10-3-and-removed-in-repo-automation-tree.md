@@ -4,7 +4,7 @@
 - Tags: release,noetl,ops,automation,cleanup
 
 ## Summary
-Published NoETL v2.10.3 from master commit cac24c7d. Removed repos/noetl/automation directory and updated bootstrap/CI operational references to use repos/ops automation playbooks.
+Published NoETL v2.10.3 from master fix commit `cac24c7d`, with semantic-release tagging commit `83425dea`. Removed repos/noetl/automation directory and updated bootstrap/CI operational references to use repos/ops automation playbooks.
 
 ## Actions
 - In `repos/noetl`, merged and pushed to `master`:
@@ -12,6 +12,7 @@ Published NoETL v2.10.3 from master commit cac24c7d. Removed repos/noetl/automat
 - `cac24c7d` `fix: remove in-repo automation and switch operational references to ops`
 - Release workflow (`.github/workflows/release.yml`) executed on `master` push and published:
 - tag: `v2.10.3`
+- tagged commit: `83425dea` (`chore(release): version 2.10.3 [skip ci]`)
 - release URL: `https://github.com/noetl/noetl/releases/tag/v2.10.3`
 - release published at: `2026-03-06T19:03:13Z`
 - Removed `repos/noetl/automation/**` (108 files) and redirected key entry points:
