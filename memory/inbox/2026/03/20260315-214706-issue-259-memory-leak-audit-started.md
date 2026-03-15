@@ -16,11 +16,12 @@ Created noetl issue #259 for Python memory leakage audit across server/worker. O
 - Added regression tests in `tests/core/test_result_store_cache_tracking.py`.
 - Ran `pytest tests/core/test_result_store_preview.py tests/core/test_result_store_cache_tracking.py -q` (`4 passed`).
 - Posted issue progress comments with findings and branch/commit links.
+- Pushed `repos/noetl` branch `codex/memory-leak-audit-initial` and kept `ai-meta` submodule pointer pinned to merged `master` SHA per ai-meta submodule policy.
 
 ## Repos
 - `repos/noetl` branch `codex/memory-leak-audit-initial`
 - `repos/noetl` commit `0e283ddf`
-- `ai-meta` submodule pointer update pending to commit this memory entry + `repos/noetl` SHA bump
+- `ai-meta` main commit `f03aa56` records memory while keeping submodule pointer on merged `bf0d90fd`
 
 ## Related
 - Issue: `https://github.com/noetl/noetl/issues/259`
