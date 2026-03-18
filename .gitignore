@@ -1,6 +1,7 @@
 .DS_Store
 *.swp
 *.swo
+.idea/
 
 # Claude Code local state (do not track)
 .claude/worktrees/
