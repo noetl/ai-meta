@@ -7,6 +7,7 @@
 - Keep release/distribution workflows reproducible.
 - Track and drive fixes for Jira bug set `AHM-4280..AHM-4284` mirrored to `noetl/noetl` issues `#261..#265`.
 - Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
+- Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
 
 ## Recent Compaction
 
