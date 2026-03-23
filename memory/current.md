@@ -5,6 +5,8 @@
 - Maintain cross-repo orchestration quality and consistency.
 - Keep submodule pointers aligned with merged upstream changes.
 - Keep release/distribution workflows reproducible.
+- Validate the `v2.10.27` persisted-state authority fixes under multi-server prod execution in `bhs-analytics-prod`.
+- Track the residual loop warning follow-up from successful prod runs: `noetl/noetl#303`.
 - Track and drive fixes for Jira bug set `AHM-4280..AHM-4284` mirrored to `noetl/noetl` issues `#261..#265`.
 - Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
 - Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
@@ -15,6 +17,8 @@
 
 ## Open Items
 
+- Successful prod validations on `v2.10.27` (`588802849253883979`, `588804845457375566`) confirmed that stale cross-pod execution cache invalidation works with `2` server pods / `2` worker pods.
+- Investigate and fix the remaining parallel loop warning noise (`[LOOP] Claimed index ... out of range`) from `fetch_medications`; tracked in `noetl/noetl#303`.
 - Sync Jira ticket summaries and acceptance criteria into GitHub issues `#261..#265`.
 - Start implementation branches and PRs for each mirrored bug once reproduction details are confirmed.
 
