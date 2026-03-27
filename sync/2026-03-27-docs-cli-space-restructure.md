@@ -13,7 +13,8 @@
   - updated links in getting-started, development, test, and reference docs.
 
 ## PRs / Links
-- repos/docs: pending
+- noetl/docs issue: https://github.com/noetl/docs/issues/9
+- noetl/docs PR: https://github.com/noetl/docs/pull/10
 
 ## Resulting SHAs / Tags
 - repos/docs: changed (uncommitted in ai-meta workspace)

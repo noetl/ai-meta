@@ -40,7 +40,7 @@ Use this register to track scope changes, contract changes, and follow-up reques
 - Linked issues:
   - cli: https://github.com/noetl/cli/issues/4
   - gateway: https://github.com/noetl/gateway/issues/5
-  - docs: TODO
+  - docs: https://github.com/noetl/docs/issues/9
   - ai-meta: TODO
 - Project card: https://github.com/orgs/noetl/projects/2 (issues added)
 - Priority: p0
@@ -64,3 +64,4 @@ Use this register to track scope changes, contract changes, and follow-up reques
 - Notes:
   - Track all repo issues under label `program:codex-runtime`.
   - Issue creation succeeded, but custom labels were not found in target repos at creation time.
+  - Implementation PRs opened: noetl/cli#5 and noetl/docs#10.
