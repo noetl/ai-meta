@@ -64,4 +64,4 @@ Use this register to track scope changes, contract changes, and follow-up reques
 - Notes:
   - Track all repo issues under label `program:codex-runtime`.
   - Issue creation succeeded, but custom labels were not found in target repos at creation time.
-  - Implementation PRs opened: noetl/cli#5 and noetl/docs#10.
+  - Implementation PRs opened: noetl/cli#5, noetl/docs#10, and noetl/gateway#6.

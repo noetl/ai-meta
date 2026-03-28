@@ -16,6 +16,7 @@
 - noetl/cli issue: https://github.com/noetl/cli/issues/4
 - noetl/cli PR: https://github.com/noetl/cli/pull/5
 - noetl/gateway issue: https://github.com/noetl/gateway/issues/5
+- noetl/gateway PR: https://github.com/noetl/gateway/pull/6
 - noetl/docs issue: https://github.com/noetl/docs/issues/9
 - noetl/docs PR: https://github.com/noetl/docs/pull/10
 - noetl project: https://github.com/orgs/noetl/projects/2
