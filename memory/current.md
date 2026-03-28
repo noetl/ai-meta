@@ -8,6 +8,23 @@
 - Track and drive fixes for Jira bug set `AHM-4280..AHM-4284` mirrored to `noetl/noetl` issues `#261..#265`.
 - Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
 - Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
+- **DSL Refactoring in progress** (March 2026): Use the two canonical spec documents below as instructions when performing any NoETL DSL refactoring work.
+
+## DSL Refactoring Reference Documents
+
+These documents are the authoritative instructions for the current DSL refactoring effort:
+
+- **Assignment and Reference Spec** — `docs/features/noetl_dsl_assignment_and_reference_spec.md` in `noetl/docs` repo
+  - Defines `set`, scope model (`workload`, `ctx`, `step`, `iter`, `input`, `output`), `_ref` naming rules, reference object contract, cross-step propagation patterns.
+- **DSL Refactoring Spec** — `docs/features/noetl_dsl_refactoring_spec.md` in `noetl/docs` repo
+  - Defines target DSL model: `workflow`, `step`, `tool`, `input`, `output`, `set`, `spec`, `next`. Migration map: `args`→`input`, `outcome`→`output`, `result`→`output.data`, `result_ref`→`output.ref`, `set_ctx`/`set_iter`→`set`, `next.arcs[].args`→`next.arcs[].set` or step-level `set`.
+
+**Key refactoring rules (for AI execution):**
+1. Replace `args` with `input`, `outcome` with `output`, `set_ctx`/`set_iter` with `set`
+2. `set` is top-level (never under `spec`)
+3. `_ref` suffix required for unresolved references; hydrated data must not use `_ref`
+4. Cross-step data via `set` + consumer `input`, not `next.arcs[].args`
+5. Workers do not synthesize nodes; server is sole routing authority
 
 ## Recent Compaction
 
