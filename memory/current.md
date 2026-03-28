@@ -9,6 +9,7 @@
 - Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
 - Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
 - **DSL Refactoring in progress** (March 2026): Use the two canonical spec documents below as instructions when performing any NoETL DSL refactoring work.
+- **DSL fixture migration execution started** (March 28, 2026): `repos/noetl/tests/fixtures/playbooks/pagination` migrated from legacy DSL fields (`args`, `outcome`, `set_ctx`, `set_iter`) toward target model (`input`, `output`, `set`) without touching Python source files.
 
 ## DSL Refactoring Reference Documents
 
@@ -34,6 +35,7 @@ These documents are the authoritative instructions for the current DSL refactori
 
 - Sync Jira ticket summaries and acceptance criteria into GitHub issues `#261..#265`.
 - Start implementation branches and PRs for each mirrored bug once reproduction details are confirmed.
+- Continue DSL fixture migration beyond pagination into remaining `repos/noetl/tests/fixtures/playbooks/**` files, then run fixture validation against the current DSL runtime.
 
 ## Compaction 2026-03-03T19:25:41Z
 
