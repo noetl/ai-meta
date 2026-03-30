@@ -8,6 +8,8 @@
 - Track and drive fixes for Jira bug set `AHM-4280..AHM-4284` mirrored to `noetl/noetl` issues `#261..#265`.
 - Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
 - Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
+- **CLI + Ops cross-thread sync completed** (March 30, 2026 UTC): `noetl/cli` release `v2.13.0` published with asset `noetl-v2.13.0-darwin-arm64`; `repos/cli` is pinned at commit `fd4c3ee`, `repos/ops` at `9ce7924`, and `ai-meta` at `fa15612`.
+- **Runtime binary baseline confirmed** (March 29, 2026 local): active local CLI path is `/Volumes/X10/dev/cargo/bin/noetl` and reports `noetl 2.13.0`; use this binary for ops/deploy/test automation commands.
 - **DSL Refactoring in progress** (March 2026): Use the two canonical spec documents below as instructions when performing any NoETL DSL refactoring work.
 - **DSL fixture migration execution started** (March 28, 2026): `repos/noetl/tests/fixtures/playbooks/pagination` migrated from legacy DSL fields (`args`, `outcome`, `set_ctx`, `set_iter`) toward target model (`input`, `output`, `set`) without touching Python source files.
 - **DSL fixture migration aligned to PR #347 completed** (March 28, 2026): 126 fixture playbooks under `repos/noetl/tests/fixtures/playbooks/**` were migrated to canonical DSL v2 field/routing model (`input`, `output`, scoped `set`, arc `set`) and validated via full YAML parse + residual-pattern scan.
@@ -49,6 +51,7 @@ These documents are the authoritative instructions for the current DSL refactori
 - Deploy/redeploy image containing loop missing-index age-gating fix (`NOETL_TASKSEQ_LOOP_MISSING_MIN_AGE_SECONDS`) and rerun `tooling_non_blocking`; mandatory pass criteria: each core step has `issued_count==5`, `terminal_count==5`, `max_parallel>=2`.
 - After core pass, enable optional probes (`snowflake`, `nats kv`, `nats object store`) in `tooling_non_blocking` workload and capture per-tool non-blocking report.
 - Track status endpoint parity: `noetl status --json` can show `completion_inferred=true` with sparse `completed_steps` even when `/api/executions/{id}` is terminal/complete; decide whether to fix status reconstruction or rely on executions API for matrix reporting.
+- Before any local redeploy/retest sequence, verify CLI baseline with `noetl --version` and require `2.13.0` (or newer approved release) to avoid mixing old `tool.args` behavior.
 
 ## Compaction 2026-03-03T19:25:41Z
 
