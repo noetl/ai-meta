@@ -8,6 +8,34 @@
 - Track and drive fixes for Jira bug set `AHM-4280..AHM-4284` mirrored to `noetl/noetl` issues `#261..#265`.
 - Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
 - Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
+- **CLI + Ops cross-thread sync completed** (March 30, 2026 UTC): `noetl/cli` release `v2.13.0` published with asset `noetl-v2.13.0-darwin-arm64`; `repos/cli` is pinned at commit `fd4c3ee`, `repos/ops` at `9ce7924`, and `ai-meta` at `fa15612`.
+- **Runtime binary baseline confirmed** (March 29, 2026 local): active local CLI path is `/Volumes/X10/dev/cargo/bin/noetl` and reports `noetl 2.13.0`; use this binary for ops/deploy/test automation commands.
+- **DSL Refactoring in progress** (March 2026): Use the two canonical spec documents below as instructions when performing any NoETL DSL refactoring work.
+- **DSL fixture migration execution started** (March 28, 2026): `repos/noetl/tests/fixtures/playbooks/pagination` migrated from legacy DSL fields (`args`, `outcome`, `set_ctx`, `set_iter`) toward target model (`input`, `output`, `set`) without touching Python source files.
+- **DSL fixture migration aligned to PR #347 completed** (March 28, 2026): 126 fixture playbooks under `repos/noetl/tests/fixtures/playbooks/**` were migrated to canonical DSL v2 field/routing model (`input`, `output`, scoped `set`, arc `set`) and validated via full YAML parse + residual-pattern scan.
+- **DSL runtime validation blocked post-PR #347 deploy** (March 28, 2026): local kind deploy + fixture registration succeeded (139/139), but distributed `/api/execute` currently fails with `"'Command' object has no attribute 'args'"` (server command context path still reading `cmd.args`), preventing end-to-end regression execution in cluster mode.
+- **Runtime command-context fix prepared in PR #349** (March 28, 2026): server command emission now uses canonical `input` (with legacy `args` read alias), `cmd.args` crash path removed, and local kind validation confirms `/api/execute` starts distributed runs again.
+- **Over-dispatch/replay tracked with live matrix repro** (March 29, 2026): updated `noetl/noetl#345` with fresh evidence from `tooling_non_blocking` fixture execution (`593446259529089845`) showing `run_duckdb_probe` over-dispatch (`issued=12`, expected `5`) while HTTP/Postgres remain `5/5`; separate runtime fix and unit tests prepared in `engine.py` + `tests/unit/dsl/v2/test_loop_parallel_dispatch.py`.
+- **Tooling non-blocking matrix fixture added** (March 29, 2026): new fixture `tests/fixtures/playbooks/load_test/tooling_non_blocking/tooling_non_blocking.yaml` validates non-blocking overlap for core tools (`http`, `postgres`, `duckdb`) with optional probes for `snowflake`, `nats kv`, and `nats object store`, all in canonical DSL (`input`, `output`, `set`).
+- **PR #352 opened for replay guard + tooling matrix** (March 29, 2026): https://github.com/noetl/noetl/pull/352 contains loop missing-index age-gating fix, targeted unit tests, restored async probe server behavior, and new tooling matrix fixture wiring.
+- **Post-PR #352 replay/idempotency follow-up validated** (March 29, 2026): additional engine/API fixes prevent duplicate actionable event fan-out and reconstruct task-sequence loop progress from `call.done` during replay; live kind execution `593473735189856942` completed with core probes at expected counts (`issued=5`, `started=5`, `call.done=5` per step) and high concurrency (`max_parallel=5` for HTTP/Postgres/DuckDB in DB timeline).
+- **Issue tracking updated** (March 29, 2026): `noetl/noetl#345` now includes the final post-fix execution evidence, SQL metrics, and validated non-blocking report for mandatory tooling probes.
+
+## DSL Refactoring Reference Documents
+
+These documents are the authoritative instructions for the current DSL refactoring effort:
+
+- **Assignment and Reference Spec** — `docs/features/noetl_dsl_assignment_and_reference_spec.md` in `noetl/docs` repo
+  - Defines `set`, scope model (`workload`, `ctx`, `step`, `iter`, `input`, `output`), `_ref` naming rules, reference object contract, cross-step propagation patterns.
+- **DSL Refactoring Spec** — `docs/features/noetl_dsl_refactoring_spec.md` in `noetl/docs` repo
+  - Defines target DSL model: `workflow`, `step`, `tool`, `input`, `output`, `set`, `spec`, `next`. Migration map: `args`→`input`, `outcome`→`output`, `result`→`output.data`, `result_ref`→`output.ref`, `set_ctx`/`set_iter`→`set`, `next.arcs[].args`→`next.arcs[].set` or step-level `set`.
+
+**Key refactoring rules (for AI execution):**
+1. Replace `args` with `input`, `outcome` with `output`, `set_ctx`/`set_iter` with `set`
+2. `set` is top-level (never under `spec`)
+3. `_ref` suffix required for unresolved references; hydrated data must not use `_ref`
+4. Cross-step data via `set` + consumer `input`, not `next.arcs[].args`
+5. Workers do not synthesize nodes; server is sole routing authority
 
 ## Recent Compaction
 
@@ -17,6 +45,13 @@
 
 - Sync Jira ticket summaries and acceptance criteria into GitHub issues `#261..#265`.
 - Start implementation branches and PRs for each mirrored bug once reproduction details are confirmed.
+- Run runtime validation for refactored fixture playbooks on local `noetl-kind` after building/deploying the post-PR #347 NoETL image.
+- Unblock distributed runtime execution for DSL v2 by resolving server-side `cmd.args` attribute usage, then rerun regression playbooks on local `noetl-kind`.
+- Merge `noetl/noetl` PR #349, redeploy promoted image, and complete full regression completion/failure summary capture.
+- Deploy/redeploy image containing loop missing-index age-gating fix (`NOETL_TASKSEQ_LOOP_MISSING_MIN_AGE_SECONDS`) and rerun `tooling_non_blocking`; mandatory pass criteria: each core step has `issued_count==5`, `terminal_count==5`, `max_parallel>=2`.
+- After core pass, enable optional probes (`snowflake`, `nats kv`, `nats object store`) in `tooling_non_blocking` workload and capture per-tool non-blocking report.
+- Track status endpoint parity: `noetl status --json` can show `completion_inferred=true` with sparse `completed_steps` even when `/api/executions/{id}` is terminal/complete; decide whether to fix status reconstruction or rely on executions API for matrix reporting.
+- Before any local redeploy/retest sequence, verify CLI baseline with `noetl --version` and require `2.13.0` (or newer approved release) to avoid mixing old `tool.args` behavior.
 
 ## Compaction 2026-03-03T19:25:41Z
 
