@@ -111,3 +111,36 @@ These documents are the authoritative instructions for the current DSL refactori
 - noetl pr266 merged to master
 - v2.10.6 deployed to kind-noetl, promotion blocked
 - Execution protocol + crate bump sync
+
+## Compaction 2026-04-02T18:30:17Z
+
+- Source: `memory/compactions/20260402-183017.md`
+- Entries compacted:
+- Crates 2.8.8 published
+- NoETL PR271 finalize/dead-end completion fix
+- NoETL v2.10.10 rolled out to GKE and project org note
+- deployed-noetl-v2-10-14-to-gke-using-ops-playbook
+- ahm-4316-4318-4320-4322-loop-stall-and-postgres-transient-fixes-started
+- NoETL v2.10.15 deployed to GKE via ops playbook
+- CLI gateway auth flow + console REPL implemented
+- CLI browser/device login flow pushed for gateway auth
+- CLI PKCE localhost callback auth mode implemented
+- noetl issue 345 asyncio blocking refactor
+- noetl issue 345 asyncio fix implemented
+- noetl PR #346 merged as v2.13.1
+- noetl codex runtime program started
+- docs cli section split started and github issue creation blocked
+- created cli and gateway codex runtime issues project blocked by token scopes
+- created noetl ai runtime github project and linked issues
+- cli m1 codex integration implementation started
+- project statuses updated and gateway m1 started with pr6
+- noetl load test benchmark kind cluster
+- dsl fixture refactor started in pagination playbooks
+- dsl fixture refactor aligned to pr347 completed
+- DSL fixture runtime validation blocked by server `cmd.args` regression
+- Runtime input/context consistency fix after PR #348
+- Kind LAN Hostname Exposure (noetl) - 2026-03-28
+- DSL Loop Replay Fix + Runtime Validation (PR #354)
+- Over-dispatch/replay tracking updated with tooling matrix repro
+- CLI v2.13.0 + Ops Sync + Binary Baseline Refresh
+- noetl-pft-flow-mds-investigation-2026-04-02

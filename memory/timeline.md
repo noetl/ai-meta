@@ -8,3 +8,7 @@
 - Rolled out NoETL `v2.10.10` to `gke_noetl-demo-19700101_us-central1_noetl-cluster` and recorded Adiona.org project context note for `noetl-demo-19700101`.
 - Rolled out NoETL `v2.10.15` to `gke_noetl-demo-19700101_us-central1_noetl-cluster` via `repos/ops` GKE playbook after ai-meta/submodule refresh.
 - Implemented CLI gateway-auth UX improvements and REPL console prompt flow, with docs updates in `repos/cli` and `repos/docs`.
+
+## 2026-04
+
+- Compaction `20260402-183017` from inbox entries.
