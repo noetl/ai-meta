@@ -144,3 +144,9 @@ These documents are the authoritative instructions for the current DSL refactori
 - Over-dispatch/replay tracking updated with tooling matrix repro
 - CLI v2.13.0 + Ops Sync + Binary Baseline Refresh
 - noetl-pft-flow-mds-investigation-2026-04-02
+
+## Compaction 2026-04-06T10:34:34Z
+
+- Source: `memory/compactions/20260406-103434.md`
+- Entries compacted:
+- Added GEMINI.md files and updated root instructions
