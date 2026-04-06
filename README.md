@@ -11,6 +11,8 @@ The meta-repository (`ai-meta`) for coordinating all NoETL repositories via Git 
 ## Layout
 
 - `AGENTS.md` - global AI rules for this orchestration repo.
+- `CLAUDE.md` - Claude-specific entry point and context rules.
+- `GEMINI.md` - Gemini-specific entry point and context rules.
 - `agents/` - AI-specific instructions.
 - `memory/` - long-term AI memory (entries, compactions, current state).
 - `playbooks/` - orchestration workflows/checklists.
@@ -47,7 +49,7 @@ Day-to-day operating guide:
 
 Only commit:
 
-- instruction updates (`AGENTS.md`, `agents/*`, `sync/*`, `playbooks/*`)
+- instruction updates (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `agents/*`, `sync/*`, `playbooks/*`)
 - memory updates (`memory/*`)
 - submodule pointer updates
 
