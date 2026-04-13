@@ -1,0 +1,14 @@
+import re
+pattern = re.compile(
+        r"('(?:''|\\.|[^'])*')|"            # 1
+        r'("(?:""|\\.|[^"])*")|'            # 2
+        r'((\$[a-zA-Z0-9_]*\$).*?\4)|'      # 3 and 4
+        r'(--[^\n]*)|'                      # 5
+        r'(/\*.*?\*/)|'                     # 6
+        r'(;)|'                             # 7
+        r'([^;\'"$-/]+|.)',                 # 8
+        re.DOTALL
+    )
+
+for match in pattern.finditer("SELECT $BODY$hello$BODY$;"):
+    print(match.groups())
