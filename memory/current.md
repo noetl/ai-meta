@@ -20,6 +20,8 @@
 - **PR #352 opened for replay guard + tooling matrix** (March 29, 2026): https://github.com/noetl/noetl/pull/352 contains loop missing-index age-gating fix, targeted unit tests, restored async probe server behavior, and new tooling matrix fixture wiring.
 - **Post-PR #352 replay/idempotency follow-up validated** (March 29, 2026): additional engine/API fixes prevent duplicate actionable event fan-out and reconstruct task-sequence loop progress from `call.done` during replay; live kind execution `593473735189856942` completed with core probes at expected counts (`issued=5`, `started=5`, `call.done=5` per step) and high concurrency (`max_parallel=5` for HTTP/Postgres/DuckDB in DB timeline).
 - **Issue tracking updated** (March 29, 2026): `noetl/noetl#345` now includes the final post-fix execution evidence, SQL metrics, and validated non-blocking report for mandatory tooling probes.
+- **test_pft_flow regression execution started** (April 14, 2026): execution `604876797720658689` launched against `tests/fixtures/playbooks/pft_flow_test/test_pft_flow` (catalog_id `604681050903544449`) on local kind cluster with NoETL image `local/noetl:2026-04-14-06-21`. Processes 1000 patients × 10 facilities with 5 sequential data types (assessments → conditions → medications → vital_signs → demographics). Status: RUNNING — assessments ✅ 1000/1000, conditions ✅ 1000/1000, medications ~38% in progress at last check, vital_signs/demographics pending, validation_log 0/10. GO criterion: validation_log = 10 rows with all 1000/1000 per facility.
+- **Repo cleanup** (April 14, 2026): 3 one-off patch scripts from PR #352 work deleted from `scripts/ai_meta_tools/` (`fix_test_sql_assert.py`, `fix_worker_tests.py`, `time_test.py`). Notebook `tests/fixtures/playbooks/pft_flow_test/monitor_pft_execution.ipynb` outputs cleared + committed (`a25f098e` on noetl, `1a2de4b` on ai-meta). Both pushed to remote.
 
 ## DSL Refactoring Reference Documents
 
@@ -52,6 +54,7 @@ These documents are the authoritative instructions for the current DSL refactori
 - After core pass, enable optional probes (`snowflake`, `nats kv`, `nats object store`) in `tooling_non_blocking` workload and capture per-tool non-blocking report.
 - Track status endpoint parity: `noetl status --json` can show `completion_inferred=true` with sparse `completed_steps` even when `/api/executions/{id}` is terminal/complete; decide whether to fix status reconstruction or rely on executions API for matrix reporting.
 - Before any local redeploy/retest sequence, verify CLI baseline with `noetl --version` and require `2.13.0` (or newer approved release) to avoid mixing old `tool.args` behavior.
+- **Complete test_pft_flow validation** (April 14, 2026): execution `604876797720658689` still RUNNING — wait for validation_log to reach 10/10. Run `monitor_pft_execution.ipynb` for GO/NO-GO report. On GO, mark `noetl/noetl` issues `#261..#265` (patient-loss race condition) as verified fixed.
 
 ## Compaction 2026-03-03T19:25:41Z
 
