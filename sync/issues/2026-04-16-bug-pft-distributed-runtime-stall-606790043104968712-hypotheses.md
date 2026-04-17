@@ -3,6 +3,7 @@
 ## Context
 This addendum complements:
 - sync/issues/2026-04-16-bug-pft-distributed-runtime-stall-606790043104968712.md
+- sync/issues/2026-04-16-bug-pft-distributed-runtime-stall-followup-duplicate-step-suppression.md
 
 Execution under investigation:
 - execution_id: 606790043104968712
