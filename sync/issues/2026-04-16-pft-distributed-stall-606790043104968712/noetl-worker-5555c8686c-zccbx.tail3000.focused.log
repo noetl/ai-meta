@@ -1,0 +1,900 @@
+2:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+6:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+10:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+14:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+18:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+22:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+26:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+30:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+34:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+38:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+42:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+46:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+50:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+54:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+58:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+61:     Message: POSTGRES: Rendering commands with context keys: ['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url', 'page_size', 'batch_slots', 'facility_id', 'facility_name', 'patient_count', 'num_facilities', 'claim_batch_size', 'facility_org_uuid', 'facility_mapping_id', 'patients_per_facilit...
+62:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+66:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+70:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+74:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+77:     Message: POSTGRES: pooled mode pool=pg_demo_noetl_942f511e97 min=1 max=6 waiting=50 timeout=30.0s commands=1
+78:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+82:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+86:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+90:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+94:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+98:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+102:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+106:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+110:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+114:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+118:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+121:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+122:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+125:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+126:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+130:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+134:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+138:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+141:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+142:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+146:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+150:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+154:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+158:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+162:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+166:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+170:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+174:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+178:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+182:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+186:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+190:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+194:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+198:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+202:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+206:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+210:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+214:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+218:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+222:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+226:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+230:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+233:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+234:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+237:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=http
+238:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+242:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+246:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+250:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+254:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+258:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+262:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+266:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+270:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+274:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+278:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+282:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+286:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+290:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+294:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+298:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+302:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+306:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+310:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+314:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+318:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+322:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+326:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+330:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+334:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+338:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+341:     Message: HTTP.EXECUTE_HTTP_TASK: Request | method=GET endpoint=http://paginated-api.test-server.svc.cluster.local:5555/api/v1/patient/assessments timeout=60.0 shared_client=true header_keys=[] redacted_headers={} request_shape={'has_params': True, 'param_keys': 3, 'has_json': False, 'has_data': False, 'has_files': False, 'json_keys': 0, 'data_keys': 0, 'file_keys': 0}
+342:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+346:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+350:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+354:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+358:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+361:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+362:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+365:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+366:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+370:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+374:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+378:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+381:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+382:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+386:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+390:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+394:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+398:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+402:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+406:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+410:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+414:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+418:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+422:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+426:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+430:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+434:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+438:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+442:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+446:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+450:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+454:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+458:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+462:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+466:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+469:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+470:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+473:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=postgres
+474:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+478:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+482:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+486:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+490:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+494:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+498:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+502:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+506:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+510:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+514:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+518:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+522:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+526:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+530:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+534:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+538:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+542:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+546:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+550:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+553:     Message: POSTGRES: Rendering commands with context keys: ['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url', 'page_size', 'batch_slots', 'facility_id', 'facility_name', 'patient_count', 'num_facilities', 'claim_batch_size', 'facility_org_uuid', 'facility_mapping_id', 'patients_per_facilit...
+554:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+558:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+562:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+566:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+569:     Message: POSTGRES: pooled mode pool=pg_demo_noetl_942f511e97 min=1 max=6 waiting=50 timeout=30.0s commands=1
+570:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+574:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+578:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+582:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+586:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+590:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+593:     Message: [BATCH] Emitted 3 events for execution 606790043104968712 in single call request_id=606790078848827897
+594:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752919
+597:     Message: [EVENT] Completed fetch_assessments:task_sequence for execution 606790043104968712 command=606790043104968712:fetch_assessments:task_sequence:606790051216752919
+598:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752919
+601:     Message: [PERF] _execute_command for fetch_assessments:task_sequence took 456.9ms
+602:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752919
+605:     Message: [PERF] TOTAL command handling for fetch_assessments:task_sequence took 495.5ms
+606:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752919
+609:     Message: [PERF] Tool execution for fetch_assessments:task_sequence took 292.6ms
+610:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+613:     Message: [RESULT] Step fetch_assessments:task_sequence: size=1499b, threshold=65536b, externalize=False
+614:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+617:     Message: [RESULT] Step fetch_assessments:task_sequence: inline result (1499b)
+618:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+621:     Message: [DEBUG-PAYLOAD] Step fetch_assessments:task_sequence processed_response: {"status": "ok", "_prev": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "results": {"init_page": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "fetch_page": {"status_code": 200, "headers": {"date": "Fri, 17 Apr 2026 05:03:33 GMT", "server": "uvicorn", "content-length": "831", "content-type...
+622:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+625:     Message: [PERF] Result processing for fetch_assessments:task_sequence took 0.2ms
+626:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+629:     Message: [CASE-CHECK] step=fetch_assessments:task_sequence case_blocks_present=True case_blocks_type=list case_blocks_count=0
+630:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+633:     Message: [DEBUG] After tool execution for step: fetch_assessments:task_sequence
+634:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+638:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+642:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+646:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+650:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+654:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+658:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+662:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+665:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+666:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+669:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+670:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+674:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+678:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+682:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+685:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+686:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+690:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+694:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+698:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+701:     Message: [PERF] Tool execution for fetch_assessments:task_sequence took 446.5ms
+702:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+705:     Message: [RESULT] Step fetch_assessments:task_sequence: size=1499b, threshold=65536b, externalize=False
+706:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+709:     Message: [RESULT] Step fetch_assessments:task_sequence: inline result (1499b)
+710:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+713:     Message: [DEBUG-PAYLOAD] Step fetch_assessments:task_sequence processed_response: {"status": "ok", "_prev": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "results": {"init_page": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "fetch_page": {"status_code": 200, "headers": {"date": "Fri, 17 Apr 2026 05:03:33 GMT", "server": "uvicorn", "content-length": "831", "content-type...
+714:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+717:     Message: [PERF] Result processing for fetch_assessments:task_sequence took 0.7ms
+718:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+721:     Message: [CASE-CHECK] step=fetch_assessments:task_sequence case_blocks_present=True case_blocks_type=list case_blocks_count=0
+722:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+725:     Message: [DEBUG] After tool execution for step: fetch_assessments:task_sequence
+726:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+730:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+734:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+738:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+742:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+746:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+750:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+754:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+758:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+762:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+766:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+770:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+774:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+778:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+782:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+786:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+790:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+794:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+798:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+802:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+806:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+810:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+814:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+818:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+822:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+826:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+830:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+834:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+837:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+838:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+841:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=postgres
+842:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+846:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+850:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+854:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+858:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+862:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+866:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+870:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+874:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+878:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+882:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+886:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+890:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+894:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+898:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+902:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+906:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+910:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+914:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+918:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+921:     Message: POSTGRES: Rendering commands with context keys: ['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url', 'page_size', 'batch_slots', 'facility_id', 'facility_name', 'patient_count', 'num_facilities', 'claim_batch_size', 'facility_org_uuid', 'facility_mapping_id', 'patients_per_facilit...
+922:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+926:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+930:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+934:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+937:     Message: POSTGRES: pooled mode pool=pg_demo_noetl_942f511e97 min=1 max=6 waiting=50 timeout=30.0s commands=1
+938:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+942:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+946:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+950:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+954:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+958:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+962:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+966:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+970:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+974:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+977:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+978:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+981:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+982:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+986:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+990:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+994:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+997:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+998:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1002:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1006:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1010:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1014:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1018:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1022:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1026:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1030:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1034:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1038:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1042:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1046:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1050:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1054:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1058:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1062:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1066:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1070:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1074:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1078:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1082:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1086:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1089:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+1090:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1093:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=http
+1094:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1098:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1102:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1106:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1110:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1114:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1118:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1122:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1126:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1130:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1134:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1138:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1142:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1146:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1150:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1154:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1158:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1162:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1166:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1170:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1174:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1178:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1182:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1186:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1190:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1194:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1197:     Message: HTTP.EXECUTE_HTTP_TASK: Request | method=GET endpoint=http://paginated-api.test-server.svc.cluster.local:5555/api/v1/patient/assessments timeout=60.0 shared_client=true header_keys=[] redacted_headers={} request_shape={'has_params': True, 'param_keys': 3, 'has_json': False, 'has_data': False, 'has_files': False, 'json_keys': 0, 'data_keys': 0, 'file_keys': 0}
+1198:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1202:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1206:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1210:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1214:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1217:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+1218:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1221:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+1222:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1226:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1230:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1234:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1237:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+1238:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1242:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1246:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1250:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1254:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1258:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1262:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1266:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1270:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1274:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1278:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1282:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1286:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1290:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1294:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1298:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1302:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1306:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1310:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1314:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1318:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1322:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1326:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1329:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+1330:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1333:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=http
+1334:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1338:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1342:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1346:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1350:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1354:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1358:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1362:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1366:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1370:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1374:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1378:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1382:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1386:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1390:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1394:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1398:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1402:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1406:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1410:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1414:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1418:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1422:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1426:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1430:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1434:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1437:     Message: HTTP.EXECUTE_HTTP_TASK: Request | method=GET endpoint=http://paginated-api.test-server.svc.cluster.local:5555/api/v1/patient/assessments timeout=60.0 shared_client=true header_keys=[] redacted_headers={} request_shape={'has_params': True, 'param_keys': 3, 'has_json': False, 'has_data': False, 'has_files': False, 'json_keys': 0, 'data_keys': 0, 'file_keys': 0}
+1438:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1441:     Message: [BATCH] Emitted 3 events for execution 606790043104968712 in single call request_id=606790079469584931
+1442:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+1445:     Message: [EVENT] Completed fetch_assessments:task_sequence for execution 606790043104968712 command=606790043104968712:fetch_assessments:task_sequence:606790051216752911
+1446:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+1449:     Message: [PERF] _execute_command for fetch_assessments:task_sequence took 488.3ms
+1450:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+1453:     Message: [PERF] TOTAL command handling for fetch_assessments:task_sequence took 533.2ms
+1454:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752911
+1458:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1462:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1466:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1470:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1474:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1478:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1482:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1486:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1490:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1494:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1498:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1502:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1506:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1510:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1514:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1518:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1522:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1526:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1530:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1534:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1538:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1541:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+1542:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1545:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=postgres
+1546:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1550:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1554:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1558:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1562:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1566:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1570:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1574:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1578:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1582:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1586:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1590:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1594:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1598:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1602:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1606:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1610:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1614:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1618:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1622:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1625:     Message: POSTGRES: Rendering commands with context keys: ['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url', 'page_size', 'batch_slots', 'facility_id', 'facility_name', 'patient_count', 'num_facilities', 'claim_batch_size', 'facility_org_uuid', 'facility_mapping_id', 'patients_per_facilit...
+1626:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1630:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1634:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1638:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1641:     Message: POSTGRES: pooled mode pool=pg_demo_noetl_942f511e97 min=1 max=6 waiting=50 timeout=30.0s commands=1
+1642:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1646:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1650:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1654:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1658:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1662:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+1666:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1670:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1674:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1678:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1681:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+1682:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1685:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+1686:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1690:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1694:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1698:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1701:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+1702:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1706:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1710:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1714:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1718:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1722:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1726:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1730:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1734:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1738:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1742:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1746:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1750:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1754:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1758:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1762:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1766:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1770:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1774:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1778:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1782:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1786:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1790:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1793:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+1794:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1797:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=http
+1798:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1802:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1806:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1810:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1814:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1818:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1822:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1826:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1830:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1834:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1838:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1842:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1846:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1850:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1854:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1858:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1862:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1866:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1870:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1874:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1878:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1882:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1886:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1890:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1894:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1898:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1901:     Message: HTTP.EXECUTE_HTTP_TASK: Request | method=GET endpoint=http://paginated-api.test-server.svc.cluster.local:5555/api/v1/patient/assessments timeout=60.0 shared_client=true header_keys=[] redacted_headers={} request_shape={'has_params': True, 'param_keys': 3, 'has_json': False, 'has_data': False, 'has_files': False, 'json_keys': 0, 'data_keys': 0, 'file_keys': 0}
+1902:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+1906:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1910:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1914:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1918:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1922:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1926:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1930:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1934:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1938:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1942:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1946:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1950:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1954:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1958:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1962:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1966:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1970:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1974:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1977:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+1978:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1981:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=postgres
+1982:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1986:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1990:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1994:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+1998:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2002:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2006:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2010:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2014:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2018:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2022:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2026:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2030:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2034:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2038:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2042:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2046:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2050:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2054:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2058:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2061:     Message: POSTGRES: Rendering commands with context keys: ['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url', 'page_size', 'batch_slots', 'facility_id', 'facility_name', 'patient_count', 'num_facilities', 'claim_batch_size', 'facility_org_uuid', 'facility_mapping_id', 'patients_per_facilit...
+2062:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2066:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2070:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2074:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2077:     Message: POSTGRES: pooled mode pool=pg_demo_noetl_942f511e97 min=1 max=6 waiting=50 timeout=30.0s commands=1
+2078:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2082:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2086:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2090:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2094:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2098:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2101:     Message: [BATCH] Emitted 3 events for execution 606790043104968712 in single call request_id=606790079469584926
+2102:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+2105:     Message: [EVENT] Completed fetch_assessments:task_sequence for execution 606790043104968712 command=606790043104968712:fetch_assessments:task_sequence:606790051216752927
+2106:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+2109:     Message: [PERF] _execute_command for fetch_assessments:task_sequence took 438.2ms
+2110:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+2113:     Message: [PERF] TOTAL command handling for fetch_assessments:task_sequence took 493.1ms
+2114:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752927
+2118:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2122:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2126:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2130:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2134:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2138:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2142:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2146:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2150:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2154:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2158:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2162:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2166:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2170:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2174:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2178:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2182:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2186:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2190:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2194:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2198:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2202:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2205:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+2206:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2209:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=postgres
+2210:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2214:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2218:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2222:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2226:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2230:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2234:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2238:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2242:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2246:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2250:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2254:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2258:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2262:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2266:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2270:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2274:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2278:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2282:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2286:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2289:     Message: POSTGRES: Rendering commands with context keys: ['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url', 'page_size', 'batch_slots', 'facility_id', 'facility_name', 'patient_count', 'num_facilities', 'claim_batch_size', 'facility_org_uuid', 'facility_mapping_id', 'patients_per_facilit...
+2290:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2294:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2298:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2302:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2305:     Message: POSTGRES: pooled mode pool=pg_demo_noetl_942f511e97 min=1 max=6 waiting=50 timeout=30.0s commands=1
+2306:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2310:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2314:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2318:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2322:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2326:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2330:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2334:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2338:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2342:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2346:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2350:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2354:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2358:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2361:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+2362:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2365:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+2366:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2370:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2374:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2378:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2381:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+2382:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2386:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2390:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2394:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2397:     Message: [PERF] Tool execution for fetch_assessments:task_sequence took 498.1ms
+2398:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2401:     Message: [RESULT] Step fetch_assessments:task_sequence: size=1490b, threshold=65536b, externalize=False
+2402:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2405:     Message: [RESULT] Step fetch_assessments:task_sequence: inline result (1490b)
+2406:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2409:     Message: [DEBUG-PAYLOAD] Step fetch_assessments:task_sequence processed_response: {"status": "ok", "_prev": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "results": {"init_page": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "fetch_page": {"status_code": 200, "headers": {"date": "Fri, 17 Apr 2026 05:03:33 GMT", "server": "uvicorn", "content-length": "822", "content-type...
+2410:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2413:     Message: [PERF] Result processing for fetch_assessments:task_sequence took 0.2ms
+2414:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2417:     Message: [CASE-CHECK] step=fetch_assessments:task_sequence case_blocks_present=True case_blocks_type=list case_blocks_count=0
+2418:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2421:     Message: [DEBUG] After tool execution for step: fetch_assessments:task_sequence
+2422:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2426:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2430:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2434:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2438:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2442:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2446:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2450:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2453:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+2454:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2457:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+2458:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2462:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2466:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2470:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2473:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+2474:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2478:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2482:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2486:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2490:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2493:     Message: [PERF] Tool execution for fetch_assessments:task_sequence took 496.6ms
+2494:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2497:     Message: [RESULT] Step fetch_assessments:task_sequence: size=1499b, threshold=65536b, externalize=False
+2498:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2501:     Message: [RESULT] Step fetch_assessments:task_sequence: inline result (1499b)
+2502:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2505:     Message: [DEBUG-PAYLOAD] Step fetch_assessments:task_sequence processed_response: {"status": "ok", "_prev": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "results": {"init_page": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "fetch_page": {"status_code": 200, "headers": {"date": "Fri, 17 Apr 2026 05:03:33 GMT", "server": "uvicorn", "content-length": "831", "content-type...
+2506:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2509:     Message: [PERF] Result processing for fetch_assessments:task_sequence took 0.2ms
+2510:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2513:     Message: [CASE-CHECK] step=fetch_assessments:task_sequence case_blocks_present=True case_blocks_type=list case_blocks_count=0
+2514:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2517:     Message: [DEBUG] After tool execution for step: fetch_assessments:task_sequence
+2518:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2522:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2526:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2530:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2534:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2538:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2542:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2546:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2549:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+2550:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2553:     Message: [KEYCHAIN] Step=fetch_assessments:task_sequence has_catalog_id=True execution_id=606790043104968712 tool_kind=noop
+2554:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2558:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2562:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2566:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2569:     Message: [NOOP] Step 'fetch_assessments:task_sequence' - no-op execution
+2570:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2574:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2578:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2582:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2585:     Message: [PERF] Tool execution for fetch_assessments:task_sequence took 494.4ms
+2586:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2589:     Message: [RESULT] Step fetch_assessments:task_sequence: size=1499b, threshold=65536b, externalize=False
+2590:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2593:     Message: [RESULT] Step fetch_assessments:task_sequence: inline result (1499b)
+2594:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2597:     Message: [DEBUG-PAYLOAD] Step fetch_assessments:task_sequence processed_response: {"status": "ok", "_prev": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "results": {"init_page": {"status": "noop", "step": "fetch_assessments:task_sequence"}, "fetch_page": {"status_code": 200, "headers": {"date": "Fri, 17 Apr 2026 05:03:33 GMT", "server": "uvicorn", "content-length": "831", "content-type...
+2598:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2601:     Message: [PERF] Result processing for fetch_assessments:task_sequence took 0.2ms
+2602:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2605:     Message: [CASE-CHECK] step=fetch_assessments:task_sequence case_blocks_present=True case_blocks_type=list case_blocks_count=0
+2606:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2609:     Message: [DEBUG] After tool execution for step: fetch_assessments:task_sequence
+2610:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2614:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2618:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2622:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2625:     Message: [BATCH] Emitted 3 events for execution 606790043104968712 in single call request_id=606790080241336901
+2626:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2629:     Message: [EVENT] Completed fetch_assessments:task_sequence for execution 606790043104968712 command=606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2630:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2633:     Message: [PERF] _execute_command for fetch_assessments:task_sequence took 573.0ms
+2634:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2637:     Message: [PERF] TOTAL command handling for fetch_assessments:task_sequence took 606.9ms
+2638:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752915
+2641:     Message: [BATCH] Emitted 3 events for execution 606790043104968712 in single call request_id=606790080232948290
+2642:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2645:     Message: [EVENT] Completed fetch_assessments:task_sequence for execution 606790043104968712 command=606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2646:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2649:     Message: [PERF] _execute_command for fetch_assessments:task_sequence took 566.6ms
+2650:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2653:     Message: [PERF] TOTAL command handling for fetch_assessments:task_sequence took 586.0ms
+2654:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752925
+2657:     Message: [BATCH] Emitted 3 events for execution 606790043104968712 in single call request_id=606790080249725516
+2658:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2661:     Message: [EVENT] Completed fetch_assessments:task_sequence for execution 606790043104968712 command=606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2662:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2665:     Message: [PERF] _execute_command for fetch_assessments:task_sequence took 574.3ms
+2666:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2669:     Message: [PERF] TOTAL command handling for fetch_assessments:task_sequence took 606.7ms
+2670:     execution_id: 606790043104968712 command_id: 606790043104968712:fetch_assessments:task_sequence:606790051216752917
+2673:     Message: [EVENT] Worker worker-1053fb91 received notification: exec=606790043104968712, command=606790043104968712:claim_patients_for_assessments:606790093377897242, step=claim_patients_for_assessments
+2674:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2678:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2682:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2685:     Message: [EVENT] Worker worker-1053fb91 claimed command 606790043104968712:claim_patients_for_assessments:606790093377897242
+2686:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2689:     Message: TEMP: Direct fetch attempt for key: execution_606790043104968712_result_claim_patients_for_assessments_render_context_09cb053f
+2690:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2693:     Message: TEMP: Direct fetch from KV successful: noetl://execution/606790043104968712/result/claim_patients_for_assessments_render_context/09cb053f
+2694:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2697:     Message: [SPEC] Step 'claim_patients_for_assessments' spec: case_mode=exclusive, eval_mode=on_entry
+2698:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2702:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2705:     Message: [EVENT] Executing claim_patients_for_assessments (tool=postgres) for execution 606790043104968712 command=606790043104968712:claim_patients_for_assessments:606790093377897242
+2706:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2709:     Message: [BATCH] Emitted 2 events for execution 606790043104968712 in single call request_id=606790093520503582
+2710:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2714:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2717:     Message: WORKER: initial context keys=['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url'] execution_id=606790043104968712 has_catalog_id=True
+2718:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2721:     Message: [KEYCHAIN] Step=claim_patients_for_assessments has_catalog_id=True execution_id=606790043104968712 tool_kind=postgres
+2722:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2726:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2730:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2734:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2738:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2742:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2746:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2750:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2754:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2758:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2762:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2766:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2770:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2774:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2778:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2782:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2786:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2790:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2794:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2798:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2801:     Message: POSTGRES: Rendering commands with context keys: ['event', 'ctx', 'iter', 'workload', 'start', 'load_next_facility', 'setup_facility_work', 'load_patients_for_assessments', 'claim_patients_for_assessments', 'api_url', 'patient', 'page_size', 'loop_index', 'batch_slots', 'facility_id', 'facility_name', 'patient_count', 'num_facilities', 'claim_batch_size', 'facility_org_uuid', 'fetch_assessments'...
+2802:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2806:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2810:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2814:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2817:     Message: POSTGRES: pooled mode pool=pg_demo_noetl_942f511e97 min=1 max=6 waiting=50 timeout=30.0s commands=1
+2818:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2822:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2826:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2830:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2834:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2838:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2842:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2846:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2850:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2854:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2857:     Message: [PERF] Tool execution for claim_patients_for_assessments took 15.4ms
+2858:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2861:     Message: [RESULT] Step claim_patients_for_assessments: size=4412b, threshold=65536b, externalize=False
+2862:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2865:     Message: [RESULT] Step claim_patients_for_assessments: inline result (4412b)
+2866:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2869:     Message: [DEBUG-PAYLOAD] Step claim_patients_for_assessments processed_response: {"status": "success", "rows": [{"patient_id": 101, "facility_mapping_id": 1}, {"patient_id": 102, "facility_mapping_id": 1}, {"patient_id": 103, "facility_mapping_id": 1}, {"patient_id": 104, "facility_mapping_id": 1}, {"patient_id": 105, "facility_mapping_id": 1}, {"patient_id": 106, "facility_mapping_id": 1}, {"patient_id...
+2870:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2873:     Message: [PERF] Result processing for claim_patients_for_assessments took 0.2ms
+2874:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2877:     Message: [CASE-CHECK] step=claim_patients_for_assessments case_blocks_present=True case_blocks_type=list case_blocks_count=0
+2878:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2881:     Message: [DEBUG] After tool execution for step: claim_patients_for_assessments
+2882:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2886:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2890:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2894:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2897:     Message: [BATCH] Emitted 3 events for execution 606790043104968712 in single call request_id=606790093696664356
+2898:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2901:     Message: [EVENT] Completed claim_patients_for_assessments for execution 606790043104968712 command=606790043104968712:claim_patients_for_assessments:606790093377897242
+2902:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2905:     Message: [PERF] _execute_command for claim_patients_for_assessments took 29.1ms
+2906:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2909:     Message: [PERF] TOTAL command handling for claim_patients_for_assessments took 36.6ms
+2910:     execution_id: 606790043104968712 command_id: 606790043104968712:claim_patients_for_assessments:606790093377897242
+2912:(nats_worker:_heartbeat_loop:874)
+2915:(nats_worker:_register_worker:829)
+2918:(nats_worker:_register_worker:829)
+2921:(nats_worker:_register_worker:829)
+2924:(nats_worker:_register_worker:829)
+2927:(nats_worker:_heartbeat_loop:874)
+2930:(nats_worker:_register_worker:829)
+2933:(nats_worker:_register_worker:829)
+2936:(nats_worker:_register_worker:829)
+2939:(nats_worker:_register_worker:829)
+2942:(nats_worker:_heartbeat_loop:874)
+2945:(nats_worker:_register_worker:829)
+2948:(nats_worker:_register_worker:829)
+2951:(nats_worker:_register_worker:829)
+2954:(nats_worker:_register_worker:829)
+2957:(nats_worker:_heartbeat_loop:874)
+2960:(nats_worker:_register_worker:829)
+2963:(nats_worker:_register_worker:829)
+2966:(nats_worker:_register_worker:829)
+2969:(nats_worker:_register_worker:829)
+2972:(nats_worker:_heartbeat_loop:874)
+2975:(nats_worker:_register_worker:829)
+2978:(nats_worker:_register_worker:829)
+2981:(nats_worker:_register_worker:829)
+2984:(nats_worker:_register_worker:829)
+2987:(nats_worker:_heartbeat_loop:874)
+2990:(nats_worker:_register_worker:829)
+2993:(nats_worker:_register_worker:829)
+2996:(nats_worker:_register_worker:829)
+2999:(nats_worker:_register_worker:829)

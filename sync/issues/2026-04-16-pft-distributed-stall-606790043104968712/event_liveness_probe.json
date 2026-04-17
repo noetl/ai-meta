@@ -1,0 +1,10 @@
+{
+  "error": null,
+  "result": [
+    {
+      "latest_event": "2026-04-17T05:09:33.019303",
+      "latest_non_checkpointer": "2026-04-17T05:03:36.019071"
+    }
+  ],
+  "status": "ok"
+}

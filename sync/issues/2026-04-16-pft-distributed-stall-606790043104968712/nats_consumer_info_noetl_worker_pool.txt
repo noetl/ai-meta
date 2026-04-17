@@ -1,0 +1,24 @@
+Information for Consumer NOETL_COMMANDS > noetl_worker_pool created 2026-04-16 21:58:39
+
+Configuration:
+
+                    Name: noetl_worker_pool
+               Pull Mode: true
+          Deliver Policy: New
+              Ack Policy: Explicit
+                Ack Wait: 5m0s
+           Replay Policy: Instant
+      Maximum Deliveries: 1,000
+         Max Ack Pending: 64
+       Max Waiting Pulls: 512
+
+State:
+
+            Host Version: 2.12.7
+      Required API Level: 0 hosted at level 3
+  Last Delivered Message: Consumer sequence: 107 Stream sequence: 107 Last delivery: 6m24s ago
+    Acknowledgment Floor: Consumer sequence: 107 Stream sequence: 107 Last Ack: 6m24s ago
+        Outstanding Acks: 0 out of maximum 64
+    Redelivered Messages: 0
+    Unprocessed Messages: 0
+           Waiting Pulls: 3 of maximum 512

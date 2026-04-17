@@ -1,0 +1,40 @@
+Information for Stream NOETL_COMMANDS created 2026-04-16 21:57:33
+
+                Subjects: noetl.commands, noetl.commands.>
+                Replicas: 1
+                 Storage: Memory
+
+Options:
+
+               Retention: Limits
+         Acknowledgments: true
+          Discard Policy: Old
+        Duplicate Window: 2m0s
+    Allows Batch Publish: false
+         Allows Counters: false
+       Allows Msg Delete: true
+  Allows Per-Message TTL: false
+            Allows Purge: true
+        Allows Schedules: false
+          Allows Rollups: false
+
+Limits:
+
+        Maximum Messages: unlimited
+     Maximum Per Subject: unlimited
+           Maximum Bytes: unlimited
+             Maximum Age: 1h0m0s
+    Maximum Message Size: unlimited
+       Maximum Consumers: unlimited
+
+State:
+
+            Host Version: 2.12.7
+      Required API Level: 0 hosted at level 3
+                Messages: 107
+                   Bytes: 31 KiB
+          First Sequence: 1 @ 2026-04-16 22:03:30
+           Last Sequence: 107 @ 2026-04-16 22:03:35
+        Active Consumers: 1
+      Number of Subjects: 1
+

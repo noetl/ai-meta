@@ -1,0 +1,15 @@
+{
+  "error": null,
+  "result": [
+    {
+      "end_time": null,
+      "execution_id": 606790043104968712,
+      "last_event_type": null,
+      "last_node_name": null,
+      "start_time": "2026-04-17T05:03:29.993930Z",
+      "status": "RUNNING",
+      "updated_at": "2026-04-17T05:09:33.040617Z"
+    }
+  ],
+  "status": "ok"
+}

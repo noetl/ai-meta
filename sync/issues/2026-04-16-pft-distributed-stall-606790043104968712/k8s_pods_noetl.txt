@@ -1,0 +1,5 @@
+NAME                            READY   STATUS    RESTARTS   AGE   IP            NODE                  NOMINATED NODE   READINESS GATES
+noetl-server-6c5d6c5d75-twmjr   1/1     Running   0          12m   10.244.0.16   noetl-control-plane   <none>           <none>
+noetl-worker-5555c8686c-4nbgb   1/1     Running   0          11m   10.244.0.17   noetl-control-plane   <none>           <none>
+noetl-worker-5555c8686c-xtg77   1/1     Running   0          11m   10.244.0.19   noetl-control-plane   <none>           <none>
+noetl-worker-5555c8686c-zccbx   1/1     Running   0          11m   10.244.0.18   noetl-control-plane   <none>           <none>
