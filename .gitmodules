@@ -34,3 +34,6 @@
 [submodule "repos/worker"]
 	path = repos/worker
 	url = git@github.com:noetl/worker.git
+[submodule "repos/e2e"]
+	path = repos/e2e
+	url = git@github.com:noetl/e2e.git
