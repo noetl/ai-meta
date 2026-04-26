@@ -13,3 +13,7 @@
 
 - Compaction `20260402-183017` from inbox entries.
 - Compaction `20260406-103434` from inbox entries.
+- Split NoETL integration fixtures into dedicated `noetl/e2e`, added e2e docs/registration, and updated ops fixture references.
+- Released NoETL `v2.23.2` with typed execution observability responses, AI explain fixes, and execution API review fixes.
+- Shipped GUI terminal workspace releases through `noetl/gui` PRs `#7..#9`, including runtime env injection, GHCR image releases, resizable terminal/dashboard panes, and deployed `ghcr.io/noetl/gui:v1.0.6` to local kind via ops.
+- Established next MCP integration direction: deploy MCP servers through ops and connect GUI terminal commands to available MCP services, starting with `containers/kubernetes-mcp-server`.

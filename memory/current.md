@@ -5,6 +5,11 @@
 - Maintain cross-repo orchestration quality and consistency.
 - Keep submodule pointers aligned with merged upstream changes.
 - Keep release/distribution workflows reproducible.
+- **E2E fixture split landed** (April 2026): dedicated `noetl/e2e` repo now owns integration-test fixtures and docs; credential JSON templates may be committed, but local credential JSON values must remain uncommitted.
+- **Execution observability typed and released** (April 26, 2026): `repos/noetl` release `v2.23.2` includes typed execution list/detail responses, AI explain fixes, and API review fixes. Remember `noetl.execution` is a projection; `noetl.command` + `noetl.event` are source-of-truth execution state tables together with the projection.
+- **GUI terminal workspace shipped** (April 26, 2026): `repos/gui` release `v1.0.6` contains the terminal-first workspace, old Mac style theme, header/footer menus, runtime `/env-config.js` injection, direct/gateway API modes, resizable and maximizable terminal/dashboard panes, and improved AI explain rendering.
+- **Local kind GUI deploy baseline** (April 26, 2026): deployed `ghcr.io/noetl/gui:v1.0.6` to namespace `gui` using `repos/ops/automation/development/gui.yaml` with `action=deploy`, `image_pull_policy=Always`, `api_mode=direct`, and `api_base_url=http://722-2.local:8082`; `http://localhost:38081/` returned HTTP 200 after rollout.
+- **Next focus: MCP runtime integration** (April 26, 2026): start deploying MCP servers through ops and integrate the GUI terminal with available MCP tools. First target is `https://github.com/containers/kubernetes-mcp-server` for Kubernetes runtime monitoring.
 - Track and drive fixes for Jira bug set `AHM-4280..AHM-4284` mirrored to `noetl/noetl` issues `#261..#265`.
 - Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
 - Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
@@ -55,6 +60,7 @@ These documents are the authoritative instructions for the current DSL refactori
 - Track status endpoint parity: `noetl status --json` can show `completion_inferred=true` with sparse `completed_steps` even when `/api/executions/{id}` is terminal/complete; decide whether to fix status reconstruction or rely on executions API for matrix reporting.
 - Before any local redeploy/retest sequence, verify CLI baseline with `noetl --version` and require `2.13.0` (or newer approved release) to avoid mixing old `tool.args` behavior.
 - **Complete test_pft_flow validation** (April 14, 2026): execution `604876797720658689` still RUNNING — wait for validation_log to reach 10/10. Run `monitor_pft_execution.ipynb` for GO/NO-GO report. On GO, mark `noetl/noetl` issues `#261..#265` (patient-loss race condition) as verified fixed.
+- Design MCP server deployment in `repos/ops` and GUI terminal discovery/command integration in `repos/gui`, beginning with Kubernetes MCP server availability checks and read-only runtime observability commands.
 
 ## Compaction 2026-03-03T19:25:41Z
 
