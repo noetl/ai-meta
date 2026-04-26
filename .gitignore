@@ -3,6 +3,9 @@
 *.swo
 .idea/
 
+# Local kind runtime state.
+ci/kind/cache/
+
 # Claude Code local state (do not track)
 .claude/worktrees/
 .claude/settings.local.json
