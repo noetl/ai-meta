@@ -253,9 +253,20 @@ When a user wants to add a new MCP server in the GUI:
   the GUI's terminal-prompt cache invalidate? Suggest the GUI poll
   `/api/catalog/list?resource_type=Mcp` every N seconds or on
   catalog page navigation.
-- **Auth**: `mcp lifecycle/deploy` could nuke a production MCP. Lock
-  the lifecycle endpoints behind the `admin` role + an explicit
-  confirmation step in the GUI.
+- **Auth**: governed by the existing playbook-managed flow, not by
+  Python decorators. Each lifecycle verb on an Mcp resource resolves
+  to an Agent playbook path; the existing
+  `api_integration/auth0/check_playbook_access` playbook + the
+  `auth.playbook_permissions` table already handle authorization
+  because dispatching `lifecycle.deploy` is exactly "execute the agent
+  at `spec.lifecycle.deploy`". No new permission vocabulary needed.
+  Phase 2 (`repos/gateway`) just needs to wire route-aware
+  `check_playbook_access` invocation for `/api/mcp/.../lifecycle/{verb}`
+  and `/api/mcp/.../discover` using the *resolved Agent path* as
+  `playbook_path` (rather than relying on the GUI to call
+  `/api/auth/check-access` first). Direct-mode dev clusters
+  (`VITE_API_MODE=direct`) bypass the gateway and have no auth, by
+  design.
 - **Form inference fidelity**: YAML doesn't carry rich type info for
   optional fields. The `# ui:` comment scheme needs guardrails
   (parser must tolerate misformatted comments without crashing
