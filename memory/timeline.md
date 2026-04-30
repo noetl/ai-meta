@@ -18,3 +18,4 @@
 - Shipped GUI terminal workspace releases through `noetl/gui` PRs `#7..#9`, including runtime env injection, GHCR image releases, resizable terminal/dashboard panes, and deployed `ghcr.io/noetl/gui:v1.0.6` to local kind via ops.
 - Established next MCP integration direction: deploy MCP servers through ops and connect GUI terminal commands to available MCP services, starting with `containers/kubernetes-mcp-server`.
 - Implemented MCP-as-agent-playbook draft PR set across `repos/noetl`, `repos/ops`, `repos/gui`, `repos/gateway`, and `repos/docs`; local kind validation completed Kubernetes MCP `tools/list` and `pods_list_in_namespace` through NoETL agent executions.
+- Repaired GKE Gateway Auth0 login by refreshing the `auth0_login` system playbook result-envelope handling in `repos/e2e`, registering it on GKE, documenting the deployment/troubleshooting path in `repos/docs`, and recording the no-secret operational guidance.
