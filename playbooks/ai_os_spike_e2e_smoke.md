@@ -53,47 +53,51 @@ Before running:
    below):
 
    ```bash
-   noetl catalog list --type playbook --path tests/spike/
+   noetl catalog list Playbook --json | jq '.[] | select(.path | startswith("tests/spike/")) | .path'
    # Expect:
-   #   tests/spike/spike_e2e_test
-   #   tests/spike/spike_failing_subflow
+   #   "tests/spike/spike_e2e_test"
+   #   "tests/spike/spike_failing_subflow"
    ```
 
 6. **Self-troubleshoot agent registered** (from `repos/ops`):
 
    ```bash
-   noetl catalog list --type playbook --path automation/agents/troubleshoot/
+   noetl catalog list Playbook --json | jq '.[] | select(.path | startswith("automation/agents/troubleshoot/")) | .path'
    # Expect:
-   #   automation/agents/troubleshoot/diagnose_execution
-   #   automation/agents/troubleshoot/runtime
+   #   "automation/agents/troubleshoot/diagnose_execution"
+   #   "automation/agents/troubleshoot/runtime"
    ```
 
 7. **`mcp/ollama` Mcp resource registered** (from `repos/noetl`):
 
    ```bash
-   noetl catalog list --type mcp --path mcp/ollama
-   # Expect: mcp/ollama
+   noetl catalog list Mcp --json | jq '.[] | select(.path == "mcp/ollama")'
+   # Expect a single entry; if empty, register it (next section).
    ```
 
 ## One-time registration (skip if already done)
 
+The `noetl catalog register` command takes a single positional file
+argument. The resource kind is inferred from the file's `kind:`
+field (Playbook, Agent, Mcp, etc.) — no `--type` flag.
+
 ```bash
 # Spike test fixtures
-noetl catalog register --type playbook \
+noetl catalog register \
   /Volumes/X10/projects/noetl/ai-meta/repos/e2e/fixtures/playbooks/spike/spike_failing_subflow.yaml
 
-noetl catalog register --type playbook \
+noetl catalog register \
   /Volumes/X10/projects/noetl/ai-meta/repos/e2e/fixtures/playbooks/spike/spike_e2e_test.yaml
 
 # Troubleshoot agent (if not already registered as part of ops bring-up)
-noetl catalog register --type playbook \
+noetl catalog register \
   /Volumes/X10/projects/noetl/ai-meta/repos/ops/automation/agents/troubleshoot/diagnose_execution.yaml
 
-noetl catalog register --type playbook \
+noetl catalog register \
   /Volumes/X10/projects/noetl/ai-meta/repos/ops/automation/agents/troubleshoot/runtime.yaml
 
 # mcp/ollama Mcp catalog entry
-noetl catalog register --type mcp \
+noetl catalog register \
   /Volumes/X10/projects/noetl/ai-meta/repos/noetl/noetl/tools/ollama_bridge/catalog_template.yaml
 ```
 
@@ -102,24 +106,30 @@ noetl catalog register --type mcp \
 ### Step 1 — Trigger the run
 
 ```bash
-EXEC_ID=$(noetl execute tests/spike/spike_e2e_test \
-  --workload '{"escalate_to":"none"}' \
+EXEC_ID=$(noetl exec tests/spike/spike_e2e_test \
+  --runtime distributed \
+  --payload '{"escalate_to":"none"}' \
   --json | jq -r '.execution_id')
 echo "execution_id: $EXEC_ID"
 ```
 
-`escalate_to: none` keeps the smoke fast and free — Ollama-only
-classification, no upstream API calls. To exercise the OpenAI or
-Claude paths separately, re-run with `--workload '{"escalate_to":"openai"}'`
-or `'{"escalate_to":"claude"}'` (and ensure the corresponding API
+`--runtime distributed` routes through the noetl-server (so
+the executor's Gap 4.1 hook actually runs in the worker pool —
+the local rust runtime has its own dispatcher). `escalate_to: none`
+keeps the smoke fast and free — Ollama-only classification, no
+upstream API calls. To exercise the OpenAI or Claude paths
+separately, rerun with `--payload '{"escalate_to":"openai"}'` or
+`'{"escalate_to":"claude"}'` (and ensure the corresponding API
 key is in the keychain).
 
 ### Step 2 — Wait for completion
 
 ```bash
-# Poll until terminal status (~3–8s on a warm cluster)
+# Poll until terminal status (~3–8s on a warm cluster). The
+# `noetl status` command returns top-level `completed` / `failed`
+# bools so we can branch on them.
 while true; do
-  STATUS=$(noetl execution status "$EXEC_ID" --json | jq -r '.completed,.failed' | xargs)
+  STATUS=$(noetl status "$EXEC_ID" --json | jq -r '"\(.completed) \(.failed)"')
   echo "  $(date +%H:%M:%S) status: $STATUS"
   case "$STATUS" in
     "true false"|"false true") break;;
@@ -130,10 +140,27 @@ done
 
 ### Step 3 — Fetch the result and assert
 
+The CLI doesn't have a dedicated `result` subcommand; the playbook's
+return value lands in the execution detail endpoint. Two paths
+depending on what your noetl-server build supports:
+
 ```bash
-noetl execution result "$EXEC_ID" --json \
+# Path A — via the CLI's --json status (works on most builds; the
+# result body may be embedded under .result or .latest_event.context)
+noetl status "$EXEC_ID" --json \
+  | python3 /Volumes/X10/projects/noetl/ai-meta/scripts/spike_e2e_assert.py -
+
+# Path B — direct API call to /api/executions/{id} for the full doc
+# (use this if Path A reports "smoke_status missing")
+NOETL_BASE="http://localhost:8082"   # adjust for your gateway / port-forward
+curl -s "$NOETL_BASE/api/executions/$EXEC_ID" \
   | python3 /Volumes/X10/projects/noetl/ai-meta/scripts/spike_e2e_assert.py -
 ```
+
+The assertion script tolerates a few wrapper shapes (raw / `.data`
+/ `.result` / `.output`); if neither path lands the result body
+where the script can find it, share the JSON output of one of the
+above commands and we'll add the right wrapper unwrapping.
 
 Expected output:
 
