@@ -1,0 +1,45 @@
+{
+  "id": "example-03-goal-directed",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-05T01:51:00Z",
+  "title": "Get the spike e2e smoke to GREEN",
+
+  "description": "Goal-directed task: keep iterating on the cluster state until the spike e2e smoke passes with diagnosis attached. Codex has authority to debug, retry, fix things, and only hands back when the expected_state is reached or max_iterations is exhausted.",
+
+  "approval": "required",
+
+  "timeout_seconds": 1800,
+
+  "kind": "goal-directed",
+
+  "expected_state": {
+    "description": "spike_e2e_assert.py exits 0 with the GREEN banner (diagnosis.source set, diagnosis.confidence > 0)",
+    "verify_shell": "NOETL_BASE='${NOETL_BASE:-http://localhost:8082}'; EXEC_ID=$(noetl exec tests/spike/spike_e2e_test --runtime distributed --payload '{\"escalate_to\":\"none\"}' --json | jq -r '.execution_id'); sleep 20; curl -s \"$NOETL_BASE/api/executions/$EXEC_ID\" > /tmp/spike_check.json; python3 /Volumes/X10/projects/noetl/ai-meta/scripts/spike_e2e_assert.py /tmp/spike_check.json | tee /tmp/spike_assert.out | tail -1",
+    "success_pattern": "All checks passed.*GREEN"
+  },
+
+  "max_iterations": 5,
+
+  "hints": [
+    "If smoke is AMBER: check whether mcp/ollama is registered (`noetl catalog list Mcp`); if missing, register it from repos/noetl/noetl/tools/ollama_bridge/catalog_template.yaml.",
+    "If bridge returns 422: bump the bridge image to v2.35.2 (FastAPI route fix); see playbooks/ai_os_spike_e2e_smoke.md.",
+    "If Ollama doesn't have gemma2:2b: pull it via `kubectl exec deploy/ollama -- ollama pull gemma2:2b`.",
+    "After every iteration, run the verify_shell. When it matches success_pattern, stop and report.",
+    "If you can't get to GREEN within max_iterations, hand back with the last verify output + a description of what was tried."
+  ],
+
+  "preferred_tools": [
+    "noetl exec automation/agents/ai_os/lifecycle/status",
+    "noetl exec automation/agents/ai_os/lifecycle/deploy",
+    "noetl exec automation/agents/noetl/lifecycle/bump_image",
+    "noetl catalog register",
+    "kubectl get/describe (read-only) is fine"
+  ],
+
+  "denied_tools": [
+    "kubectl delete namespace",
+    "git push",
+    "rm -rf"
+  ]
+}

@@ -4,6 +4,10 @@
 # via `noetl exec --runtime local <this-file> --json`. The playbook's
 # return envelope becomes the bridge result.
 #
+# Uses `kind: shell` because the Rust local runtime supports a
+# limited set of tool kinds (shell, http, playbook, duckdb, auth,
+# sink). `kind: python` is distributed-runtime only.
+#
 # bridge-approval: auto
 
 apiVersion: noetl.io/v2
@@ -27,31 +31,11 @@ workload:
 
 workflow:
   - step: list_pods
-    desc: Run `kubectl get pods` and capture the output as the result envelope
+    desc: kubectl get pods + capture output
     tool:
-      kind: python
-      code: |
-        import subprocess
-        proc = subprocess.run(
-          ["kubectl", "-n", namespace, "get", "pods", "-o", "wide"],
-          capture_output=True, text=True,
-        )
-        ok = proc.returncode == 0
-        text = proc.stdout if ok else (proc.stderr or "kubectl failed")
-        result = {
-          "status": "ok" if ok else "error",
-          "data": {
-            "exit_code": proc.returncode,
-            "namespace": namespace,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-          },
-          "summary": text.strip().split("\n")[0] if text else "(empty)",
-          "text": text,
-          "user_message": text,
-        }
-      args:
-        namespace: "{{ workload.namespace }}"
+      kind: shell
+      cmds:
+        - kubectl -n {{ workload.namespace }} get pods -o wide
     next:
       arcs:
         - step: end

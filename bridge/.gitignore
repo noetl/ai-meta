@@ -1,0 +1,13 @@
+# Don't commit live tasks / results / archive contents — those are
+# session-scoped and would create noisy diffs. The directories
+# themselves (inbox/, outbox/, archive/) are kept via .gitkeep so
+# they exist on every clone.
+inbox/*
+outbox/*
+archive/*
+codex/watcher.log
+
+# Keep the placeholder files so the directories track in git
+!inbox/.gitkeep
+!outbox/.gitkeep
+!archive/.gitkeep

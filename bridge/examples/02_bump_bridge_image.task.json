@@ -1,0 +1,28 @@
+{
+  "id": "example-02-bump-bridge",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-05T01:51:00Z",
+  "title": "Bump ollama-bridge to v2.35.2 + verify route fix landed",
+
+  "description": "Apply noetl#410 (FastAPI route fix) to the running cluster: bump bridge image, wait for rollout, exercise /jsonrpc to confirm the 422 is gone. Cluster-mutating, requires approval.",
+
+  "approval": "required",
+
+  "timeout_seconds": 600,
+
+  "commands": [
+    {
+      "id": "set-image",
+      "shell": "kubectl -n noetl set image deploy/ollama-bridge ollama-bridge=ghcr.io/noetl/noetl:v2.35.2"
+    },
+    {
+      "id": "wait-rollout",
+      "shell": "kubectl -n noetl rollout status deploy/ollama-bridge --timeout=120s"
+    },
+    {
+      "id": "verify-jsonrpc",
+      "shell": "kubectl -n noetl exec deploy/ollama-bridge -- python3 -c 'import json,urllib.request,urllib.error; req=urllib.request.Request(\"http://localhost:8765/jsonrpc\", data=json.dumps({\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}).encode(), headers={\"Content-Type\":\"application/json\"}, method=\"POST\"); print(urllib.request.urlopen(req, timeout=10).read().decode())'"
+    }
+  ]
+}
