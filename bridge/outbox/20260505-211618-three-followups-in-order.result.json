@@ -1,0 +1,118 @@
+{
+  "id": "20260505-211618-three-followups-in-order",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-05T21:37:49Z",
+  "overall_status": "ok",
+  "phases": {
+    "A": {
+      "status": "ok",
+      "ops_pr_url": "https://github.com/noetl/ops/pull/37",
+      "ops_pr_merged_sha": "827fb86bc375894184e6c95459f7d28f0673f767",
+      "negative_test_exec_id": "620331512323375641",
+      "positive_test_exec_id": "620331690296083052"
+    },
+    "B": {
+      "status": "ok",
+      "audit_report_path": "bridge/outbox/event_projection_audit.md",
+      "code_paths_examined": [
+        "repos/noetl/noetl/worker/nats_worker.py:_externalize_event_value_if_needed",
+        "repos/noetl/noetl/worker/nats_worker.py:_extract_reference_from_value",
+        "repos/noetl/noetl/worker/nats_worker.py:_extract_control_context",
+        "repos/noetl/noetl/worker/nats_worker.py:_build_strict_result_envelope",
+        "repos/noetl/noetl/worker/nats_worker.py:_normalize_payload_reference_only",
+        "repos/noetl/noetl/worker/nats_worker.py:_execute_step result handling and terminal event emission",
+        "repos/noetl/noetl/worker/nats_worker.py:_emit_batch_events",
+        "repos/noetl/noetl/worker/nats_worker.py:_emit_terminal_event_batch",
+        "repos/noetl/noetl/server/api/core/events.py:_validate_reference_only_payload",
+        "repos/noetl/noetl/server/api/core/events.py:_bounded_context",
+        "repos/noetl/noetl/server/api/core/commands.py:_build_reference_only_result",
+        "repos/noetl/noetl/server/api/core/batch.py batch event insertion",
+        "repos/noetl/noetl/server/api/execution/endpoint.py execution detail and event read paths"
+      ],
+      "findings_by_risk": {
+        "confirmed_bug": [],
+        "potential_risk": [
+          "Worker _extract_control_context still scalarizes arbitrary nested non-error dictionaries unless they are reference wrappers or the special error.diagnosis shape. Current reviewed contracts are covered, but future nested control contracts need explicit carve-outs and parity tests.",
+          "Worker blocked data-plane keys intentionally exclude data, response, result, payload, rows, and columns from strict context. Any future semantic control metadata placed under those keys must be persisted through references or a reviewed context field.",
+          "Server _collect_compact_context copies only selected top-level transport fields. It is safe as a compact merge helper, but should not become the only persistence route for future nested control metadata."
+        ],
+        "safe_by_design": [
+          "Agent envelopes are preserved by the agent tool return path and the generic error-coercion carve-out.",
+          "Agent error.diagnosis is now explicitly preserved in worker event context by noetl/noetl#417.",
+          "Task-sequence errors use scalar error.kind and error.message fields, which survive projection.",
+          "MCP result content is data-plane output and is carried via response or references rather than result.context.",
+          "Playbook data.* is intentionally treated as data-plane output and bounded by result processing/reference preservation.",
+          "Externalized payloads store the full original value before event projection emits a reference wrapper.",
+          "Server _bounded_context preserves nested dictionaries by byte size rather than scalarizing them.",
+          "Execution detail and /executions/{id}/events read paths return persisted context/result JSON without additional projection.",
+          "Diagnostic LEFT(result::text, 4000) queries are bounded debug snapshots, not the parity source of truth."
+        ]
+      },
+      "fix_pr_urls": [],
+      "deferred_findings": [
+        "Potential worker control-context scalarization should get a design pass before expanding nested contracts beyond error.diagnosis."
+      ]
+    },
+    "C": {
+      "status": "ok",
+      "smoke_path": "scripts/live_vs_persisted_parity_smoke.py",
+      "docs_pr_url": "https://github.com/noetl/docs/pull/27",
+      "static_smoke_result": "OK static v2.35.9-shaped fixture preserves nested diagnosis; OK static v2.35.8-regression fixture detected NESTED_DICT_LOSS at result.context.error.diagnosis; 2/2 live-vs-persisted parity static checks passed",
+      "cluster_smoke_result": "OK cluster parity for execution 620335758527693503: 6 terminal events, 4 comparisons"
+    }
+  },
+  "smokes": {
+    "carveout": "8/8 agent-envelope carve-out checks passed",
+    "gap41_wait": "7/7 Gap 4.1 wait+fetch checks passed",
+    "auto_troubleshoot": "9/9 auto-troubleshoot checks passed",
+    "optional_ai": "6/6 optional-AI checks passed",
+    "parity": "static 2/2 passed; cluster execution 620335758527693503 passed"
+  },
+  "deployed_tag": "v2.35.9",
+  "submodule_bumps": {
+    "ops_sha": "827fb86bc375894184e6c95459f7d28f0673f767",
+    "noetl_sha": "8b641b056fc3867a515b3196913c0aa2febad937",
+    "docs_sha": "e9d1523b7f4b7d826652d18d7f3e2de93ffa7c4c"
+  },
+  "iterations": [
+    {
+      "n": 1,
+      "action": "Phase A implementation and PR",
+      "exit_code": 0,
+      "summary": "Added GHCR manifest probe to bump_image, then added a defensive in-step probe after discovering a failed verify step could still fall through to the rollout loop. Merged noetl/ops#37."
+    },
+    {
+      "n": 2,
+      "action": "Phase A validation",
+      "exit_code": 0,
+      "summary": "Negative fake tag failed cleanly without mutating noetl-server; positive v2.35.9 idempotent run completed with no image changes."
+    },
+    {
+      "n": 3,
+      "action": "Phase B audit",
+      "exit_code": 0,
+      "summary": "Audited worker projection, server write path, and execution read path. No new confirmed bug; documented potential nested-control risk and safe-by-design paths."
+    },
+    {
+      "n": 4,
+      "action": "Phase B smokes",
+      "exit_code": 0,
+      "summary": "agent_envelope_carveout 8/8, gap41_diagnosis_wait 7/7, auto_troubleshoot 9/9, optional_ai 6/6."
+    },
+    {
+      "n": 5,
+      "action": "Phase C static parity smoke and docs PR",
+      "exit_code": 0,
+      "summary": "Added scripts/live_vs_persisted_parity_smoke.py, static fixture mode passed, documented static and live usage, merged noetl/docs#27."
+    },
+    {
+      "n": 6,
+      "action": "Phase C live spike and parity smoke",
+      "exit_code": 0,
+      "summary": "Spike execution 620335758527693503 was GREEN. Parity smoke passed against the persisted execution."
+    }
+  ],
+  "verdict": "GREEN",
+  "notes": "All three phases delivered. Phase B did not land a noetl fix because no new confirmed event-projection bug was found; the only deferred item is the documented potential risk that future nested non-error control dictionaries still need explicit projection design. No noetl release happened in this task, so codex-spike-green-validation.md was not updated."
+}
