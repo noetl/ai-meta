@@ -11,3 +11,7 @@ codex/watcher.log
 !inbox/.gitkeep
 !outbox/.gitkeep
 !archive/.gitkeep
+
+# Markdown reports (Codex deploy reports, etc.) ARE worth tracking —
+# they document specific runs and the bugs/findings they surfaced.
+!outbox/*.md
