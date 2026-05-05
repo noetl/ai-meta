@@ -7,13 +7,16 @@
 #         noetl exec --runtime local <file> --json
 #      The playbook's return envelope becomes the bridge result.
 #
-#   2. `{id}.task.json` with top-level `playbook_path` —
-#         noetl exec --runtime local <playbook_path> --payload <workload> --json
-#      Use this to dispatch a registered playbook with a workload.
+#   2. `{id}.task.json` with top-level `playbook` (file path or
+#      catalog ref; `playbook_path` accepted as legacy alias) —
+#         noetl exec --runtime local <playbook> --payload <workload> --json
+#      For local runtime, file paths resolve directly with no
+#      catalog registration needed. Use repo-relative paths like
+#      `repos/ops/automation/agents/bridge/run_commands.yaml`.
 #
 #   3. `{id}.task.json` with top-level `commands` (bare list) —
-#      Wrapped through automation/agents/bridge/run_commands. This
-#      is the legacy v0 format; still works.
+#      Wrapped through repos/ops/automation/agents/bridge/run_commands.yaml.
+#      This is the legacy v0 format; still works.
 #
 #   4. `{id}.task.json` with top-level `executor: "bash"` —
 #      Bootstrap fallback: runs commands via raw `bash -c` without
@@ -74,16 +77,21 @@ elif [ "$FORMAT" = "json" ]; then
 
   if command -v jq >/dev/null 2>&1; then
     json_executor=$(jq -r '.executor // ""' "$TASK_FILE")
-    json_playbook_path=$(jq -r '.playbook_path // ""' "$TASK_FILE")
+    # Accept either `playbook` (canonical, works for any ref noetl
+    # exec accepts: file path, catalog path, catalog:// URI) or the
+    # legacy `playbook_path` alias. Local runtime resolves file paths
+    # directly without catalog registration; distributed runtime can
+    # resolve catalog refs via the server.
+    json_playbook=$(jq -r '.playbook // .playbook_path // ""' "$TASK_FILE")
     json_has_commands=$(jq -e '.commands' "$TASK_FILE" >/dev/null 2>&1 && echo true || echo false)
     if [ "$json_executor" = "bash" ]; then
       EXECUTOR="bash"
-    elif [ -n "$json_playbook_path" ]; then
+    elif [ -n "$json_playbook" ]; then
       EXECUTOR="noetl-json-playbook"
     elif [ "$json_has_commands" = "true" ]; then
       EXECUTOR="noetl-json-commands"
     else
-      log "ERROR: $TASK_FILE has no playbook_path and no commands"
+      log "ERROR: $TASK_FILE has no playbook reference and no commands"
       exit 1
     fi
   else
@@ -246,21 +254,25 @@ case "$EXECUTOR" in
     run_noetl_local "$TASK_FILE"
     ;;
   noetl-json-playbook)
-    # JSON envelope with playbook_path + workload
+    # JSON envelope with playbook (file path or catalog ref) + workload.
+    # Local runtime resolves file paths directly (no catalog needed);
+    # catalog refs work too when noetl is configured to resolve them.
     if command -v jq >/dev/null 2>&1; then
-      pb_path=$(jq -r '.playbook_path' "$TASK_FILE")
+      pb_ref=$(jq -r '.playbook // .playbook_path' "$TASK_FILE")
       payload=$(jq -c '.workload // {}' "$TASK_FILE")
-      run_noetl_local "$pb_path" "$payload"
+      run_noetl_local "$pb_ref" "$payload"
     else
       log "ERROR: jq required for noetl-json-playbook executor"
       exit 1
     fi
     ;;
   noetl-json-commands)
-    # Bare {commands: [...]} — wrap through bridge/run_commands
+    # Bare {commands: [...]} — wrap through the bridge run_commands
+    # playbook on disk. Path is repo-relative; the watcher's CWD when
+    # invoked is the ai-meta root (per the run-watcher instructions).
     if command -v jq >/dev/null 2>&1; then
       payload=$(jq -c '{commands: .commands, stop_on_error: (.stop_on_error // true)}' "$TASK_FILE")
-      run_noetl_local "automation/agents/bridge/run_commands" "$payload"
+      run_noetl_local "$BRIDGE_ROOT/../repos/ops/automation/agents/bridge/run_commands.yaml" "$payload"
     fi
     ;;
   bash)

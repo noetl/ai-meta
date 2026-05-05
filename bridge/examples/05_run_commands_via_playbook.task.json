@@ -3,13 +3,13 @@
   "from": "claude-cowork",
   "to": "codex",
   "created_at": "2026-05-05T01:51:00Z",
-  "title": "Bump bridge to v2.35.2 + verify (via automation/agents/bridge/run_commands)",
-  "description": "Dispatches the bridge/run_commands playbook through `noetl exec --runtime local` with a workload that lists the commands. Same effect as a procedural .task.json, but routed through a registered noetl playbook so the run is a first-class noetl execution rather than raw bash.",
+  "title": "Bump bridge to v2.35.2 + verify (via repos/ops/automation/agents/bridge/run_commands)",
+  "description": "Dispatches the bridge/run_commands playbook through `noetl exec --runtime local` with a workload that lists the commands. The `playbook` field is a repo-relative file path — local runtime resolves it directly without catalog registration.",
 
   "approval": "required",
   "timeout_seconds": 600,
 
-  "playbook_path": "automation/agents/bridge/run_commands",
+  "playbook": "repos/ops/automation/agents/bridge/run_commands.yaml",
   "workload": {
     "stop_on_error": true,
     "commands": [

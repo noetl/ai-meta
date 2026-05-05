@@ -65,7 +65,7 @@ the result lands in outbox/.
 ```bash
 # 1. The bridge directory ships in ai-meta. Pull it down.
 cd /Volumes/X10/projects/noetl/ai-meta
-git pull
+git pull --recurse-submodules    # also pulls repos/ops which ships the run_commands playbook
 
 # 2. Make the watcher scripts executable (one-time after fresh clone)
 chmod +x bridge/codex/*.sh
@@ -73,12 +73,17 @@ chmod +x bridge/codex/*.sh
 # 3. Verify prerequisites
 which noetl jq kubectl   # all three should resolve
 noetl --version          # should report v2.35.2 or newer (FastAPI route fix)
-
-# 4. Register the generic command-runner playbook with the local
-#    catalog. (Required only for Shape 2/3 tasks; Shape 1 inline
-#    playbooks don't need registration.)
-noetl catalog register repos/ops/automation/agents/bridge/run_commands.yaml
 ```
+
+That's it. **No catalog registration needed for local-runtime tasks** —
+the noetl Rust CLI parses YAML files directly and runs them in
+memory. Both Shape 1 (inline playbook in inbox) and Shape 2 (file
+path reference in JSON envelope) resolve via the filesystem.
+
+Catalog registration becomes relevant only when you switch the
+bridge to distributed-runtime mode (a follow-up; same task files,
+just `--runtime distributed` and the playbook needs to be in the
+catalog so the noetl-server can dispatch it to a worker pod).
 
 ## Run the watcher (terminal A)
 

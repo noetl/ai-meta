@@ -98,17 +98,22 @@ workflow:
   - step: end
 ```
 
-#### Shape 2 — Registered playbook + workload (`.task.json`)
+#### Shape 2 — Playbook reference + workload (`.task.json`)
 
-JSON envelope pointing at a playbook already in the catalog.
-Watcher does `noetl exec --runtime local <playbook_path> --payload <workload> --json`.
+JSON envelope pointing at a playbook by **file path** (resolved
+locally without catalog registration) or **catalog reference**
+(resolved by the noetl-server when running in distributed runtime).
+Watcher does `noetl exec --runtime local <playbook> --payload <workload> --json`.
+
+For local-runtime tasks, the file-path form is unambiguous and
+needs zero setup:
 
 ```json
 {
-  "id": "20260505-001-bump-bridge",
-  "title": "Bump bridge to v2.35.2",
+  "id": "20260505-001-bump-image",
+  "title": "Bump components to v2.35.2",
   "approval": "required",
-  "playbook_path": "automation/agents/noetl/lifecycle/bump_image",
+  "playbook": "repos/ops/automation/agents/noetl/lifecycle/bump_image.yaml",
   "workload": {
     "target_tag": "v2.35.2",
     "components": ["ollama-bridge"]
@@ -116,10 +121,14 @@ Watcher does `noetl exec --runtime local <playbook_path> --payload <workload> --
 }
 ```
 
+The legacy field name `playbook_path` is also accepted as an alias
+for `playbook`.
+
 #### Shape 3 — Bare commands list (`.task.json`, legacy)
 
 JSON with a top-level `commands` array. Watcher wraps it through
-the generic `automation/agents/bridge/run_commands` playbook.
+the generic `repos/ops/automation/agents/bridge/run_commands.yaml`
+playbook (file path; no registration needed).
 
 ```json
 {
