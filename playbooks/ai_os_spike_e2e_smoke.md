@@ -140,27 +140,32 @@ done
 
 ### Step 3 — Fetch the result and assert
 
-The CLI doesn't have a dedicated `result` subcommand; the playbook's
-return value lands in the execution detail endpoint. Two paths
-depending on what your noetl-server build supports:
+The playbook's return value lives in the top-level `result` field
+of the execution detail endpoint at `/api/executions/{id}` —
+**not** in the `noetl status` output, which only returns execution
+metadata (completed / failed / current_step / duration). Use the
+direct API call:
 
 ```bash
-# Path A — via the CLI's --json status (works on most builds; the
-# result body may be embedded under .result or .latest_event.context)
-noetl status "$EXEC_ID" --json \
-  | python3 /Volumes/X10/projects/noetl/ai-meta/scripts/spike_e2e_assert.py -
-
-# Path B — direct API call to /api/executions/{id} for the full doc
-# (use this if Path A reports "smoke_status missing")
 NOETL_BASE="http://localhost:8082"   # adjust for your gateway / port-forward
 curl -s "$NOETL_BASE/api/executions/$EXEC_ID" \
   | python3 /Volumes/X10/projects/noetl/ai-meta/scripts/spike_e2e_assert.py -
 ```
 
-The assertion script tolerates a few wrapper shapes (raw / `.data`
-/ `.result` / `.output`); if neither path lands the result body
-where the script can find it, share the JSON output of one of the
-above commands and we'll add the right wrapper unwrapping.
+The assertion script reads the top-level `result` object and walks
+into it to find `smoke_status`, `agent_envelope`, `diagnosis`. It
+also tolerates a few alternate wrapper shapes (`.data`, `.output`)
+so it stays robust across noetl-server versions.
+
+If you don't have direct access to the noetl-server endpoint
+(e.g. on a remote cluster without a port-forward), kubectl-exec
+into a pod that does:
+
+```bash
+kubectl exec -n noetl deploy/noetl-server -- \
+  curl -s "http://localhost:8082/api/executions/$EXEC_ID" \
+  | python3 /Volumes/X10/projects/noetl/ai-meta/scripts/spike_e2e_assert.py -
+```
 
 Expected output:
 
