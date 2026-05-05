@@ -36,7 +36,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bridge_lib.sh
 source "$SCRIPT_DIR/bridge_lib.sh"
 
-TASK_FILE="${1:?usage: handle_task.sh <task.{yaml,json}>}"
+# NB: do not embed `{...}` brace-style alternatives inside this
+# parameter-expansion message. Bash's parser counts braces in the
+# message as nested, which causes `$1` to receive trailing
+# `>}` appended even when the argument is set (verified — symptom
+# was every task lookup failing with "task file not found:
+# /path/to/file.task.yaml>}"). Plain ASCII works fine.
+TASK_FILE="${1:?usage: handle_task.sh PATH_TO_TASK_FILE}"
 [ -f "$TASK_FILE" ] || { log "ERROR: task file not found: $TASK_FILE"; exit 1; }
 
 # ---------------------------------------------------------------------------
@@ -66,8 +72,10 @@ if [ "$FORMAT" = "yaml" ]; then
   EXECUTOR="noetl-yaml"
   # Approval defaults to required for yaml tasks (they're free-form
   # playbooks; can do anything). Operator can pre-approve a class
-  # by adding a `# bridge-approval: auto` comment line at the top.
-  if head -10 "$TASK_FILE" | grep -qE '^#\s*bridge-approval:\s*auto'; then
+  # by adding a `# bridge-approval: auto` comment line within the
+  # first 30 lines of the file. 30 is generous enough to allow a
+  # decent-size header / docstring before the directive.
+  if head -30 "$TASK_FILE" | grep -qE '^#\s*bridge-approval:\s*auto'; then
     APPROVAL_MODE="auto"
   fi
 elif [ "$FORMAT" = "json" ]; then
@@ -198,18 +206,26 @@ run_noetl_local() {
 
   if [ "$rc" -eq 0 ] && [ -s "$out_f" ]; then
     # The noetl envelope IS our result data. Wrap with bridge metadata.
+    # We use --rawfile + try/catch fromjson rather than --slurpfile so
+    # a noetl build that emits log lines on stdout (mixed with JSON)
+    # doesn't kill the wrap. On parse failure we surface the raw
+    # text under .envelope_raw so Claude can still inspect what came
+    # back.
     if command -v jq >/dev/null 2>&1; then
       jq -n \
         --arg id "$ID" \
         --arg user "${USER:-unknown}" \
         --arg approval "$APPROVAL" \
         --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --slurpfile env "$out_f" \
+        --rawfile env_raw "$out_f" \
         '{id: $id, from: "codex", to: "claude-cowork", completed_at: $ts,
           approval_status: $approval, approved_by: $user,
           overall_status: "ok",
-          executor: "noetl-local",
-          envelope: $env[0]}' \
+          executor: "noetl-local"}
+         + (try ({envelope: ($env_raw | fromjson)})
+            catch ({envelope: null,
+                    envelope_raw: $env_raw,
+                    envelope_parse_error: "noetl stdout was not pure JSON"}))' \
         > "$BRIDGE_OUTBOX/${ID}.result.json"
       overall="ok"
     else
