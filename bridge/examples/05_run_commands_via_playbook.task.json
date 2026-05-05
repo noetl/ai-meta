@@ -1,0 +1,30 @@
+{
+  "id": "example-05-run-commands-via-playbook",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-05T01:51:00Z",
+  "title": "Bump bridge to v2.35.2 + verify (via automation/agents/bridge/run_commands)",
+  "description": "Dispatches the bridge/run_commands playbook through `noetl exec --runtime local` with a workload that lists the commands. Same effect as a procedural .task.json, but routed through a registered noetl playbook so the run is a first-class noetl execution rather than raw bash.",
+
+  "approval": "required",
+  "timeout_seconds": 600,
+
+  "playbook_path": "automation/agents/bridge/run_commands",
+  "workload": {
+    "stop_on_error": true,
+    "commands": [
+      {
+        "id": "set-image",
+        "shell": "kubectl -n noetl set image deploy/ollama-bridge ollama-bridge=ghcr.io/noetl/noetl:v2.35.2"
+      },
+      {
+        "id": "wait-rollout",
+        "shell": "kubectl -n noetl rollout status deploy/ollama-bridge --timeout=120s"
+      },
+      {
+        "id": "verify-jsonrpc",
+        "shell": "kubectl -n noetl exec deploy/ollama-bridge -- python3 -c 'import json,urllib.request; req=urllib.request.Request(\"http://localhost:8765/jsonrpc\", data=json.dumps({\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}).encode(), headers={\"Content-Type\":\"application/json\"}, method=\"POST\"); print(urllib.request.urlopen(req, timeout=10).read().decode())'"
+      }
+    ]
+  }
+}

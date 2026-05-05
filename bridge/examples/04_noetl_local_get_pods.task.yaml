@@ -1,0 +1,59 @@
+# Bridge task: list noetl namespace pods.
+#
+# This file IS a noetl playbook — the watcher invokes it directly
+# via `noetl exec --runtime local <this-file> --json`. The playbook's
+# return envelope becomes the bridge result.
+#
+# bridge-approval: auto
+
+apiVersion: noetl.io/v2
+kind: Playbook
+metadata:
+  name: bridge_example_get_pods
+  path: bridge/examples/get_pods
+  description: Read-only smoke that returns the noetl-namespace pod list
+  exposes_as_mcp: false
+  tags:
+    - bridge
+    - example
+    - read-only
+
+executor:
+  profile: local
+  version: noetl-runtime/1
+
+workload:
+  namespace: noetl
+
+workflow:
+  - step: list_pods
+    desc: Run `kubectl get pods` and capture the output as the result envelope
+    tool:
+      kind: python
+      code: |
+        import subprocess
+        proc = subprocess.run(
+          ["kubectl", "-n", namespace, "get", "pods", "-o", "wide"],
+          capture_output=True, text=True,
+        )
+        ok = proc.returncode == 0
+        text = proc.stdout if ok else (proc.stderr or "kubectl failed")
+        result = {
+          "status": "ok" if ok else "error",
+          "data": {
+            "exit_code": proc.returncode,
+            "namespace": namespace,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+          },
+          "summary": text.strip().split("\n")[0] if text else "(empty)",
+          "text": text,
+          "user_message": text,
+        }
+      args:
+        namespace: "{{ workload.namespace }}"
+    next:
+      arcs:
+        - step: end
+
+  - step: end
