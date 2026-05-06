@@ -185,7 +185,7 @@ def assert_envelope(result: dict) -> int:
     )
 
     source = diagnosis.get("source", "")
-    valid_sources = ("ollama", "openai", "claude", "remote")
+    valid_sources = ("ollama", "openai", "claude", "remote", "vertex-stub")
     passed_all &= _check(
         "diagnosis.source is from documented set",
         isinstance(source, str) and source in valid_sources,
