@@ -41,6 +41,10 @@ This file defines mandatory behavior for AI agents operating in this repository.
 
 When validating `repos/noetl` changes in local kind, use **ops playbooks from `repos/ops`** instead of ad-hoc kubectl/image scripts whenever possible.
 
+Local kind deployments for this workspace must use the configured Podman machine only. Do not use Colima, a Colima Docker socket, or a Docker fallback for kind cluster creation or NoETL deployment. If Podman is unavailable or unhealthy, stop and report the Podman error instead of switching runtimes.
+
+This repository lives under `/Volumes`; the Podman machine must mount `/Volumes:/Volumes` or kind `extraMounts` will fail. If the host shell sets `XDG_DATA_HOME` to a custom path, unset it for Podman/kind commands so Podman machine metadata and disk state stay in the same default location.
+
 - Preferred playbook:
   - `repos/ops/automation/development/noetl.yaml`
 - Typical redeploy command (from `repos/ops`):
