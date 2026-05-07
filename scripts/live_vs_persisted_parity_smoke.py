@@ -5,6 +5,8 @@ Static mode validates canned fixtures:
   * a v2.35.9-shaped event pair that must pass
   * a v2.35.8 regression-shaped pair that must fail with
     NESTED_DICT_LOSS at result.context.error.diagnosis
+  * a v2.37.0 regression-shaped pair that must fail with
+    NESTED_DICT_LOSS at result.context.error.diagnosis._meta
 
 Cluster mode fetches /api/executions/<id> and compares nested dictionary
 key sets among terminal events for each step. The first terminal event in
@@ -81,7 +83,12 @@ def compare_nested_dict_keys(live: dict[str, Any], persisted: dict[str, Any]) ->
     for path, live_keys in sorted(live_paths.items()):
         persisted_value = _dig(persisted, path)
         if not isinstance(persisted_value, dict):
-            code = "NESTED_DICT_LOSS" if path == "result.context.error.diagnosis" else "NESTED_DICT_MISSING"
+            code = (
+                "NESTED_DICT_LOSS"
+                if path == "result.context.error.diagnosis"
+                or path.startswith("result.context.error.diagnosis.")
+                else "NESTED_DICT_MISSING"
+            )
             issues.append(
                 ParityIssue(
                     code=code,
@@ -126,6 +133,14 @@ def static_smoke() -> int:
                         "root_cause": "synthetic failure",
                         "suggested_action": "inspect failed subflow",
                         "source": "ollama",
+                        "_meta": {
+                            "diagnosis_fetch": {
+                                "poll_count": 3,
+                                "elapsed_seconds": 1.42,
+                                "deadline_seconds": 60.0,
+                                "hit_deadline": False,
+                            }
+                        },
                     },
                 }
             },
@@ -134,6 +149,8 @@ def static_smoke() -> int:
     persisted_ok = json.loads(json.dumps(live_ok))
     persisted_bad = json.loads(json.dumps(live_ok))
     persisted_bad["result"]["context"]["error"].pop("diagnosis")
+    persisted_meta_bad = json.loads(json.dumps(live_ok))
+    persisted_meta_bad["result"]["context"]["error"]["diagnosis"].pop("_meta")
 
     ok_issues = compare_nested_dict_keys(live_ok, persisted_ok)
     if ok_issues:
@@ -154,7 +171,19 @@ def static_smoke() -> int:
             print(issue.render())
         return 1
     print("OK static v2.35.8-regression fixture detected NESTED_DICT_LOSS at result.context.error.diagnosis")
-    print("2/2 live-vs-persisted parity static checks passed")
+
+    meta_bad_issues = compare_nested_dict_keys(live_ok, persisted_meta_bad)
+    expected_meta_loss = any(
+        issue.code == "NESTED_DICT_LOSS" and issue.path == "result.context.error.diagnosis._meta"
+        for issue in meta_bad_issues
+    )
+    if not expected_meta_loss:
+        print("FAIL static v2.37.0-regression fixture did not detect diagnosis _meta loss")
+        for issue in meta_bad_issues:
+            print(issue.render())
+        return 1
+    print("OK static v2.37.0-regression fixture detected NESTED_DICT_LOSS at result.context.error.diagnosis._meta")
+    print("3/3 live-vs-persisted parity static checks passed")
     return 0
 
 
