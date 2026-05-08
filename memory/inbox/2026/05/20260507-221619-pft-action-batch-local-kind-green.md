@@ -132,3 +132,50 @@ returned batch rows.
 - The 30-minute local behavior was the old execution shape, not an
   unavoidable local-kind ceiling. The current action-batch shape
   completed 10,000 patients locally in under one minute.
+
+## Post-merge ops#47 validation
+
+After the user merged `noetl/ops#47`, `repos/ops` was fast-forwarded
+to:
+
+```
+abe52cf fix(dev): build local test-server from e2e fixtures (#47)
+```
+
+The merged `automation/development/noetl.yaml` helper was run again
+from `main`:
+
+```
+noetl run automation/development/noetl.yaml \
+  --runtime local \
+  --set action=deploy \
+  --set noetl_repo_dir=../noetl \
+  --set e2e_repo_dir=../e2e \
+  --set registry=ghcr.io/noetl \
+  --set image_name=noetl \
+  --set image_tag=v2.37.1 \
+  --set image_pull_policy=Always \
+  --set podman_machine=noetl-dev
+```
+
+Merged-helper deploy completed successfully. Health checks:
+
+- `http://127.0.0.1:8082/api/health` returned `{"status":"ok"}`.
+- `http://127.0.0.1:32555/api/v1/pft/batch/demographics?...`
+  returned batch rows.
+- NoETL server/worker remained on `ghcr.io/noetl/noetl:v2.37.1`.
+- Test server image in local kind: `localhost/local/test-server:latest`.
+
+Fresh local PFT run after merged helper:
+
+- Catalog version: `fixtures/playbooks/pft_flow_test/test_pft_flow@2`
+- Execution: `622020352981336195`
+- Duration: `114.213s` (`1m 54s`)
+- Status: `COMPLETED`
+- Final `check_results`: `passed`
+- Verification probe: `622021510458245712`
+- Tables: all five patient domains at `10000`; queues all
+  `10000 done`; MDS `10000/10000`; validation log `10` rows
+  with per-facility `1000/1000`.
+
+ai-meta should carry the ops pointer to `abe52cf` after this merge.
