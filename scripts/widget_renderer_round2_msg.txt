@@ -1,0 +1,136 @@
+Codex prompt — AI-OS round 2: chatui-aligned widget renderer (local kind deploy + smoke)
+=========================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260508-064720-deploy-widget-renderer-round-2-local.task.json
+
+Result goes to:
+  bridge/outbox/20260508-064720-deploy-widget-renderer-round-2-local.result.json
+
+What Claude shipped (in working tree, NOT committed):
+
+  repos/gui/
+    src/components/widgets/                    NEW DIRECTORY (39 files)
+      types.ts                                  — discriminated WidgetContent union, chatui field names verbatim
+      WidgetRenderer.tsx                        — switch dispatcher mirroring chatui MessageContent.tsx; class ErrorBoundary
+      index.ts                                  — public exports
+      AppMarkdown.tsx                           — { text }; tiny dependency-free markdown subset
+      AppText.tsx                               — { title, message, titleColor? }
+      AppTitle.tsx                              — { text, size?, color?, boldness?, style? }
+      AppHorizontalLine.tsx                     — <hr/>
+      AppPicture.tsx                            — { imageUrl|imageBase64, imageType?, maxWidth?, maxHeight?, altText? }
+      AppIcon.tsx                               — antd icon by name + optional tooltip
+      AppProfilePicture.tsx                     — avatar
+      AppStatusBar.tsx                          — themed inline pill
+      AppAlert.tsx                              — { message, variant? }
+      AppTooltip.tsx                            — antd Tooltip + iconName resolution
+      AppInfoTable.tsx                          — record as label-value rows; bool→check/cross
+      AppInfoGrid.tsx                           — auto-fit grid of nested widgets
+      AppGroupedTable.tsx                       — labeled label-value blocks
+      AppTable.tsx                              — { size?, data: string[][] }
+      AppRecordTable.tsx                        — antd Table w/ sort/filter
+      AppFileDisplay.tsx                        — file card with download
+      AppRow.tsx / AppColumn.tsx                — { children, gap?, align?, justify? }
+      AppContainer.tsx                          — padding/margin wrapper
+      AppCarousel.tsx                           — antd Carousel
+      AppExpandable.tsx                         — minimal/full toggle
+      AppInfoBlock.tsx                          — antd Collapse accordion
+      AppButton.tsx                             — emits onPressEvent
+      AppCalendar.tsx                           — antd DatePicker
+      AppDropdown.tsx                           — antd Select
+      AppRadio.tsx                              — antd Radio.Group
+      AppCheckbox.tsx                           — antd Checkbox.Group
+      AppInput.tsx                              — antd Input
+      AppForm.tsx                               — phone/email/url validation
+      AppCustomForm.tsx                         — multi-column form
+      AppQuiz.tsx                               — multi-question quiz
+      AppDragAndDrop.tsx                        — file drop zone
+      AppCode.tsx                               — NoETL extension
+      AppIframe.tsx                             — NoETL extension; sandboxed
+      AppLink.tsx                               — NoETL extension
+      AppImage.tsx                              — DEPRECATED stub re-exporting AppPicture
+    src/components/NoetlPrompt.tsx              MODIFIED — PromptEntry.render?: WidgetContent; handleWidgetEvent
+    src/services/agentResult.ts                 MODIFIED — extractAgentRender() helper
+
+  repos/docs/
+    docs/gui/widgets.md                         NEW — full per-kind contract table
+
+  ai-meta (already saved):
+    AGENTS.md                                   — read-only references section
+    .gitmodules + references/chatui             — read-only submodule
+    sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md  — round 2 section updated
+    memory/inbox/2026/05/20260508-064006-...md  — round 2 memory entry
+
+Already verified locally: `cd repos/gui && npx tsc --noEmit` exits 0.
+
+Codex job (7 phases, see task JSON for the full spec):
+
+  1. typecheck + build:    cd repos/gui && npm install && npx tsc --noEmit && npm run build
+  2. gui PR:               branch kadyapam/widgets-chatui-aligned-renderer, PR title
+                           "feat(gui): chatui-aligned widget renderer for NoetlPrompt (AI-OS round 2)",
+                           merge with --squash --delete-branch
+  3. docs PR:              branch kadyapam/widgets-doc, PR title
+                           "docs: widget rendering contract (chatui-aligned, app:* discriminator)",
+                           verify `cd repos/docs && npm run build` clean, merge
+  4. local kind redeploy:  cd repos/ops && noetl run automation/development/noetl.yaml \
+                             --runtime local --set action=redeploy --set noetl_repo_dir=../noetl
+                           (Podman machine only — per AGENTS.md, no Colima, no Docker fallback)
+                           kubectl --context kind-noetl -n noetl rollout status deploy/gui --timeout=180s
+  5. widget smoke:         register tests/spike/widget_render_smoke playbook returning
+                             { ok: true,
+                               render: {
+                                 type: "app:column",
+                                 args: {
+                                   children: [
+                                     { type: "app:alert",    args: { message: "widget renderer is live", variant: "success" }},
+                                     { type: "app:markdown", args: { text: "## Widget smoke\n\n* alert above\n* markdown here\n* `code` works\n\n[noetl docs](https://docs.noetl.dev)" }},
+                                     { type: "app:button",   args: { text: "reopen execution", variant: "primary",
+                                                                     event: { key: "command", value: "report ${execution_id}" }}}
+                                   ]
+                                 }
+                               }
+                             }
+                           run it; in the GUI prompt type `report <execution_id>`;
+                           verify all 4 widget kinds render; verify clicking the button re-runs report
+                           (handleWidgetEvent intercepts key=='command'); screenshot all of it.
+  6. unsupported smoke:    a second playbook emits render: { type: "app:nonexistent", args: {hello:"world"} };
+                           confirm the prompt shows the "unsupported widget" fallback w/ JSON preview;
+                           confirm no React error overlay, no white screen.
+  7. ai-meta pointer bump: cd ai-meta && git submodule update --remote repos/gui repos/docs
+                           git add repos/gui repos/docs
+                           git commit -F - <<EOF
+                             chore(sync): bump gui + docs for chatui-aligned widget renderer
+                             ...
+                           EOF
+                           DO NOT push ai-meta — Kadyapam pushes that himself.
+
+Architectural rules:
+  - NO noetl python changes. NO catalog kind for Widget. Widgets are GUI/data only.
+  - NO modifying references/chatui (read-only submodule).
+  - NO Colima or Docker fallback for kind. Podman machine only.
+  - NO adjusting Claude's TypeScript widget code beyond obvious typo fixes — if there's a
+    real shape issue, capture in result file and stop.
+
+Reference for the rendering pattern:
+  references/chatui/src/pages/Main/ChatArea/ChatMessage/MessageContent/MessageContent.tsx
+  https://github.com/mlflowio/chatui
+
+Design doc:
+  sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md (round 2 section)
+
+What user (Kadyapam) commits + pushes from the Mac BEFORE handing to Codex
+==========================================================================
+  ai-meta (after the Codex round wraps):
+    1. AGENTS.md                                                    docs(agents): document references/<name> read-only convention
+    2. .gitmodules + references/chatui                              chore(sync): add references/chatui as read-only submodule
+    3. sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md  docs(sync): note widget renderer round 2 ship
+    4. memory/inbox/2026/05/20260508-064006-gui-chatui-aligned-...  memory(add): chatui-aligned widget renderer
+    5. bridge/inbox/delegated/20260508-064720-deploy-widget-...     chore(bridge): hand round 2 deploy/smoke to Codex
+    6. scripts/widget_renderer_round2_msg.txt                       chore(scripts): codex prompt for widget renderer round 2
+
+  Codex commits + pushes:
+    repos/gui (1 PR, merge SHA captured in result file)
+    repos/docs (1 PR, merge SHA captured in result file)
+
+  Codex stages but DOES NOT push (Kadyapam pushes):
+    ai-meta gitlink bumps for repos/gui + repos/docs after Codex completes.
