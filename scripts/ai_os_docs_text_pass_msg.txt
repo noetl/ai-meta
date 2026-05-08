@@ -1,0 +1,97 @@
+Codex prompt — AI-OS docs text pass (catalog-ux + tonal polish, post-round-2)
+==============================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260508-222000-ai-os-docs-text-pass.task.json
+
+Result goes to:
+  bridge/outbox/20260508-222000-ai-os-docs-text-pass.result.json
+
+Context:
+  Round 2 closed GREEN end-to-end (noetl v2.37.2, GUI v1.8.0, e2e all-widget
+  fixture in noetl/e2e#18, execution 622467952838706019). Your widgets.md
+  polish in noetl/docs#43 (sha c697377) set the prose bar — chat/message
+  language reframed as prompt/output language. The round-1 catalog-ux page
+  was never merged, and widgets.md keeps "Catalog UX" as plain text because
+  of it. This round is a documentation-only text pass: land the round-1
+  page, restore the cross-link, and polish the rest of the AI-OS doc set
+  to the same bar.
+
+Scope (in):
+  repos/docs/docs/gui/widgets.md          (already polished — reference)
+  repos/docs/docs/gui/catalog-ux.md       NEW — recover from ai-meta history
+                                          or regenerate from sync issue
+  repos/docs/docs/gui/terminal-console.md
+  repos/docs/docs/gui/custom-ui-gateway.md
+  repos/docs/docs/architecture/agent_orchestration.md
+  repos/docs/docs/architecture/mcp_catalog_architecture.md
+  repos/docs/docs/architecture/playbook_as_mcp_server.md
+  repos/docs/docs/architecture/self_troubleshoot_agent.md
+  repos/docs/docs/tutorials/01-quickstart.md
+  repos/docs/docs/tutorials/02-gke-production-deploy.md
+  repos/docs/docs/tutorials/04-frontend-onboarding.md
+  repos/docs/docs/tutorials/05-add-new-mcp-backend.md
+
+Scope (out):
+  development/*, features/*, getting-started/*, cli/* — leave alone
+  repos/gui, repos/noetl, repos/ops, repos/e2e — no code changes
+  references/chatui — read-only submodule per AGENTS.md
+  tutorials/03-self-troubleshooting-playbook.md — already in the right tone
+
+Tonal rules (find → reframe):
+  "chat surface"            → "terminal-style prompt" / "prompt output"
+  "chat message"            → "prompt entry" / "rendered output block"
+  "send a message" (widget) → "render a prompt output block" / "emit render in step result"
+  "reply with a widget"     → "step result contains a render descriptor"
+  "chatui as runtime"       → "mlflowio/chatui (upstream pattern source, registered read-only at references/chatui)"
+  Whenever chatui terminology surfaces, drop a one-liner like the one already
+  in widgets.md: "The upstream descriptions in Confluence use chat/message
+  language because they were written for a chat surface; in NoETL the same
+  descriptors render inside the terminal-style NoetlPrompt."
+
+Don't touch:
+  Generic NoETL terminology (execution, event, command, playbook, step, catalog, kind)
+  Prose that's already accurate
+  Tutorial 03 (already correct)
+
+Phases (8 total — see task JSON for the full spec):
+  1. Land catalog-ux.md (recover or regenerate; sidebar_position 5; cross-link to widgets.md)
+  2. Restore widgets.md → catalog-ux.md link (currently parked as plain text)
+  3. terminal-console.md text pass
+  4. custom-ui-gateway.md text pass (verify GUI-via-gateway-only is consistent)
+  5. 4 architecture pages — light tonal/accuracy pass; neutralize any sync/issues/<...>.md links
+  6. Tutorials 01, 02, 04, 05 — light tonal pass; 02 must use `noetl status --json`, not raw curl
+  7. One docs PR: `docs: AI-OS doc set text pass — land catalog-ux page, polish chat→prompt tonal language across GUI/architecture/tutorials`
+  8. ai-meta gitlink bump for repos/docs (staged only — Kadyapam pushes)
+
+Round 1 catalog-ux source recovery:
+  Try `cd repos/docs && git log --all --oneline -- docs/gui/catalog-ux.md` first.
+  If empty, the round-1 task at
+  `bridge/inbox/delegated/20260507-174607-deploy-catalog-ux-round-1.task.json`
+  has files_claude_wrote describing what it should contain. The design doc at
+  `sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md` (section
+  "Catalog UX as the entry point") is the canonical source — regenerate
+  from there if the file isn't recoverable from any branch.
+
+Don't:
+  - Touch any code repo (noetl, gui, ops, e2e).
+  - Rewrite pages wholesale — edit only where chat-vs-prompt confusion or
+    stale facts require it.
+  - Add new features, examples, or example playbooks — this is a prose pass.
+  - Cut a release.
+  - Push ai-meta — Kadyapam pushes that himself.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand AI-OS docs text pass to Codex
+       (bridge/inbox/delegated/20260508-222000-ai-os-docs-text-pass.task.json)
+    2. chore(scripts): codex prompt for AI-OS docs text pass
+       (scripts/ai_os_docs_text_pass_msg.txt)
+    3. memory(add): handed AI-OS docs text pass to Codex
+       (memory/inbox/2026/05/...)
+
+Codex commits + pushes:
+  repos/docs (1 PR; build must be clean — no broken-link warnings)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/docs after the PR merges.
