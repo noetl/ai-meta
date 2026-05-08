@@ -1,0 +1,69 @@
+{
+  "id": "20260508-222000-ai-os-docs-text-pass",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-08T15:52:16-07:00",
+  "overall_status": "completed",
+  "phases": {
+    "1_land_catalog_ux_page": {
+      "file_recovered_from": "Regenerated from sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md, section 'Catalog UX as the entry point'; no catalog-ux.md history existed in repos/docs and the available ai-meta stash did not contain the submodule file.",
+      "page_size_lines": 108,
+      "sidebar_visible": true
+    },
+    "2_restore_widgets_cross_link": {
+      "link_form_used": "[Catalog UX](catalog-ux.md)"
+    },
+    "3_terminal_console_text_pass": {
+      "edits_summary": "Reframed local API wording, documented report <execution_id> render descriptor behavior, documented button event.key='command' callback behavior, and cross-linked Widgets plus Catalog UX.",
+      "lines_touched": "14 changed lines in docs/gui/terminal-console.md"
+    },
+    "4_custom_ui_gateway_text_pass": {
+      "edits_summary": "Clarified GUI/custom frontend -> Gateway -> noetl-server routing, NATS K/V session cache auth behavior, request-id forwarding, and that browser code uses the gateway rather than direct noetl-server access.",
+      "lines_touched": "9 changed lines in docs/gui/custom-ui-gateway.md"
+    },
+    "5_architecture_pages_text_pass": {
+      "pages_edited": [
+        "docs/architecture/agent_orchestration.md",
+        "docs/architecture/mcp_catalog_architecture.md",
+        "docs/architecture/playbook_as_mcp_server.md",
+        "docs/architecture/self_troubleshoot_agent.md"
+      ],
+      "stale_refs_fixed": [
+        "Updated examples and tables from deprecated ollama_* workload knobs to canonical triage_* names where they described current behavior.",
+        "Added the noetl v2.37.2 render.args projection reality to the agent orchestration discussion.",
+        "Replaced raw-status style examples with canonical noetl status usage where relevant.",
+        "Added Catalog UX and Widgets cross-links to the AI-OS architecture pages where they naturally fit."
+      ],
+      "broken_sync_links_neutralized": []
+    },
+    "6_tutorials_consistency_pass": {
+      "tutorials_edited": [
+        "docs/tutorials/01-quickstart.md",
+        "docs/tutorials/02-gke-production-deploy.md",
+        "docs/tutorials/04-frontend-onboarding.md",
+        "docs/tutorials/05-add-new-mcp-backend.md"
+      ],
+      "edits_summary": "Updated visible version examples to noetl v2.37.2 and GUI v1.8.0 where relevant, added widget/Catalog UX context to frontend-facing tutorials, kept tutorial 02 on noetl status --json rather than raw curl, and left tutorial 03 untouched as instructed."
+    },
+    "7_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/44",
+      "merged_sha": "fce3521fb1d57f0eb8a12ebeb7bbf15e975e7be2",
+      "build_clean": true,
+      "broken_link_warnings": []
+    },
+    "8_bump_ai_meta_pointer": {
+      "docs_sha": "fce3521fb1d57f0eb8a12ebeb7bbf15e975e7be2",
+      "ai_meta_commit_local": "fd8b228"
+    }
+  },
+  "regressions_found": [],
+  "iterations": 1,
+  "verdict": "GREEN",
+  "notes": [
+    "repos/docs npm run build completed cleanly with no broken-link warnings.",
+    "Verification shell returned GOAL: AI_OS_DOCS_TEXT_PASS_LANDED.",
+    "Generated docs include /docs/gui/catalog-ux and docs/gui/widgets.md links to catalog-ux.md.",
+    "ai-meta pointer/log commit is local only; ai-meta was not pushed."
+  ],
+  "deferred_followups": []
+}
