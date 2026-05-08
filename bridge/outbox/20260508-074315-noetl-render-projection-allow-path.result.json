@@ -1,0 +1,133 @@
+{
+  "id": "20260508-074315-noetl-render-projection-allow-path",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-08T18:31:00Z",
+  "overall_status": "success",
+  "phases": {
+    "1_run_pytest": {
+      "pytest_status": "passed",
+      "tests_passed": 9,
+      "tests_failed": 0,
+      "output_excerpt": "tests/worker/test_control_context_projection.py - 9 passed, 1 warning in 3.23s using .venv/bin/python"
+    },
+    "2_open_and_merge_noetl_pr": {
+      "issue_filed": "https://github.com/noetl/noetl/issues/422",
+      "pr_url": "https://github.com/noetl/noetl/pull/423",
+      "merged_sha": "9d4765e676a0a8a99a5f4ebc5dd9e7835fac6057",
+      "noetl_release_tag": "v2.37.2",
+      "release_sha": "c4d939f1140790c3f375776fa7f551b8392748a4"
+    },
+    "3_local_kind_redeploy_noetl": {
+      "kind_context": "kind-noetl",
+      "server_tag_before": "v2.37.1",
+      "server_tag_after": "v2.37.2",
+      "worker_tag_after": "v2.37.2",
+      "gui_tag": "v1.8.0",
+      "rollout_status": "passed",
+      "notes": [
+        "bump_image final verifier initially sampled terminating v2.37.1 worker pods and returned mismatch; explicit rollout checks then confirmed noetl-server 1/1 and noetl-worker 3/3 at v2.37.2 after old pods terminated."
+      ]
+    },
+    "4_replay_widget_smoke": {
+      "primary": {
+        "execution_id": "622415858869994280",
+        "persisted_render_value": {
+          "args": {
+            "children": [
+              {
+                "args": {
+                  "message": "widget renderer is live",
+                  "variant": "success"
+                },
+                "type": "app:alert"
+              },
+              {
+                "args": {
+                  "text": "## Widget smoke\n\n* alert above\n* markdown here\n* `code` works\n\n[noetl docs](https://docs.noetl.dev)"
+                },
+                "type": "app:markdown"
+              },
+              {
+                "args": {
+                  "event": {
+                    "key": "command",
+                    "value": "report 622415858869994280"
+                  },
+                  "text": "reopen execution",
+                  "variant": "primary"
+                },
+                "type": "app:button"
+              }
+            ]
+          },
+          "type": "app:column"
+        },
+        "widget_kinds_rendered": [
+          "app:column",
+          "app:alert",
+          "app:markdown",
+          "app:button"
+        ],
+        "button_click_reran_command": true,
+        "screenshots": [
+          "/tmp/widget_render_primary_v2372.png",
+          "/tmp/widget_render_after_button_v2372.png"
+        ],
+        "console_errors": []
+      },
+      "unsupported": {
+        "execution_id": "622415859574637357",
+        "persisted_render_value": {
+          "args": {
+            "hello": "world",
+            "nested": {
+              "deeper": true
+            }
+          },
+          "type": "app:nonexistent"
+        },
+        "fallback_visible": true,
+        "screenshot": "/tmp/widget_render_unsupported_v2372.png"
+      },
+      "browser_assertions": {
+        "primaryTexts": {
+          "alert": 1,
+          "heading": 1,
+          "markdownBullet": 1,
+          "codeWorks": 1,
+          "docsLink": 1,
+          "button": 1
+        },
+        "reportCountAfterButton": 2,
+        "unsupportedTexts": {
+          "fallback": 1,
+          "hello": 1,
+          "world": 1
+        },
+        "errors": []
+      }
+    },
+    "5_bump_ai_meta_pointers": {
+      "noetl_sha": "c4d939f1140790c3f375776fa7f551b8392748a4",
+      "ai_meta_commit_local": "b0428b2"
+    }
+  },
+  "regressions_found": [],
+  "iterations": 5,
+  "verdict": "GREEN",
+  "notes": [
+    "Round 2 RED is unblocked: render.args now survives NoETL worker projection and reaches the terminal-style GUI prompt.",
+    "Confluence widget-description pages supplied by the user are Atlassian-login protected from this environment, so their bodies/subpages could not be read directly. Future docs copy should reconcile against an authenticated export; NoETL adapts widget semantics to a terminal prompt rather than a chat thread.",
+    "The synthetic primary smoke was corrected from literal ${execution_id} to Jinja-rendered {{ execution_id }} so button command bridging could be validated honestly."
+  ],
+  "deferred_followups": [
+    "Read authenticated/exported Confluence widget pages and reconcile docs wording with terminal-prompt semantics.",
+    "Round 2.x: surface extractAgentRender in mcp/k8s/call command paths, not just report.",
+    "Round 2.x: feed app:form submit values into a follow-up run <playbook> payload.",
+    "Round 2.x: consider lazy-loading heavy widget groups to reduce the +191.16 kB gzip bundle delta.",
+    "Round 3: terminal-window unification with token cursor.",
+    "Round 4: token-graph related-items.",
+    "Round 5+: cross-cluster token addressability."
+  ]
+}
