@@ -1,0 +1,181 @@
+{
+  "id": "20260508-064720-deploy-widget-renderer-round-2-local",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-08T06:47:20Z",
+  "title": "Deploy + locally smoke the chatui-aligned widget renderer (Claude wrote the code; you ship to kind, validate, bump pointers)",
+
+  "description": "Claude wrote the widget renderer for AI-OS round 2 in repos/gui — every chatui app:* widget (32 kinds) plus three NoETL extensions (app:code, app:iframe, app:link). Renderer is a switch dispatcher with class ErrorBoundary, modeled on mlflowio/chatui's MessageContent.tsx. Args field names match chatui verbatim. NoetlPrompt's PromptEntry gains optional render?: WidgetContent; the report command surfaces widgets via the new extractAgentRender helper in services/agentResult.ts. handleWidgetEvent bridges chatui WidgetMessageEvent into prompt commands. Local TypeScript check (tsc --noEmit) passes clean. NO noetl python changes. NO catalog kind changes. Files are in the working tree, NOT committed. Codex job: build/lint, open + merge gui PR + docs PR, redeploy to local kind via ops/automation/development/noetl.yaml, smoke the widget renderer with a synthetic playbook, bump ai-meta pointers. Cap: 2 PRs.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 12,
+
+  "files_claude_wrote": {
+    "repos/gui/src/components/widgets/types.ts": "NEW — discriminated WidgetContent union with chatui field names verbatim",
+    "repos/gui/src/components/widgets/WidgetRenderer.tsx": "NEW — switch dispatcher mirroring chatui MessageContent.tsx; class ErrorBoundary (no react-error-boundary dep)",
+    "repos/gui/src/components/widgets/index.ts": "NEW — public exports (WidgetRenderer + every Args type)",
+    "repos/gui/src/components/widgets/AppMarkdown.tsx": "NEW — tiny dependency-free markdown subset (no react-markdown dep). chatui field: { text }",
+    "repos/gui/src/components/widgets/AppText.tsx": "NEW — { title, message, titleColor? }",
+    "repos/gui/src/components/widgets/AppTitle.tsx": "NEW — { text, size?, color?, boldness?, style? }",
+    "repos/gui/src/components/widgets/AppHorizontalLine.tsx": "NEW — <hr/>",
+    "repos/gui/src/components/widgets/AppPicture.tsx": "NEW — { imageUrl|imageBase64, imageType?, maxWidth?, maxHeight?, altText? }",
+    "repos/gui/src/components/widgets/AppIcon.tsx": "NEW — antd icon by name + optional tooltip",
+    "repos/gui/src/components/widgets/AppProfilePicture.tsx": "NEW — avatar w/ user-glyph fallback",
+    "repos/gui/src/components/widgets/AppStatusBar.tsx": "NEW — themed inline status pill",
+    "repos/gui/src/components/widgets/AppAlert.tsx": "NEW — chatui shape: { message, variant? }; same icon palette",
+    "repos/gui/src/components/widgets/AppTooltip.tsx": "NEW — antd Tooltip wrap with iconName resolution",
+    "repos/gui/src/components/widgets/AppInfoTable.tsx": "NEW — record as label-value rows; booleans render as check/cross",
+    "repos/gui/src/components/widgets/AppInfoGrid.tsx": "NEW — auto-fit grid of nested widgets",
+    "repos/gui/src/components/widgets/AppGroupedTable.tsx": "NEW — labeled groups of label-value blocks",
+    "repos/gui/src/components/widgets/AppTable.tsx": "NEW — chatui shape: { size?, data: string[][] }; auto Column1..N headers, header hidden, bordered",
+    "repos/gui/src/components/widgets/AppRecordTable.tsx": "NEW — antd Table with sort/filter; richer than app:table",
+    "repos/gui/src/components/widgets/AppFileDisplay.tsx": "NEW — file card with download button",
+    "repos/gui/src/components/widgets/AppRow.tsx": "NEW — chatui shape: { children, gap?, align?, justify? } (renamed from items)",
+    "repos/gui/src/components/widgets/AppColumn.tsx": "NEW — chatui shape: { children, gap?, align?, justify? }",
+    "repos/gui/src/components/widgets/AppContainer.tsx": "NEW — padding/margin wrapper",
+    "repos/gui/src/components/widgets/AppCarousel.tsx": "NEW — antd Carousel wrap",
+    "repos/gui/src/components/widgets/AppExpandable.tsx": "NEW — minimal/full toggle",
+    "repos/gui/src/components/widgets/AppInfoBlock.tsx": "NEW — antd Collapse accordion of (title, description) items",
+    "repos/gui/src/components/widgets/AppButton.tsx": "NEW — interactive; emits onPressEvent with event.key + event.value",
+    "repos/gui/src/components/widgets/AppCalendar.tsx": "NEW — antd DatePicker with bounds; emits formatted string",
+    "repos/gui/src/components/widgets/AppDropdown.tsx": "NEW — antd Select; emits onDropdownChange",
+    "repos/gui/src/components/widgets/AppRadio.tsx": "NEW — antd Radio.Group; emits onRadioSelect",
+    "repos/gui/src/components/widgets/AppCheckbox.tsx": "NEW — antd Checkbox.Group; emits onCheckboxChange with string[]",
+    "repos/gui/src/components/widgets/AppInput.tsx": "NEW — antd Input; emits onInputChange",
+    "repos/gui/src/components/widgets/AppForm.tsx": "NEW — linear form with phone/email/url validation; emits onFormSubmit",
+    "repos/gui/src/components/widgets/AppCustomForm.tsx": "NEW — multi-column form with revision/forceResetSignal reset",
+    "repos/gui/src/components/widgets/AppQuiz.tsx": "NEW — multi-question quiz; emits onQuizAnswer + onFinishQuiz",
+    "repos/gui/src/components/widgets/AppDragAndDrop.tsx": "NEW — drop zone; emits DROP_EVENT with JSON.stringify([{name,type}])",
+    "repos/gui/src/components/widgets/AppCode.tsx": "NEW — NoETL extension; <pre><code> block",
+    "repos/gui/src/components/widgets/AppIframe.tsx": "NEW — NoETL extension; sandbox='allow-scripts allow-same-origin', referrerPolicy='no-referrer'",
+    "repos/gui/src/components/widgets/AppLink.tsx": "NEW — NoETL extension; opens in new tab with rel=noopener noreferrer",
+    "repos/gui/src/components/widgets/AppImage.tsx": "DEPRECATED stub — re-exports AppPicture as AppImage for back-compat",
+    "repos/gui/src/components/NoetlPrompt.tsx": "modified — PromptEntry gains render?: WidgetContent; result block dispatches via WidgetRenderer; handleWidgetEvent bridges WidgetMessageEvent into runCommand/navigate; report command surfaces widgets via extractAgentRender",
+    "repos/gui/src/services/agentResult.ts": "modified — adds extractAgentRender(execution) helper; walks execution.result then events[].result/context for the first {render:{type,args}} shape (depth-capped at 4)",
+    "repos/docs/docs/gui/widgets.md": "NEW — full per-kind contract table, security notes for app:iframe, example of triggering prompt commands from app:button"
+  },
+
+  "phases": {
+    "1_typecheck_and_build": {
+      "objective": "Confirm the GUI compiles cleanly with the 35 new widget components.",
+      "spec": [
+        "`cd repos/gui && npm install && npx tsc --noEmit` — Claude already verified this passes locally; capture the actual exit code.",
+        "`cd repos/gui && npm run build` — confirm the production bundle still builds. Watch for: missing imports (AppCalendar uses dayjs which antd ships; AppIcon uses '@ant-design/icons'), TypeScript errors on the discriminated union, unused-warning noise on the widget catch-all type.",
+        "If build fails, capture the exact errors in the result file and STOP — Claude will design the fix in the next round. Don't try to debug TypeScript issues autonomously beyond obvious typos.",
+        "If the bundle size delta exceeds +60 KB gzip, flag it. Round 2 adds ~35 components plus types; ~30 KB gzip is the rough expected ceiling."
+      ],
+      "verify": "tsc --noEmit exits 0; vite build exits 0; bundle size delta captured."
+    },
+
+    "2_open_and_merge_gui_pr": {
+      "objective": "Branch, commit, push, PR, merge the GUI changes.",
+      "spec": [
+        "`cd repos/gui && git checkout -b kadyapam/widgets-chatui-aligned-renderer`.",
+        "Stage the 39 new files in src/components/widgets/ plus the 2 modified files (NoetlPrompt.tsx, services/agentResult.ts).",
+        "Commit using `git commit -F -` heredoc to dodge zsh history expansion. Message body explains: AI-OS round 2, chatui-aligned widget renderer, 32 chatui kinds + 3 NoETL extensions, NoetlPrompt PromptEntry.render, references to mlflowio/chatui pattern, references the design doc in ai-meta sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md.",
+        "PR title: `feat(gui): chatui-aligned widget renderer for NoetlPrompt (AI-OS round 2)`.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`. Auto-merge isn't enabled on noetl/gui per recent precedent — be ready to merge manually after CI passes.",
+        "Watch for any noetl/gui CI checks; fix in-flight if a lint/typecheck fails on the PR."
+      ],
+      "verify": "PR merged in noetl/gui. Capture PR URL + merge SHA + new release tag."
+    },
+
+    "3_open_and_merge_docs_pr": {
+      "objective": "Branch, commit, push, PR, merge the widgets doc.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/widgets-doc`.",
+        "Stage `docs/gui/widgets.md` (new file).",
+        "Verify build: `cd repos/docs && npm install && npm run build`. The new file should be picked up by the GUI category's autogenerated sidebar — no sidebar.ts changes needed since `docs/gui/` is autogenerated.",
+        "If `npm run build` reports broken cross-links, fix them — the doc references `gui/catalog-ux.md`, `architecture/agent_orchestration.md`, and `mlflowio/chatui` (external link, fine).",
+        "Commit. PR title: `docs: widget rendering contract (chatui-aligned, app:* discriminator)`.",
+        "Push, PR, merge."
+      ],
+      "verify": "Docs PR merged. `npm run build` clean. Widgets page appears in the GUI category sidebar."
+    },
+
+    "4_local_kind_redeploy": {
+      "objective": "Deploy the new GUI image to local kind via the configured ops playbook.",
+      "spec": [
+        "Per AGENTS.md: local kind deploys MUST use the configured Podman machine only — no Colima, no Docker fallback. If Podman is unavailable or unhealthy, stop and report the Podman error.",
+        "After noetl/gui's PR merges, semantic-release CI cuts a new image tag (e.g. v1.8.0 — let CI pick, don't predict).",
+        "Wait for the release: `gh -R noetl/gui release view --json tagName -q .tagName` until the new tag is published.",
+        "Redeploy via the canonical ops playbook (per AGENTS.md): `cd repos/ops && noetl run automation/development/noetl.yaml --runtime local --set action=redeploy --set noetl_repo_dir=../noetl` — this rebuilds noetl + gui images and reapplies the helm chart against the kind cluster.",
+        "If the canonical playbook doesn't bump the gui tag specifically, fall back to: `noetl exec noetl/lifecycle/bump_image --runtime local --payload '{\"deployment\":\"gui\",\"namespace\":\"noetl\",\"image\":\"ghcr.io/noetl/gui:<TAG>\"}'`.",
+        "Wait for rollout: `kubectl --context kind-noetl -n noetl rollout status deploy/gui --timeout=180s`.",
+        "Confirm gui pod is running on the new tag and is Ready."
+      ],
+      "verify": "Kind gui deployment is on the new release tag, pod healthy, no CrashLoopBackoff."
+    },
+
+    "5_widget_smoke_via_synthetic_playbook": {
+      "objective": "Validate the widget renderer surfaces a real {render: {type, args}} payload through the report command.",
+      "spec": [
+        "Register a tiny smoke playbook in the kind catalog. Suggested path: `tests/spike/widget_render_smoke`. The playbook has one python step that returns `{ok: True, render: {type: 'app:column', args: {children: [{type: 'app:alert', args: {message: 'widget renderer is live', variant: 'success'}}, {type: 'app:markdown', args: {text: '## Widget smoke\\n\\n* alert above\\n* markdown here\\n* `code` works\\n\\n[noetl docs](https://docs.noetl.dev)'}}, {type: 'app:button', args: {text: 'reopen execution', variant: 'primary', event: {key: 'command', value: 'report ${execution_id}'}}}]}}`.",
+        "Run the playbook end-to-end: get a terminal execution_id, then in the GUI prompt type `report <execution_id>`. The render block should appear under the textual report.",
+        "Verify in the browser: (a) the alert pill renders green with success icon, (b) the markdown section shows ## heading, list items, inline code, and the link, (c) the button is visible and clickable, (d) clicking the button re-invokes `report <execution_id>` (handleWidgetEvent intercepts key=='command').",
+        "Capture screenshots of: (i) the rendered widget under the report output, (ii) the prompt history after clicking the button (should append a fresh report entry).",
+        "If any widget renders as 'unsupported widget' the JSON shape is wrong — capture exactly what the prompt received and dump it in the result file."
+      ],
+      "verify": "All four widget kinds (column, alert, markdown, button) render correctly. Button click re-runs the report command. No console errors. Screenshots captured."
+    },
+
+    "6_lint_only_smoke_for_unhandled_widgets": {
+      "objective": "Confirm graceful degradation: an unknown widget type does NOT crash the prompt.",
+      "spec": [
+        "Modify the smoke playbook (or add a second one) to emit `render: {type: 'app:nonexistent', args: {hello: 'world'}}`.",
+        "Run + report. The renderer should display the 'unsupported widget' fallback surface (small div with 'unsupported widget: app:nonexistent' and a JSON preview of the args).",
+        "Verify the prompt did NOT crash, no React error overlay, no white screen.",
+        "Capture a screenshot of the unsupported-widget surface."
+      ],
+      "verify": "Unsupported widget falls back gracefully with JSON preview. No console errors beyond the WidgetRenderer's own console.warn (which is expected and intentional)."
+    },
+
+    "7_bump_ai_meta_pointers": {
+      "objective": "Bump repos/gui and repos/docs submodule pointers in ai-meta.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/gui repos/docs`.",
+        "`git add repos/gui repos/docs`.",
+        "Commit: `chore(sync): bump gui + docs for chatui-aligned widget renderer`.",
+        "Don't push ai-meta — user pushes that themselves."
+      ],
+      "verify": "ai-meta has 1 commit ahead of origin with the two submodule pointer bumps."
+    }
+  },
+
+  "expected_state": {
+    "description": "GUI PR merged, docs PR merged, new gui image deployed to local kind, widget render smoke validated end-to-end with a synthetic playbook, unsupported-widget fallback verified, ai-meta submodule pointers bumped (staged).",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; CTX=$(kubectl config current-context 2>/dev/null || echo none); echo \"context: $CTX\"; GUI_TAG=$(kubectl --context $CTX -n noetl get deploy/gui -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://' || echo none); echo \"gui tag: $GUI_TAG\"; LATEST_GUI_TAG=$(cd repos/gui && git describe --tags --abbrev=0 2>/dev/null || echo none); echo \"latest gui tag: $LATEST_GUI_TAG\"; WIDGET_DIR=0; if [ -d repos/gui/src/components/widgets ] && [ -f repos/gui/src/components/widgets/WidgetRenderer.tsx ]; then WIDGET_DIR=1; fi; echo \"widgets dir present: $WIDGET_DIR\"; WIDGET_DOC=0; if [ -f repos/docs/docs/gui/widgets.md ]; then WIDGET_DOC=1; fi; echo \"widgets.md in docs: $WIDGET_DOC\"; if [ \"$GUI_TAG\" = \"$LATEST_GUI_TAG\" ] && [ \"$WIDGET_DIR\" -eq 1 ] && [ \"$WIDGET_DOC\" -eq 1 ]; then echo 'GOAL: WIDGET_RENDERER_DEPLOYED'; else echo \"GOAL: NOT_YET gui_tag=$GUI_TAG/$LATEST_GUI_TAG widgets=$WIDGET_DIR doc=$WIDGET_DOC\"; fi",
+    "success_pattern": "GOAL: WIDGET_RENDERER_DEPLOYED"
+  },
+
+  "denied_tools": [
+    "kubectl delete namespace",
+    "kubectl delete clusterrole",
+    "rm -rf",
+    "helm uninstall",
+    "git push --force on main",
+    "git push from ai-meta",
+    "Modifying noetl repo or any noetl Python (no noetl-side changes in round 2 — widgets are GUI-side only)",
+    "Adding Widget kind to noetl Python (architectural directive — widgets are GUI/data only)",
+    "Modifying anything in references/chatui (read-only submodule per AGENTS.md)",
+    "Cutting a noetl release (irrelevant; no noetl changes)",
+    "Adjusting Claude's TypeScript widget code beyond obvious typo fixes — Claude designed the implementation to mirror chatui contracts; if there's a real issue, capture in result file and stop",
+    "Switching kind from Podman to Colima or Docker (per AGENTS.md, Podman machine only for local kind)"
+  ],
+
+  "preferred_tools": [
+    "cd repos/gui && npm install && npx tsc --noEmit",
+    "cd repos/gui && npm run build",
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push (topic branches in repos/gui and repos/docs only)",
+    "gh pr create / gh pr merge --squash --delete-branch / gh release view",
+    "noetl run automation/development/noetl.yaml --runtime local --set action=redeploy",
+    "noetl exec noetl/lifecycle/bump_image --runtime local (gui-only redeploy fallback)",
+    "kubectl get/describe/rollout/logs (read + status only)",
+    "Browser screenshot via DevTools or operator tooling for the smoke test"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260508-064720-deploy-widget-renderer-round-2-local.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_typecheck_and_build: {tsc_status, build_status, ts_errors, bundle_size_delta?}, 2_open_and_merge_gui_pr: {pr_url, merged_sha, gui_release_tag}, 3_open_and_merge_docs_pr: {pr_url, merged_sha, docs_build_clean: bool}, 4_local_kind_redeploy: {kind_context, gui_tag_before, gui_tag_after, rollout_status}, 5_widget_smoke_via_synthetic_playbook: {synthetic_playbook_path, execution_id, widget_kinds_rendered: ['app:column', 'app:alert', 'app:markdown', 'app:button'], button_click_reran_command: bool, screenshots: [...], any_console_errors: [...]}, 6_lint_only_smoke_for_unhandled_widgets: {unsupported_fallback_visible: bool, no_react_overlay: bool, screenshot}, 7_bump_ai_meta_pointers: {gui_sha, docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Round 2.x: surface extractAgentRender in mcp/k8s/call command paths, not just report', 'Round 2.x: feed app:form submit values into a follow-up run <playbook> payload', 'Round 3: terminal-window unification with token cursor', 'Round 4: token-graph related-items', 'Round 5+: cross-cluster token addressability']}. If verdict GREEN, append a one-paragraph entry to bridge/outbox/codex-spike-green-validation.md noting the widget renderer milestone."
+}
