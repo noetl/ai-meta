@@ -1,0 +1,88 @@
+Codex prompt — AI-OS round 2 unblock: noetl render projection allow-path (RED → GREEN)
+========================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260508-074315-noetl-render-projection-allow-path.task.json
+
+Result goes to:
+  bridge/outbox/20260508-074315-noetl-render-projection-allow-path.result.json
+
+Round 2 result file (already written by you):
+  bridge/outbox/20260508-064720-deploy-widget-renderer-round-2-local.result.json
+  Verdict: RED. Diagnosed cause: noetl worker projection strips render.args.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/noetl/noetl/worker/nats_worker.py
+    Added a render carve-out right after the existing error.diagnosis carve-out
+    in `_extract_control_context` (around line 670). When key_str=='render' and
+    `child.get('args')` is dict-or-list, `_preserve_recursive_control_value(child['args'])`
+    rescues the nested widget tree under the same bounded depth (max_depth=8)
+    as the diagnosis path. Render.type still survives via the existing scalar
+    collector — the new branch only restores args.
+
+  repos/noetl/tests/worker/test_control_context_projection.py
+    Added 5 new tests mirroring the 4 existing error.diagnosis tests:
+      - test_render_args_nested_dict_survives_projection (the round-2 smoke shape)
+      - test_render_args_unknown_type_still_survives_projection (the unsupported smoke shape)
+      - test_render_args_recursive_projection_has_depth_guard (10 levels of nesting)
+      - test_render_with_only_type_no_args_still_projects (defensive: type-only widget)
+      - test_render_args_top_level_list_survives_projection (defensive: list args)
+
+Already verified inline (without the noetl runtime dep chain): all 5 assertions pass.
+Pattern reference: noetl#417 v2.37.1 (sha 4a4f9f6) — error.diagnosis carve-out.
+
+Codex job (5 phases, see task JSON for the full spec):
+
+  1. pytest:               cd repos/noetl && python -m pytest tests/worker/test_control_context_projection.py -v
+                           (expect 9/9 pass: 4 existing diagnosis + 5 new render)
+  2. noetl PR:             branch kadyapam/render-projection-allow-path
+                           PR title: "fix(worker): preserve nested render.args through event projection"
+                           File a noetl issue if there isn't one ("worker projection strips render.args, breaking AI-OS widget renderer round 2")
+                           --squash --delete-branch on merge
+  3. local kind redeploy:  cd repos/ops && noetl run automation/development/noetl.yaml \
+                             --runtime local --set action=redeploy --set noetl_repo_dir=../noetl
+                           (Podman machine only — per AGENTS.md)
+                           kubectl --context kind-noetl -n noetl rollout status deploy/noetl-server --timeout=180s
+                           (and same for deploy/noetl-worker)
+  4. replay smoke:         re-run the round-2 synthetic playbook (same payload as round-2 task §5)
+                           verify via `noetl status <execution_id> --json` that
+                           events[].result.context.render.args.children has the 3 child widgets
+                           in the GUI prompt: `report <execution_id>` — confirm 4 widget kinds render
+                           click the button — confirm key=='command' re-runs report
+                           replay unsupported smoke: render={type:'app:nonexistent', args:{hello:'world'}}
+                           confirm the GUI shows the unsupported-widget fallback w/ JSON preview
+                           screenshot all of it
+  5. ai-meta pointer bump: cd ai-meta && git submodule update --remote repos/noetl
+                           git add repos/noetl
+                           git commit: "chore(sync): bump noetl for render projection allow-path (round 2 unblock)"
+                           DO NOT push ai-meta — Kadyapam pushes that himself.
+
+Architectural rules:
+  - NO repos/gui changes (GUI v1.8.0 is already shipped and good).
+  - NO repos/docs changes (already shipped).
+  - NO Widget catalog kind in noetl python (architectural directive — projection allow-path only).
+  - NO broadening the projection beyond render — keep the carve-out explicit.
+  - NO modifying references/chatui (read-only submodule).
+  - NO Colima or Docker fallback for kind. Podman machine only.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch noetl render projection allow-path
+       (repos/noetl: 2 files modified — see Claude diff)
+       NOTE: Kadyapam may also want to keep the prior aeff434 (gui+docs pointer bump from round 2)
+       as-is in local history; this fix lands on a separate branch in repos/noetl.
+    2. chore(bridge): hand round 2 unblock to Codex
+       (bridge/inbox/delegated/20260508-074315-noetl-render-projection-allow-path.task.json)
+    3. chore(scripts): codex prompt for render projection allow-path
+       (scripts/render_projection_allow_path_msg.txt)
+    4. memory(add): noetl render projection allow-path round-2 unblock
+       (memory/inbox/2026/05/...)
+    5. docs(sync): note round 2 RED + render projection unblock plan
+       (sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md)
+
+Codex commits + pushes:
+  repos/noetl (1 PR; semantic-release will cut a v2.37.2 patch).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/noetl after the PR merges.
