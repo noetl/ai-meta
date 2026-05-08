@@ -52,6 +52,25 @@ This repository lives under `/Volumes`; the Podman machine must mount `/Volumes:
 
 This keeps build/deploy behavior consistent with project automation defaults.
 
+## Read-only reference submodules
+
+Reference repositories live under `references/<name>` (NOT `repos/<name>`,
+which signals active development). They are tracked via `.gitmodules` but
+configured `submodule.<name>.update = none` and `submodule.<name>.ignore =
+all` so they are not bumped during normal cross-repo updates.
+
+Currently tracked references:
+
+- `references/chatui` — `mlflowio/chatui`. Read-only reference for
+  rich-message rendering patterns in a chat UI. We adapt the pattern
+  for NoETL's terminal-style prompt component
+  (`repos/gui/src/components/NoetlPrompt.tsx`); we do **not** modify
+  this submodule, do not propose upstream changes, do not include it
+  in deploys. Treat as documentation.
+
+If a reference needs to evolve into an actively-modified dependency, fork
+it under `noetl/` first and re-add at the new path under `repos/`.
+
 ## Suggested commit message format
 
 - `chore(sync): bump <repo1>, <repo2> to merged SHAs`
