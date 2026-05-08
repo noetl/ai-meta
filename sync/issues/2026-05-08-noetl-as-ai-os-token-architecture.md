@@ -366,6 +366,42 @@ GUI evolution.
 - gui: add CSS for the `noetl-widget*` class hooks (currently
   inline-styled where it matters; the class hooks are reserved for
   future themed overrides).
+- gui: lazy-load heavier widget groups (antd Carousel, DatePicker,
+  Form set) — the round-2 deploy report flagged the bundle delta
+  at +191 KB gzip vs the 60 KB threshold.
+
+### Round 2 deployment notes (2026-05-08, RED → unblock-in-flight)
+
+Codex shipped the round-2 deploy task and reported RED:
+`bridge/outbox/20260508-064720-deploy-widget-renderer-round-2-local.result.json`.
+The GUI build, PR, release (v1.8.0), and local kind rollout all
+succeeded. The blocker was at the noetl projection layer — both
+synthetic smokes (`622377612446270148` widget tree, `622377613679395529`
+unsupported widget) persisted only `render.type` and dropped
+`render.args` before the GUI could read them.
+
+Codex correctly diagnosed the path:
+`repos/noetl/noetl/worker/nats_worker.py:_extract_control_context`.
+The function has an explicit allow-path for `error.diagnosis`
+(noetl#417, v2.37.1, sha 4a4f9f6) that recursively preserves nested
+content via `_preserve_recursive_control_value` (max_depth=8); no
+parallel allow-path existed for `render`.
+
+Claude shipped the symmetric carve-out: when `key_str == "render"`
+and `child.get("args")` is a dict-or-list, the same recursive
+preserver is invoked. Five new tests in
+`tests/worker/test_control_context_projection.py` mirror the
+existing four `error.diagnosis` tests. The fix logic was
+inline-verified in the sandbox (without the full noetl dep chain)
+and all assertions pass.
+
+The unblock is handed to Codex as
+`bridge/inbox/delegated/20260508-074315-noetl-render-projection-allow-path.task.json`
+— pytest → noetl PR → semantic-release → local kind redeploy of
+noetl-server + noetl-worker → replay BOTH smokes to GREEN with full
+nested widget tree visible in the browser → ai-meta pointer bump.
+The pending aeff434 ai-meta commit (gui + docs gitlink bumps from
+round 2) stays as-is; the noetl bump lands on top.
 
 ### Round 3 — Terminal-window unification (token cursor)
 
