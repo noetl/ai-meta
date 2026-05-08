@@ -1,0 +1,124 @@
+{
+  "id": "20260508-074315-noetl-render-projection-allow-path",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-08T07:43:15Z",
+  "title": "Unblock widget renderer round 2: ship the noetl render-projection allow-path, redeploy noetl to local kind, replay both smoke executions to GREEN",
+
+  "description": "Round 2 result file (bridge/outbox/20260508-064720-deploy-widget-renderer-round-2-local.result.json) flagged the projection regression Codex correctly diagnosed: noetl worker drops render.args during result-context projection, leaving the GUI with only render.type. Claude has now patched repos/noetl/noetl/worker/nats_worker.py with a symmetric carve-out for render — same pattern as the existing error.diagnosis allow-path (noetl#417, v2.37.1). Carve-out test added at repos/noetl/tests/worker/test_control_context_projection.py (5 new tests). The fix logic was inline-verified in the sandbox without the noetl runtime dep chain — all 5 assertions pass. Codex job: confirm the fix runs through pytest, ship the noetl PR + release, redeploy noetl to local kind, replay BOTH synthetic smokes to GREEN with full widget render visible in the browser, bump ai-meta pointer. Cap: 1 noetl PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 10,
+
+  "files_claude_wrote": {
+    "repos/noetl/noetl/worker/nats_worker.py": "modified — added render allow-path right after the error.diagnosis carve-out in _extract_control_context. When key_str=='render' and child.get('args') is dict-or-list, _preserve_recursive_control_value(child['args']) is invoked with the same default max_depth=8 guard. Render.type still survives via the existing scalar collector — the new branch only rescues args.",
+    "repos/noetl/tests/worker/test_control_context_projection.py": "modified — added 5 tests mirroring the error.diagnosis test suite: nested widget tree (app:column.args.children with app:alert/app:markdown/app:button), unknown widget type (app:nonexistent.args.hello), depth guard with 10 levels of nesting, type-only widget (app:horizontalline) with no args, top-level list args (defensive case for future widget kinds)."
+  },
+
+  "context_from_round_2_result": {
+    "blocking_executions": ["622377612446270148", "622377613679395529", "622378051329852139"],
+    "code_path_diagnosed_by_codex": "repos/noetl/noetl/worker/nats_worker.py:_extract_control_context",
+    "persisted_value_observed": "{\"type\":\"app:column\"}",
+    "expected_value": "{\"type\":\"app:column\",\"args\":{\"children\":[{\"type\":\"app:alert\",\"args\":{...}}, ...]}}",
+    "fix_pattern_reference": "noetl#417 carve-out for error.diagnosis (v2.37.1, sha 4a4f9f6). The render fix mirrors that exactly — same _preserve_recursive_control_value helper, same max_depth=8."
+  },
+
+  "phases": {
+    "1_run_pytest": {
+      "objective": "Confirm the carve-out passes pytest cleanly, including the 4 existing error.diagnosis tests (regression check) and the 5 new render tests.",
+      "spec": [
+        "`cd repos/noetl && python -m pytest tests/worker/test_control_context_projection.py -v`.",
+        "Expect 9 tests pass: 4 existing error.diagnosis + 5 new render carve-out tests.",
+        "If any fail, capture full output and STOP — Claude designed the patch; if pytest fails it's a real shape issue, not a typo."
+      ],
+      "verify": "9/9 tests pass."
+    },
+
+    "2_open_and_merge_noetl_pr": {
+      "objective": "Branch, commit, push, PR, merge the noetl change.",
+      "spec": [
+        "`cd repos/noetl && git checkout -b kadyapam/render-projection-allow-path`.",
+        "Stage noetl/worker/nats_worker.py + tests/worker/test_control_context_projection.py.",
+        "Commit using `git commit -F -` heredoc to dodge zsh history expansion. Conventional-commits format: `fix(worker): preserve nested render.args through event projection`. Body explains: AI-OS round 2 widget renderer requires render payloads to survive projection; mirrors the noetl#417 error.diagnosis carve-out; bounded recursion via existing _preserve_recursive_control_value (max_depth=8); references the round 2 result file with the blocking executions.",
+        "PR title: `fix(worker): preserve nested render.args through event projection`.",
+        "Include in PR body: closes noetl#XXX (file the issue first if there isn't one — title 'worker projection strips render.args, breaking AI-OS widget renderer round 2'), references the prior error.diagnosis carve-out commit 4a4f9f6.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged in noetl/noetl. Capture PR URL + merge SHA + new release tag (semantic-release will cut a v2.37.2 patch since this is fix(worker))."
+    },
+
+    "3_local_kind_redeploy_noetl": {
+      "objective": "Redeploy noetl (server + worker images) to local kind so the projection fix is live.",
+      "spec": [
+        "Per AGENTS.md: local kind deploys MUST use the configured Podman machine only — no Colima, no Docker fallback.",
+        "Wait for the noetl release tag: `gh -R noetl/noetl release view --json tagName -q .tagName` until v2.37.2 (or whatever semantic-release picks) is published.",
+        "Redeploy via canonical playbook: `cd repos/ops && noetl run automation/development/noetl.yaml --runtime local --set action=redeploy --set noetl_repo_dir=../noetl`.",
+        "If the canonical playbook builds local images rather than pulling, that's fine — the patched code is in the working tree and will get baked.",
+        "Wait for rollouts: `kubectl --context kind-noetl -n noetl rollout status deploy/noetl-server --timeout=180s` and same for `deploy/noetl-worker`.",
+        "Confirm noetl-server + noetl-worker pods are on the new tag and Ready 1/1."
+      ],
+      "verify": "Both noetl-server and noetl-worker rollouts complete; pods on the new image tag."
+    },
+
+    "4_replay_widget_smoke": {
+      "objective": "Re-run BOTH synthetic playbooks from round 2 and validate render.args is now preserved end-to-end.",
+      "spec": [
+        "Re-register and re-run the round-2 synthetic playbook at /tmp/widget_render_smoke.yaml (or recreate it if /tmp was cleared). Payload shape (from round 2 task):",
+        "  result = { ok: True, render: { type: 'app:column', args: { children: [ {type:'app:alert', args:{message:'widget renderer is live', variant:'success'}}, {type:'app:markdown', args:{text:'## Widget smoke\\n\\n* alert above\\n* markdown here\\n* `code` works\\n\\n[noetl docs](https://docs.noetl.dev)'}}, {type:'app:button', args:{text:'reopen execution', variant:'primary', event:{key:'command', value:'report ${execution_id}'}}} ] } } }",
+        "Capture the new execution_id. Verify via `noetl status <execution_id> --json` that the persisted event payload now includes the full nested tree under render.args (events[].result.context.render.args.children must contain 3 elements with their own type+args).",
+        "In the GUI prompt at the deployed kind URL, type `report <execution_id>`. Confirm the column widget renders, with the alert pill, the markdown card (heading, list, code, link), and the primary button — all visible inline below the textual report.",
+        "Click the button. Confirm handleWidgetEvent intercepts key=='command' and re-runs `report <execution_id>` (a fresh report entry should append).",
+        "Capture screenshots: (i) the rendered nested widget tree under report output, (ii) the prompt history after clicking the button.",
+        "Re-run the unsupported-widget smoke: render = { type: 'app:nonexistent', args: { hello: 'world', nested: { deeper: true } } }. Confirm the GUI shows the 'unsupported widget: app:nonexistent' fallback surface with the JSON preview containing hello + nested.deeper. Capture a screenshot.",
+        "If render.args is STILL stripped despite the noetl redeploy, capture the full execution doc (events[].result.context.render) in the result file and STOP — this means the redeploy didn't pick up the new image."
+      ],
+      "verify": "render.args present in events[].result.context.render. All 4 widget kinds render in the browser. Button click re-runs report. Unsupported-widget fallback shows with JSON preview. Screenshots captured."
+    },
+
+    "5_bump_ai_meta_pointers": {
+      "objective": "Bump repos/noetl gitlink in ai-meta.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/noetl`.",
+        "`git add repos/noetl`.",
+        "Commit: `chore(sync): bump noetl for render projection allow-path (round 2 unblock)`.",
+        "Don't push ai-meta — Kadyapam pushes that himself. Note: the pending aeff434 commit (gui+docs bump from round 2) should still be in the local ai-meta history; this new commit lands on top."
+      ],
+      "verify": "ai-meta has a fresh local commit on top of aeff434 with the noetl pointer bump."
+    }
+  },
+
+  "expected_state": {
+    "description": "noetl PR merged, semantic-release cut v2.37.2 (or similar patch), local kind running on the new noetl image, both smoke executions replayed to GREEN with full nested widget tree visible in the browser, ai-meta pointer bumped (staged).",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; CTX=$(kubectl config current-context 2>/dev/null || echo none); echo \"context: $CTX\"; SRV_TAG=$(kubectl --context $CTX -n noetl get deploy/noetl-server -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://' || echo none); echo \"noetl-server tag: $SRV_TAG\"; LATEST_NOETL_TAG=$(cd repos/noetl && git describe --tags --abbrev=0 2>/dev/null || echo none); echo \"latest noetl tag: $LATEST_NOETL_TAG\"; PATCH_PRESENT=$(grep -c 'render and isinstance(child.get(\"args\")' repos/noetl/noetl/worker/nats_worker.py 2>/dev/null || echo 0); echo \"render carve-out present in source: $PATCH_PRESENT\"; if [ \"$SRV_TAG\" = \"$LATEST_NOETL_TAG\" ] && [ \"$PATCH_PRESENT\" -ge 1 ]; then echo 'GOAL: RENDER_PROJECTION_ALLOW_PATH_DEPLOYED'; else echo \"GOAL: NOT_YET srv_tag=$SRV_TAG/$LATEST_NOETL_TAG patch=$PATCH_PRESENT\"; fi",
+    "success_pattern": "GOAL: RENDER_PROJECTION_ALLOW_PATH_DEPLOYED"
+  },
+
+  "denied_tools": [
+    "kubectl delete namespace",
+    "kubectl delete clusterrole",
+    "rm -rf",
+    "helm uninstall",
+    "git push --force on main",
+    "git push from ai-meta",
+    "Modifying repos/gui (round 2 GUI is already shipped at v1.8.0; only noetl needs the fix)",
+    "Modifying repos/docs (already shipped)",
+    "Adding a Widget catalog kind to noetl (architectural directive — widgets are GUI/data only; this fix is ONLY a projection allow-path)",
+    "Broadening the projection beyond render — keep the carve-out explicit, no general 'preserve all dicts' relaxation",
+    "Modifying anything in references/chatui (read-only submodule)",
+    "Switching kind from Podman to Colima or Docker (per AGENTS.md, Podman machine only)"
+  ],
+
+  "preferred_tools": [
+    "cd repos/noetl && python -m pytest tests/worker/test_control_context_projection.py -v",
+    "git apply / git commit -F - / git push (topic branch in repos/noetl only)",
+    "gh pr create / gh pr merge --squash --delete-branch / gh release view",
+    "noetl run automation/development/noetl.yaml --runtime local --set action=redeploy",
+    "noetl status <execution_id> --json (canonical execution-state CLI per AGENTS.md, NOT raw curl)",
+    "kubectl get/describe/rollout/logs (read + status only)",
+    "Browser screenshot via DevTools or operator tooling for the smoke validation"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260508-074315-noetl-render-projection-allow-path.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_run_pytest: {pytest_status, tests_passed, tests_failed, output_excerpt?}, 2_open_and_merge_noetl_pr: {pr_url, merged_sha, noetl_release_tag, issue_filed?}, 3_local_kind_redeploy_noetl: {kind_context, server_tag_before, server_tag_after, worker_tag_after, rollout_status}, 4_replay_widget_smoke: {primary: {execution_id, persisted_render_value, widget_kinds_rendered, button_click_reran_command, screenshots, console_errors}, unsupported: {execution_id, persisted_render_value, fallback_visible, screenshot}}, 5_bump_ai_meta_pointers: {noetl_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups}. If verdict GREEN, append a one-paragraph entry to bridge/outbox/codex-spike-green-validation.md noting the AI-OS round 2 GREEN milestone (this is the unblock that flips the round 2 deploy from RED → GREEN)."
+}
