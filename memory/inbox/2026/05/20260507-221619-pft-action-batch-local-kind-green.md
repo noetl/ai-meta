@@ -179,3 +179,62 @@ Fresh local PFT run after merged helper:
   with per-facility `1000/1000`.
 
 ai-meta should carry the ops pointer to `abe52cf` after this merge.
+
+## Regression addendum
+
+After the merged-helper local run, an additional regression pass was
+run from ai-meta/noetl.
+
+AI-meta smoke scripts:
+
+- `agent_envelope_carveout_smoke.py`: `8/8` passed.
+- `gap41_diagnosis_wait_smoke.py`: `7/7` passed.
+- `auto_troubleshoot_smoke.py`: `9/9` passed.
+- `optional_ai_smoke.py`: `6/6` passed.
+- `live_vs_persisted_parity_smoke.py` static mode: `3/3` passed.
+- `worker_workload_forwarding_smoke.py`: `8/8` passed.
+- `playbook_as_mcp_smoke.py`: `8/8` passed.
+- `ollama_bridge_smoke.py`: `9/9` passed.
+
+The untracked local `scripts/exposes_as_mcp_smoke.py` failed in its
+synthetic Pydantic harness with `PlaybookMetadata is not fully
+defined`; direct product import and validation of
+`noetl.core.dsl.engine.models.executor.PlaybookMetadata` succeeded.
+Treat this as smoke-harness drift, not a PFT or product regression.
+
+Targeted noetl pytest regression subset:
+
+```
+.venv/bin/pytest \
+  tests/worker/test_control_context_projection.py \
+  tests/tools/test_agent_executor.py \
+  tests/worker/test_worker_batch_emit.py \
+  tests/worker/test_worker_claim.py \
+  tests/worker/test_task_sequence_executor.py \
+  tests/test_worker_pool_scaling.py
+```
+
+Result: `39 passed, 2 failed`.
+
+Failures:
+
+- `tests/worker/test_worker_batch_emit.py::test_emit_batch_events_externalizes_large_response_payload`
+  still expects an externalized top-level `response` field to be absent
+  after the worker builds the strict `result` reference envelope. The
+  current worker keeps a lightweight `response._ref` pointer while also
+  emitting `result.reference`. This is unrelated to PFT throughput but
+  should be reconciled so the transport-envelope contract is explicit.
+- `tests/test_worker_pool_scaling.py::test_pool_scales_workers` imports
+  stale in-process pool APIs (`QueueWorker`,
+  `ScalableQueueWorkerPool`) that no longer exist on `noetl.worker`.
+  Worker scale-up/down is now managed through Kubernetes/deployment
+  controls and e2e/ops playbooks, so this tracked test needs retirement
+  or replacement with a current autoscaling contract test.
+
+Cluster-mode `live_vs_persisted_parity_smoke.py` was also tried
+against the PFT execution `622020352981336195` and failed with
+missing `rows`/`columns` paths. That smoke is designed for nested
+control contracts such as agent diagnosis metadata; PFT terminal events
+intentionally strip data-plane `rows`/`columns` from persisted result
+context. Use spike/agent executions for cluster parity smoke, not the
+PFT data-plane-heavy execution.
