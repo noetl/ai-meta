@@ -37,3 +37,8 @@
 [submodule "repos/e2e"]
 	path = repos/e2e
 	url = git@github.com:noetl/e2e.git
+[submodule "references/chatui"]
+	path = references/chatui
+	url = https://github.com/mlflowio/chatui.git
+	update = none
+	ignore = all
