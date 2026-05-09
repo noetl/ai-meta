@@ -1,0 +1,99 @@
+Codex prompt — Travel agent flagship AMBER → GREEN (1 ops PR + complete deferred smokes)
+==========================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-051749-travel-agent-amber-to-green.task.json
+
+Result goes to:
+  bridge/outbox/20260509-051749-travel-agent-amber-to-green.result.json
+
+Prior round result (AMBER):
+  bridge/outbox/20260509-044651-travel-agent-widget-flagship.result.json
+
+Context:
+  3 PRs landed (ops#48, gui#29 v1.10.0, docs#46), playbooks registered. OpenAI
+  classify + render_help widget worked. Audit step `log_classification` failed:
+  the `{{ parse_classification | tojson | replace("'", "''") }}` Jinja
+  expression rendered LITERALLY in the SQL — `command_0: syntax error at or
+  near "\\", \\""; LINE 7: '{{ parse_classification | tojson | replace(\"'\",
+  \"''\") }}'`. Postgres saw the un-rendered Jinja, not the JSON output.
+  The escaped double-quotes around the inner string args got mangled in the
+  YAML/Jinja chain.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/ops/automation/agents/travel/runtime.yaml — two surgical changes:
+    1. parse_classification python step's result dict gains a `json_str`
+       field via `json.dumps(result, separators=(",", ":"))`. (json is
+       already imported in that step.)
+    2. log_classification SQL changes from
+         '{{ parse_classification | tojson | replace("'", "''") }}'::jsonb
+       to
+         '{{ parse_classification.json_str | default("{}") | replace("'", "''") }}'::jsonb
+       — same proven pattern that the existing
+       repos/e2e/fixtures/playbooks/api_integration/amadeus_ai_api/amadeus_ai_api.yaml
+       line 553 uses (single string field reference, not inline tojson).
+
+Already verified: the bad pattern is gone; the new pattern matches a
+working precedent. No other steps in the playbook do this (persist_and_callback
+already uses '{}'::jsonb).
+
+Codex job (8 phases — see task JSON):
+
+  1. validate playbook:    noetl validate repos/ops/automation/agents/travel/runtime.yaml
+  2. ops PR:               branch kadyapam/travel-agent-log-classification-sql-fix
+                           PR title: "fix(travel-agent): pre-serialise classification JSON for audit SQL to avoid Jinja replace quoting issue"
+                           --squash --delete-branch on merge
+  3. re-register travel:   noetl register repos/ops/automation/agents/travel/runtime.yaml
+                           Capture the new catalog_id + version.
+  4. replay phase 7:       In the prompt:
+                             travel help            → expected: completed + render_help widget
+                             travel flights from SFO to JFK on 2026-07-15 for 2 adults
+                                                    → expected: completed + flight carousel
+                             travel locations near Boston
+                                                    → expected: completed + location recordtable
+                           For each: noetl status <id> --json | jq '.status' should be "completed".
+                           events table has 2 rows per execution (classify_intent + render_completed)
+                           with non-null payload jsonb. Click rerun in any widget to verify
+                           button_callbacks_work flips to true.
+                           Screenshots.
+  5. phase 8 canvas:       /travel page; same query; widget renders below chat bubble; button
+                           rerun resubmits. Screenshot.
+  6. phase 9 amadeus MCP:  cd /mcp/amadeus; tools (5 tools); call get_token; call search_locations
+                           keyword=Boston; call search_flights origin=SFO destination=JFK
+                           departureDate=2026-07-15. Screenshots.
+  7. phase 10 provider:    --provider openai (default; explicit run); then anthropic /
+                           vertex-ai / ollama where credentials exist. Capture which work +
+                           failure modes for the rest.
+  8. ai-meta pointer bump: cd ai-meta && git submodule update --remote repos/ops
+                           git add repos/ops
+                           git commit: "chore(sync): bump ops for travel-agent log_classification SQL fix (AMBER → GREEN)"
+                           DO NOT push ai-meta. Lands on top of existing 13 unpushed commits.
+
+Architectural rules:
+  - Only repos/ops changes. No gui/noetl/docs/e2e edits.
+  - No references/chatui mods.
+  - No helm chart edits.
+  - Podman-only for kind.
+  - No noetl release.
+  - No tweaking Claude's playbook beyond obvious typos.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch travel agent log_classification SQL quoting
+       (repos/ops: automation/agents/travel/runtime.yaml — two-spot edit)
+    2. chore(bridge): hand travel-agent AMBER → GREEN round to Codex
+       (bridge/inbox/delegated/20260509-051749-travel-agent-amber-to-green.task.json)
+    3. chore(scripts): codex prompt for travel-agent AMBER → GREEN
+       (scripts/travel_agent_amber_to_green_msg.txt)
+    4. memory(add): travel-agent log_classification SQL fix designed
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 13 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR — surgical 2-spot edit).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops after the PR merges.

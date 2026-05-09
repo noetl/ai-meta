@@ -1,0 +1,148 @@
+{
+  "id": "20260509-051749-travel-agent-amber-to-green",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T05:17:49Z",
+  "title": "Travel agent flagship AMBER → GREEN — fix log_classification SQL quoting, complete the deferred smokes",
+
+  "description": "Round shipped AMBER per bridge/outbox/20260509-044651-travel-agent-widget-flagship.result.json. The 3 PRs landed (ops#48, gui#29 v1.10.0, docs#46), playbooks registered, and OpenAI classification + render_help widget worked — but the audit step `log_classification` failed because `{{ parse_classification | tojson | replace(\"'\", \"''\") }}` rendered as the literal Jinja expression in the SQL (the inner `\"'\"` got escaped wrong somewhere in the YAML/Jinja chain), making Postgres see a malformed literal. Phase 7's blocker also paused phases 8 (canvas), 9 (MCP), and 10 (provider switch). Claude has shipped the fix in repos/ops working tree, NOT committed: `parse_classification` python step now pre-serialises to `result.json_str = json.dumps(result, ...)`, and `log_classification` SQL changes from the inline `tojson | replace` to `'{{ parse_classification.json_str | default(\"{}\") | replace(\"'\", \"''\") }}'::jsonb` — the same proven pattern that the existing `repos/e2e/.../amadeus_ai_api.yaml` line 553 uses. Codex job: re-register the travel runtime, replay phase 7 to GREEN, then complete deferred phases 8, 9, 10. Cap: 1 ops PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 10,
+
+  "files_claude_wrote": {
+    "repos/ops/automation/agents/travel/runtime.yaml": "modified — two surgical changes: (1) `parse_classification` python step's result dict gains a `json_str` field via `json.dumps(result, separators=(',', ':'))` (json is already imported in that step). (2) `log_classification` SQL changes from `'{{ parse_classification | tojson | replace(\"'\", \"''\") }}'::jsonb` to `'{{ parse_classification.json_str | default(\"{}\") | replace(\"'\", \"''\") }}'::jsonb`. Mirrors the proven pattern in repos/e2e/fixtures/playbooks/api_integration/amadeus_ai_api/amadeus_ai_api.yaml line 553 where `extract_summary.amadeus_query_json | default(\"\") | replace(\"'\", \"''\")` works against Postgres."
+  },
+
+  "context_from_amber_round": {
+    "blocker_evidence": "command_0: syntax error at or near \"\\\", \\\"\"; LINE 7: '{{ parse_classification | tojson | replace(\"'\", \"''\") }}'... — Postgres received the raw Jinja expression with embedded escaped double-quotes around the inner argument literals.",
+    "successful_steps_in_amber_run": ["start (DB bootstrap)", "classify_intent (OpenAI 200)", "parse_classification (intent=help)", "render_help (full app:column widget)"],
+    "failure_step": "log_classification",
+    "amber_execution_id": "622737515656512451",
+    "playbook_catalog_id": "622737301109474241",
+    "amadeus_mcp_catalog_id": "622737301503738818",
+    "fix_pattern_reference": "repos/e2e/fixtures/playbooks/api_integration/amadeus_ai_api/amadeus_ai_api.yaml line 553 — `'{{ extract_summary.amadeus_query_json | default(\"\") | replace(\"'\", \"''\") }}'` — single string field reference, not inline dict serialisation. Same shape we now use."
+  },
+
+  "phases": {
+    "1_pydantic_validate_fix": {
+      "objective": "Confirm the patched playbook still validates.",
+      "spec": [
+        "`noetl validate repos/ops/automation/agents/travel/runtime.yaml`.",
+        "Expect clean validation (the change is just adding a json_str field and using it in one SQL line)."
+      ],
+      "verify": "Validates clean."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge the SQL-quoting fix.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-agent-log-classification-sql-fix`.",
+        "Stage automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `fix(travel-agent): pre-serialise classification JSON for audit SQL to avoid Jinja replace quoting issue`. Body cites bridge/outbox/20260509-044651-...result.json AMBER, points at the proven amadeus_ai_api.yaml pattern, notes the change is to parse_classification (computes json_str) + log_classification (uses json_str field instead of inline tojson|replace).",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged. Capture PR URL + merge SHA."
+    },
+
+    "3_re_register_travel": {
+      "objective": "Re-register the patched travel runtime in the kind catalog.",
+      "spec": [
+        "Pull the merged ops at HEAD.",
+        "`noetl --server http://192.168.1.240:8082 register repos/ops/automation/agents/travel/runtime.yaml`. (Or whatever canonical CLI form.)",
+        "The catalog should now have a new version of automation/agents/travel/runtime — capture the new catalog_id + version."
+      ],
+      "verify": "New version registered."
+    },
+
+    "4_replay_phase_7_terminal": {
+      "objective": "Replay phase 7 from the AMBER round to GREEN.",
+      "spec": [
+        "In the prompt: `travel help` — expected: classify → parse → log_classification (now succeeds) → render_help → persist_and_callback → terminal status COMPLETED. The auto-render watcher attaches the help widget within ~10-15s.",
+        "Expected: `noetl status <execution_id> --json | jq '.status'` returns \"completed\".",
+        "Expected: events table now has 2 rows for this execution (classify_intent + render_completed) with the JSON payload populated.",
+        "Then `travel flights from SFO to JFK on 2026-07-15 for 2 adults` — expected: same flow but routes through amadeus_search_flights → render_flights → persist_and_callback. Widget shows flight carousel.",
+        "Then `travel locations near Boston` — expected: amadeus_search_locations → render_locations → persist_and_callback. Widget shows recordtable.",
+        "Capture screenshots: (i) help widget, (ii) flight carousel, (iii) location recordtable."
+      ],
+      "verify": "All 3 intents complete with status=completed and widgets rendered. button_callbacks_work flips to true (clicking rerun in any widget re-runs the agent)."
+    },
+
+    "5_phase_8_canvas": {
+      "objective": "Complete the deferred travel canvas smoke from the AMBER round.",
+      "spec": [
+        "Navigate to /travel in the GUI. Direct-mode (since no gateway-cluster routing).",
+        "Type the same flight query. Expected: the canvas chat bubble shows textual summary AND the widget tree below it.",
+        "Click the rerun button — expected: onSubmit re-runs the original query, widget re-renders.",
+        "Capture screenshot of the widget rendering inside the canvas chat bubble."
+      ],
+      "verify": "Travel canvas renders the widget identically to the prompt."
+    },
+
+    "6_phase_9_amadeus_mcp": {
+      "objective": "Complete the deferred Amadeus MCP smoke.",
+      "spec": [
+        "In the prompt: `cd /mcp/amadeus`. Expected: workspace pill shows amadeus.",
+        "`tools` — expected: 5 tools listed.",
+        "`call get_token` — expected: token_bound: true (or false with the documented error if Amadeus credentials missing).",
+        "`call search_locations keyword=Boston` — expected: locations payload.",
+        "`call search_flights origin=SFO destination=JFK departureDate=2026-07-15` — expected: flight offers payload.",
+        "Capture screenshots."
+      ],
+      "verify": "MCP server playbook responds correctly to tools/list + tools/call for at least 2 tools."
+    },
+
+    "7_phase_10_provider_switch": {
+      "objective": "Complete the deferred AI provider switch smoke.",
+      "spec": [
+        "`travel --provider openai flights from SFO to JFK on 2026-07-15` — already validated in phase 4 as the default path; explicitly run with flag to verify the parser works.",
+        "`travel --provider anthropic locations near Boston` — if anthropic_secret_path is bound. Capture status.",
+        "`travel --provider vertex-ai locations near Boston` — if Vertex GCP ADC is bound in cluster. Capture status.",
+        "`travel --provider ollama help` — if ollama-bridge is running in cluster. Capture status.",
+        "Note: it's OK if some providers aren't configured — the goal is to confirm the keychain `when:` predicates and Jinja URL/header/body conditionals route correctly. Capture which providers worked + failure modes for the rest."
+      ],
+      "verify": "At least 2 providers complete classify_intent successfully. Failure modes for unconfigured providers are captured cleanly."
+    },
+
+    "8_bump_ai_meta_pointer": {
+      "objective": "Bump repos/ops gitlink in ai-meta on top of the existing 13 unpushed commits.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops`.",
+        "`git add repos/ops`.",
+        "Commit: `chore(sync): bump ops for travel-agent log_classification SQL fix (AMBER → GREEN)`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit on top of existing unpushed history."
+    }
+  },
+
+  "expected_state": {
+    "description": "Travel runtime patched + reregistered + all 5 deferred smokes (terminal flights/locations/help, canvas, MCP, provider switch) complete to GREEN. ai-meta gitlink bumped (staged).",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; FIX_PRESENT=$(grep -c 'parse_classification.json_str' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); BAD_PATTERN=$(grep -c 'parse_classification | tojson | replace' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"fix_present:$FIX_PRESENT bad_pattern:$BAD_PATTERN\"; if [ \"$FIX_PRESENT\" -ge 1 ] && [ \"$BAD_PATTERN\" -eq 0 ]; then echo 'GOAL: TRAVEL_AGENT_AMBER_TO_GREEN_PATCH_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_AGENT_AMBER_TO_GREEN_PATCH_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/docs, repos/e2e — single ops fix only",
+    "Modifying anything in references/chatui (read-only)",
+    "Editing the helm chart",
+    "Switching kind from Podman",
+    "Cutting a noetl release",
+    "Tweaking Claude's playbook beyond obvious typos",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate repos/ops/automation/agents/travel/runtime.yaml",
+    "noetl register repos/ops/automation/agents/travel/runtime.yaml (after PR merge)",
+    "noetl status <execution_id> --json (per AGENTS.md, canonical execution-state CLI)",
+    "git apply / git commit -F - / git push (one topic branch in repos/ops only)",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot for the 3 deferred smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-051749-travel-agent-amber-to-green.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_pydantic_validate_fix: {validates: bool}, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_re_register_travel: {new_catalog_id, new_version}, 4_replay_phase_7_terminal: {help_status, flights_status, locations_status, button_callbacks_work: bool, screenshots: []}, 5_phase_8_canvas: {execution_id, widget_visible: bool, button_callback_resubmits: bool, screenshot}, 6_phase_9_amadeus_mcp: {tools_list_count, get_token_bound: bool, search_locations_ok: bool, search_flights_ok: bool, screenshots}, 7_phase_10_provider_switch: {providers_validated: [], failure_modes: []}, 8_bump_ai_meta_pointer: {ops_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Phase 2: travel agent uses the Amadeus MCP server internally', 'Phase 3 was completed in this round if all providers validated', 'Wire hotels and activities branches', 'app:form widget for refining filters']}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting the flagship round flipped from AMBER to GREEN."
+}
