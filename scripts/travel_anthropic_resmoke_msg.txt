@@ -1,0 +1,71 @@
+Codex prompt — Travel agent Anthropic re-smoke (AMBER → GREEN once secret provisioned)
+========================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-194100-travel-anthropic-resmoke.task.json
+
+Result goes to:
+  bridge/outbox/20260509-194100-travel-anthropic-resmoke.result.json
+
+Prior round (AMBER):
+  bridge/outbox/20260509-180956-travel-multi-provider-anthropic.result.json
+
+Context:
+  Multi-provider round shipped the code GREEN. OpenAI baseline + fallback path
+  proven. Anthropic GREEN couldn't be proven because the GCP secret
+  `projects/1014428265962/secrets/anthropic-api-key/versions/1` was NOT_FOUND.
+  Kadyapam provisions the Anthropic API key in GCP secret manager out-of-band.
+  This round only re-runs the smoke once the secret exists. No code changes.
+
+Codex job (4 phases — see task JSON):
+
+  1. verify secret:        gcloud secrets versions access 1 --secret=anthropic-api-key
+                           --project=noetl-cluster — confirm the playbook's path matches.
+                           If NOT_FOUND, write AMBER result file + STOP.
+                           If the secret exists at a different version, update the
+                           workload field in repos/ops/automation/agents/travel/runtime.yaml
+                           and re-register (catalog version 11). Note in result file.
+  2. anthropic smoke:      travel --provider anthropic help / flights / locations.
+                           Each MUST produce effective_provider='anthropic' (not the
+                           fallback 'openai') AND no provider_fallback_reason.
+                           Verify via noetl status <id> --json | jq '.result.effective_provider'.
+                           Screenshot at least the help intent's anthropic-pilled widget.
+  3. openai regression:    travel help (default) and travel --provider openai flights ...
+                           — confirm effective_provider='openai' and no behavior drift.
+  4. close out:            Write the result file. If GREEN, append to
+                           codex-spike-green-validation.md. If still blocked,
+                           document what's missing for Kadyapam.
+
+Architectural rules:
+  - Smoke-only round. No code changes.
+  - Don't try to provision the GCP secret yourself — Kadyapam owns the API key.
+  - Use gcloud secrets versions access ONLY for verification (read-only).
+    Never echo the full secret value into result file or screenshots.
+  - No ai-meta push.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  GCP:
+    - Provision the Anthropic API key in secret manager:
+        echo -n "sk-ant-api03-..." | gcloud secrets create anthropic-api-key \
+          --replication-policy=automatic --project=noetl-cluster --data-file=-
+      OR if the secret already exists:
+        echo -n "sk-ant-api03-..." | gcloud secrets versions add anthropic-api-key \
+          --project=noetl-cluster --data-file=-
+    - Verify: gcloud secrets versions list anthropic-api-key --project=noetl-cluster
+
+  ai-meta:
+    1. chore(bridge): hand travel Anthropic re-smoke to Codex
+       (bridge/inbox/delegated/20260509-194100-travel-anthropic-resmoke.task.json)
+    2. chore(scripts): codex prompt for travel Anthropic re-smoke
+       (scripts/travel_anthropic_resmoke_msg.txt)
+    3. memory(add): handed travel Anthropic re-smoke to Codex
+       (memory/inbox/2026/05/...)
+
+  Push ai-meta when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  None (smoke-only). Optional: 1 ops PR if the workload's version-path field
+  needs to be bumped to match where the secret actually got created.
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops only IF the workload version-path field changed.
