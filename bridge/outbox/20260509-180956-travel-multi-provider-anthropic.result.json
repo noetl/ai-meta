@@ -1,0 +1,102 @@
+{
+  "id": "20260509-180956-travel-multi-provider-anthropic",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T19:27:11Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_validate_design_with_pydantic": {
+      "validates": true,
+      "validation_command_requested": "noetl validate automation/agents/travel/runtime.yaml",
+      "validation_command_available": false,
+      "validation_command_error": "The installed noetl CLI does not expose a validate subcommand.",
+      "parser_validation": "PYTHONPATH=/Volumes/X10/projects/noetl/ai-meta/repos/noetl python -c parse_playbook_file(...)",
+      "parsed_path": "automation/agents/travel/runtime",
+      "workflow_steps": 9
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/56",
+      "merged_sha": "6c113aba70960b8d81488a96520f5feb93f509e0",
+      "followup_fix_pr_url": "https://github.com/noetl/ops/pull/57",
+      "followup_fix_merged_sha": "bd77f41dccab070a0c9228fb90c0e0a87e8e6add",
+      "cap_note": "A second ops PR was required after the first post-merge smoke exposed NoETL Python exec helper-scope behavior: nested helper functions could not resolve system_prompt unless dependencies were bound as default arguments."
+    },
+    "3_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/48",
+      "merged_sha": "bd6f4afcb6c9feee28b09b65072db693edc99f41",
+      "docs_build_clean": true,
+      "verification": "cd repos/docs && npm install && npm run build"
+    },
+    "4_re_register_travel_runtime": {
+      "catalog_id": "623165592874254911",
+      "version": 10
+    },
+    "5_smoke_openai_regression": {
+      "help_status": "completed",
+      "help_execution_id": "623168990856085624",
+      "help_effective_provider": "openai",
+      "help_render_type": "app:column",
+      "flights_status": "completed",
+      "flights_execution_id": "623169017406030013",
+      "flights_intent": "flights",
+      "flights_effective_provider": "openai",
+      "flights_render_type": "app:column",
+      "flights_note": "Amadeus returned an auth/friendly-error branch in this local environment, but the NoETL execution completed and rendered the widget."
+    },
+    "6_smoke_anthropic_provider": {
+      "help_status": "completed_with_fallback",
+      "help_execution_id": "623169061630771474",
+      "flights_status": "completed_with_fallback",
+      "flights_execution_id": "623169088331710807",
+      "locations_status": "completed_with_fallback",
+      "locations_execution_id": "623169134301282732",
+      "effective_provider": "openai",
+      "requested_provider": "anthropic",
+      "screenshots": [],
+      "blocked_reason": "True Anthropic execution could not be validated because Secret Manager has no projects/1014428265962/secrets/anthropic-api-key/versions/1 and ANTHROPIC_API_KEY is absent locally."
+    },
+    "7_smoke_anthropic_fallback": {
+      "fallback_path_executed": true,
+      "help_execution_id": "623169061630771474",
+      "flights_execution_id": "623169088331710807",
+      "locations_execution_id": "623169134301282732",
+      "effective_provider": "openai",
+      "provider_fallback_reason": "anthropic token missing",
+      "anthropic_secret_status": "missing",
+      "secret_check": "gcloud secrets describe anthropic-api-key --project=1014428265962 returned NOT_FOUND; no secret values were printed."
+    },
+    "8_bump_ai_meta_pointers": {
+      "ops_sha": "bd77f41dccab070a0c9228fb90c0e0a87e8e6add",
+      "docs_sha": "bd6f4afcb6c9feee28b09b65072db693edc99f41",
+      "ai_meta_commit_local": "948963a3aa2edd4d5068ad1d719ca2c40e0bb1be",
+      "pushed": false
+    }
+  },
+  "regressions_found": [
+    {
+      "status": "fixed",
+      "description": "Initial post-merge OpenAI smoke recorded provider_error='openai NameError: name system_prompt is not defined'. Fixed in noetl/ops#57 by binding helper dependencies as default arguments for NoETL Python exec scope."
+    },
+    {
+      "status": "environment_blocker",
+      "description": "Anthropic true-provider smoke cannot run until an operator provisions projects/1014428265962/secrets/anthropic-api-key/versions/1 or updates workload.anthropic_secret_path to an existing secret."
+    }
+  ],
+  "iterations": 2,
+  "verdict": "AMBER",
+  "notes": [
+    "Repo implementation is landed: travel runtime now has unconditional anthropic_token keychain binding, a merged Python classify_intent provider switch, effective_provider telemetry, and tutorial 07 documents the switch.",
+    "OpenAI regression smokes passed through direct /api/execute because the local noetl exec catalog path ignored --payload/--set workload overrides.",
+    "Anthropic fallback smokes passed and proved provider_fallback_reason='anthropic token missing'.",
+    "The round cannot be called GREEN until an Anthropic API key secret is provisioned and at least help/flights/locations show effective_provider='anthropic'."
+  ],
+  "deferred_followups": [
+    "Provision Anthropic Secret Manager entry projects/1014428265962/secrets/anthropic-api-key/versions/1, then rerun true Anthropic help/flights/locations smokes",
+    "Vertex AI provider — needs gcp_access_token keychain kind; design pass first",
+    "Ollama provider — needs in-cluster bridge URL; smoke once cluster has it",
+    "Audit table re-add as side effect inside each render_* python step",
+    "Phase 2: travel agent uses Amadeus MCP server internally",
+    "Wire hotels and activities branches",
+    "app:form widget for refining Amadeus filters before re-running"
+  ]
+}
