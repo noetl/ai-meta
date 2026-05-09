@@ -1,0 +1,9 @@
+# Travel agent flagship AMBER — audit SQL runtime blocker
+- Timestamp: 2026-05-09T05:10:18Z
+- Author: codex
+- Tags: travel-agent,amadeus,mcp,widgets,amber,ops,gui,docs
+
+## Summary
+Codex executed bridge task `20260509-044651-travel-agent-widget-flagship` through the three planned PRs and local deploy/register. Merged PRs: noetl/ops#48 (`d0e27357`) adding `automation/agents/travel/runtime.yaml` and `automation/agents/mcp/amadeus.yaml`; noetl/gui#29 (`fa3101c`, released as `v1.10.0`, final main/tag commit `764dcd2`) adding the `travel` prompt verb, widget render in travel canvas, and the leftover widget-everywhere prompt render additions from round 2.x.1; noetl/docs#46 (`23dbb01`) adding tutorial 7. Local kind runs GUI `ghcr.io/noetl/gui:v1.10.0`; both playbooks registered as catalog version 1 (`automation/agents/travel/runtime` catalog_id `622737301109474241`, `automation/agents/mcp/amadeus` catalog_id `622737301503738818`). Pydantic validation passed for both playbooks.
+
+The terminal smoke found a runtime blocker in the travel playbook: execution `622737515656512451` successfully called OpenAI, classified `help`, and built the expected `render_help` app:column widget, but the overall execution is `FAILED` because `log_classification`'s Postgres audit INSERT embeds `{{ parse_classification | tojson | replace(\"'\", \"''\") }}` inside a SQL literal. Postgres reports `syntax error at or near \"\\\", \\\"\"` at that expression. Because the task's 3-PR cap was already used by ops/gui/docs, Codex stopped AMBER rather than opening an unapproved 4th ops PR. Result file: `bridge/outbox/20260509-044651-travel-agent-widget-flagship.result.json`. Next round should be a focused ops fix for the audit SQL quoting, then rerun terminal travel, travel canvas, Amadeus MCP, and provider-switch smokes.

@@ -1,0 +1,109 @@
+{
+  "id": "20260509-044651-travel-agent-widget-flagship",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T05:10:18Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_typecheck_and_build_gui": {
+      "tsc_status": "PASS",
+      "build_status": "PASS",
+      "ts_errors": [],
+      "bundle_size_delta": "dist/assets/index gzip 791.20 kB after changes; existing large-bundle warning remains."
+    },
+    "2_pydantic_validate_playbooks": {
+      "travel_runtime_validates": true,
+      "amadeus_mcp_validates": true,
+      "errors_if_any": []
+    },
+    "3_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/48",
+      "merged_sha": "d0e27357fd3ce28acb878c4a37f8b6fdba649d04"
+    },
+    "4_open_and_merge_gui_pr": {
+      "pr_url": "https://github.com/noetl/gui/pull/29",
+      "merged_sha": "fa3101c14b0b0bba09991a25f1d3aebb7c37b606",
+      "gui_release_tag": "v1.10.0"
+    },
+    "5_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/46",
+      "merged_sha": "23dbb010bb958456b6ffc82ff291b9dc938d89a7",
+      "docs_build_clean": true
+    },
+    "6_redeploy_and_register": {
+      "gui_tag_after": "v1.10.0",
+      "rollout_status": "PASS_WITH_VERIFY_NOTE: bump_image rollout succeeded and deployment/gui is Ready 1/1 on ghcr.io/noetl/gui:v1.10.0. The playbook verify_images step reported a transient mismatch because a completed old GUI pod was still listed.",
+      "travel_pb_registered": true,
+      "travel_pb_catalog_id": "622737301109474241",
+      "travel_pb_version": 1,
+      "amadeus_mcp_registered": true,
+      "amadeus_mcp_catalog_id": "622737301503738818",
+      "amadeus_mcp_version": 1
+    },
+    "7_smoke_terminal_travel": {
+      "execution_id": "622737515656512451",
+      "intents_validated": ["help"],
+      "widgets_rendered": true,
+      "button_callbacks_work": false,
+      "screenshots": [],
+      "errors": [
+        {
+          "step": "log_classification",
+          "event_id": "622737564671148035",
+          "message": "command_0: syntax error at or near \"\\\", \\\"\"; LINE 7: '{{ parse_classification | tojson | replace(\"'\", \"''\") }}'..."
+        }
+      ],
+      "notes": "OpenAI classification succeeded and render_help produced a full app:column help widget, but the execution is FAILED because the audit INSERT SQL in log_classification renders a malformed Jinja replace expression inside a SQL literal. This blocks GREEN."
+    },
+    "8_smoke_travel_canvas": {
+      "execution_id": null,
+      "widget_visible_below_chat": false,
+      "button_callback_resubmits": false,
+      "screenshot": null,
+      "skipped_reason": "Stopped after phase 7 blocker; task PR cap was already consumed by ops/gui/docs PRs."
+    },
+    "9_smoke_amadeus_mcp": {
+      "tools_list_count": null,
+      "get_token_bound": null,
+      "search_locations_ok": null,
+      "search_flights_ok": null,
+      "screenshots": [],
+      "skipped_reason": "Stopped after phase 7 blocker; MCP playbook was registered but not smoke-tested."
+    },
+    "10_smoke_provider_switch": {
+      "providers_validated": ["openai classify_intent succeeded in execution 622737515656512451"],
+      "failure_modes": [
+        "Travel runtime failed after classification because log_classification audit SQL is malformed."
+      ],
+      "skipped_reason": "Stopped after phase 7 blocker before provider matrix."
+    },
+    "11_bump_ai_meta_pointers": {
+      "ops_sha": "d0e27357fd3ce28acb878c4a37f8b6fdba649d04",
+      "gui_sha": "764dcd2bb1020616c79174fb571205940102b9da",
+      "docs_sha": "23dbb010bb958456b6ffc82ff291b9dc938d89a7",
+      "ai_meta_commit_local": "34feb26"
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "travel_agent log_classification SQL quoting",
+      "status": "blocked_by_pr_cap",
+      "details": "The travel runtime Pydantic-validates and registers, and OpenAI classification produced the expected help intent/widget. The Postgres audit step fails at runtime because the query embeds `{{ parse_classification | tojson | replace(\"'\", \"''\") }}` inside a SQL string; Postgres receives a malformed expression and marks the execution failed. The task's 3 planned PRs were already merged, so I stopped rather than opening an unapproved 4th ops PR."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": [
+    "All three planned PRs merged and the public GUI v1.10.0 image was deployed to local kind.",
+    "Both new playbooks were registered in the local catalog.",
+    "The flagship smoke is not GREEN because the travel runtime execution status is FAILED despite producing render_help output.",
+    "No validation log entry was appended because verdict is AMBER."
+  ],
+  "deferred_followups": [
+    "Fix travel runtime log_classification audit SQL quoting and rerun terminal/canvas/MCP/provider smokes.",
+    "Phase 2: travel agent uses the Amadeus MCP server internally instead of direct HTTP",
+    "Phase 3: full AI provider parity smoke matrix (openai/vertex/anthropic/ollama all green)",
+    "Wire hotels and activities branches in the travel agent (currently fall through to render_help)",
+    "app:form widget for refining Amadeus filters (cabin class, max price, etc.) before re-running"
+  ]
+}
