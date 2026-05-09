@@ -1,0 +1,143 @@
+{
+  "id": "20260509-060007-travel-amadeus-urllib-amber-to-green",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T06:00:07Z",
+  "title": "Travel agent + Amadeus MCP urllib wrapper — handle 5xx as graceful envelopes (AMBER round 3 → GREEN)",
+
+  "description": "Round 3 of AMBER → GREEN. Keychain fix (round 2) is proven — non-empty Bearer tokens reach Amadeus. New blocker: noetl HTTP tool aborts the step on 5xx (matches pending task #88 'noetl HTTP tool: preserve response body in error events'). Direct curl with the bound token returns HTTP 500 code 38189 from the Amadeus test API for flights and locations. Because the HTTP tool aborts, the playbook's `render_amadeus_failure` arc never fires — the workflow halts before `when:` evaluates. Claude has shipped the fix in working tree, NOT committed: replaced all 6 Amadeus HTTP calls (2 in travel runtime + 4 in Amadeus MCP server) with `kind: python` steps that use urllib.request and catch HTTPError/URLError/Exception, returning a uniform `{ok, status_code, body}` envelope. The conditional arc now evaluates the envelope's `ok` field. Even when Amadeus 500s, the step succeeds at the noetl level and the friendly error widget renders. Codex job: validate, ship 1 ops PR, re-register both playbooks, complete all six smoke phases. Cap: 1 ops PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 10,
+
+  "files_claude_wrote": {
+    "repos/ops/automation/agents/travel/runtime.yaml": "modified — 2 Amadeus HTTP steps replaced with Python+urllib wrappers: (a) `amadeus_search_flights` → `amadeus_call_flights` (kind: python, urllib.request POST, catches HTTPError/URLError/Exception, returns `{ok, status_code, body}`). (b) `amadeus_search_locations` → `amadeus_call_locations` (kind: python, urllib.request GET, same envelope). The `log_classification` arcs now route to `amadeus_call_*` steps. The `render_flights` and `render_locations` steps read from `envelope.body.data` (the parsed JSON response body) instead of the noetl http envelope's `data.data`. The `render_amadeus_failure` step reads the new envelope's `body`/`status_code` fields. The branching `when:` predicates check `amadeus_call_*.ok` directly.",
+    "repos/ops/automation/agents/mcp/amadeus.yaml": "modified — all 4 Amadeus tool calls (search_flights, search_locations, search_hotels, search_activities) collapsed from http+shape pair into a single Python step that does the urllib request + MCP envelope shaping. Each step returns the canonical MCP shape `{status, content, isError, _meta, data}` with `data.ok` and `data.error` populated when the upstream 4xx/5xx so MCP clients see a real error message instead of an opaque step abort. tools/list and get_token paths unchanged."
+  },
+
+  "context_from_amber_round_3": {
+    "what_passed": "Both keychain fixes proven (non-empty Bearer tokens). travel help completed in 6.972s. Amadeus MCP tools/list (5 tools), get_token (token_bound=true), search_activities all succeeded.",
+    "what_failed": "travel flights / travel locations failed with `Tool returned error status` — Amadeus test API returns HTTP 500 code 38189. Direct curl confirms it's the upstream API. NoETL HTTP tool aborts on 5xx, so render_amadeus_failure never runs. MCP search_locations/search_flights/search_hotels also fail for the same reason.",
+    "diagnosis": "noetl HTTP tool's current behavior on 5xx is to abort the step rather than emit a status envelope. Pending task #88 in the project tracks this. The AMBER round 3 result captured executions: flights 622759104921994162, locations 622759104863273904, MCP search 622760119322804675/622760119415079364.",
+    "fix_pattern": "Replace `kind: http` with `kind: python` using urllib.request inline. Catch all exceptions. Return `{ok, status_code, body}` envelope. Update arcs to evaluate `ok` field directly. The python step always succeeds at the noetl level; the conditional arc routes by the envelope's `ok` flag."
+  },
+
+  "phases": {
+    "1_pydantic_validate": {
+      "objective": "Confirm both patched playbooks still validate.",
+      "spec": [
+        "`noetl validate repos/ops/automation/agents/travel/runtime.yaml`",
+        "`noetl validate repos/ops/automation/agents/mcp/amadeus.yaml`",
+        "Expect clean validation."
+      ],
+      "verify": "Both validate."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge the urllib wrappers.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-amadeus-urllib-wrappers`.",
+        "Stage automation/agents/travel/runtime.yaml + automation/agents/mcp/amadeus.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `fix(travel-agent): wrap Amadeus calls in urllib so 5xx renders as friendly widget instead of aborting`. Body cites AMBER round 3 result, points at pending task #88, lists the 6 swapped steps.",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged. Capture PR URL + merge SHA."
+    },
+
+    "3_re_register_both_playbooks": {
+      "objective": "Re-register both patched playbooks.",
+      "spec": [
+        "Pull merged ops at HEAD.",
+        "`noetl register repos/ops/automation/agents/travel/runtime.yaml` (now version 4).",
+        "`noetl register repos/ops/automation/agents/mcp/amadeus.yaml` (now version 3).",
+        "Capture new catalog_ids + versions."
+      ],
+      "verify": "Both new versions registered."
+    },
+
+    "4_smoke_terminal_all_intents": {
+      "objective": "Replay phase 7 with all three intents.",
+      "spec": [
+        "`travel help` — expected: completed (regression check).",
+        "`travel flights from SFO to JFK on 2026-07-15 for 2 adults` — expected one of two paths: (a) Amadeus returns 200, render_flights → status=completed with flight carousel widget. OR (b) Amadeus returns 5xx, render_amadeus_failure → status=completed with friendly error widget showing status_code + upstream message + rerun button. EITHER outcome flips this from FAILED to COMPLETED. The key win: status=completed regardless of upstream 500 because the python wrapper handled the failure gracefully.",
+        "`travel locations near Boston` — same expectation: completes either via render_locations (success) or render_amadeus_failure (Amadeus 500). Either way, status=completed and a widget renders.",
+        "Capture screenshots of the rendered widgets — happy-path or friendly-error are both wins."
+      ],
+      "verify": "All three intents reach status=completed. Widgets render in all cases. Friendly error widget appears if Amadeus returns 5xx."
+    },
+
+    "5_smoke_canvas": {
+      "objective": "Phase 8 — travel canvas.",
+      "spec": [
+        "Navigate to /travel. Type a flight query.",
+        "Expected: chat bubble with text + widget below. Widget is either flight carousel (Amadeus 200) or friendly error (Amadeus 5xx).",
+        "Click rerun in the widget; canvas re-runs the query.",
+        "Capture screenshot."
+      ],
+      "verify": "Travel canvas renders the widget regardless of Amadeus 200/5xx outcome."
+    },
+
+    "6_smoke_amadeus_mcp": {
+      "objective": "Phase 9 — Amadeus MCP all 5 tools should respond cleanly.",
+      "spec": [
+        "`cd /mcp/amadeus`; `tools` (5 listed); `call get_token` (token_bound=true). Regressions.",
+        "`call search_locations keyword=Boston` — expected: completes. If Amadeus returns data, isError=false. If Amadeus 500s, isError=true with status_code + error in _meta and data.",
+        "`call search_flights origin=SFO destination=JFK departureDate=2026-07-15` — same.",
+        "`call search_hotels cityCode=NYC` — same.",
+        "`call search_activities latitude=42.3601 longitude=-71.0589` — should complete; was already working in round 2.",
+        "Capture screenshots."
+      ],
+      "verify": "All 5 tools complete at the noetl level (no 'Tool returned error' aborts). isError flag reflects Amadeus upstream success/failure."
+    },
+
+    "7_smoke_openai_provider_baseline": {
+      "objective": "Phase 10 — OpenAI explicit-flag baseline.",
+      "spec": [
+        "`travel --provider openai flights from SFO to JFK on 2026-07-15` — expected: same as default; explicit-flag run validates the parser still works after the urllib refactor."
+      ],
+      "verify": "OpenAI explicit-flag works."
+    },
+
+    "8_bump_ai_meta_pointer": {
+      "objective": "Bump repos/ops gitlink in ai-meta on top of existing 19 unpushed commits.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops`.",
+        "`git add repos/ops`.",
+        "Commit: `chore(sync): bump ops for travel-agent + Amadeus-MCP urllib wrappers (AMBER → GREEN)`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit on top of existing unpushed history."
+    }
+  },
+
+  "expected_state": {
+    "description": "Both playbooks patched + reregistered. All travel intents complete with widgets (success or friendly error). All Amadeus MCP tools respond cleanly. ai-meta gitlink staged.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; URLLIB_TRAVEL=$(grep -c 'urllib.request' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); URLLIB_MCP=$(grep -c 'urllib.request' repos/ops/automation/agents/mcp/amadeus.yaml 2>/dev/null || echo 0); HTTP_LEFT=$(grep -c 'kind: http' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"travel_urllib:$URLLIB_TRAVEL mcp_urllib:$URLLIB_MCP travel_http_left:$HTTP_LEFT\"; if [ \"$URLLIB_TRAVEL\" -ge 2 ] && [ \"$URLLIB_MCP\" -ge 4 ] && [ \"$HTTP_LEFT\" -le 1 ]; then echo 'GOAL: TRAVEL_AMADEUS_URLLIB_WRAPPERS_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_AMADEUS_URLLIB_WRAPPERS_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/docs, repos/e2e — single ops fix",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Switching kind from Podman",
+    "Cutting a noetl release",
+    "Tweaking Claude's playbook beyond obvious typos",
+    "Re-introducing kind:http for Amadeus calls",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate <playbook>",
+    "noetl register <playbook>",
+    "noetl status <execution_id> --json",
+    "git apply / git commit -F - / git push (one topic branch in repos/ops only)",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot for the smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-060007-travel-amadeus-urllib-amber-to-green.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_pydantic_validate: {travel_validates, mcp_validates}, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_re_register: {travel_catalog_id, travel_version, mcp_catalog_id, mcp_version}, 4_smoke_terminal_all_intents: {help_status, flights_status, flights_widget_kind: 'carousel|friendly_error', locations_status, locations_widget_kind, screenshots: []}, 5_smoke_canvas: {execution_id, widget_visible, button_callback, screenshot}, 6_smoke_amadeus_mcp: {tools_listed: 5, get_token_bound, search_locations_status, search_flights_status, search_hotels_status, search_activities_status, screenshots: []}, 7_smoke_openai_provider_baseline: {explicit_flag_works}, 8_bump_ai_meta_pointer: {ops_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Multi-provider keychain (anthropic/vertex/ollama) re-introduced once baseline is GREEN', 'Phase 2: travel agent uses Amadeus MCP server internally', 'Wire hotels and activities branches in the travel agent (currently fall through to render_help)', 'app:form widget for refining filters before re-running', 'Once noetl#88 lands (HTTP tool preserves error response body), revert these urllib wrappers to kind:http']}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md."
+}

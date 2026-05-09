@@ -1,0 +1,91 @@
+Codex prompt — Travel agent + Amadeus MCP urllib wrappers (AMBER round 3 → GREEN)
+====================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-060007-travel-amadeus-urllib-amber-to-green.task.json
+
+Result goes to:
+  bridge/outbox/20260509-060007-travel-amadeus-urllib-amber-to-green.result.json
+
+Prior round (AMBER round 3):
+  bridge/outbox/20260509-054530-travel-keychain-amber-to-green.result.json
+
+Context:
+  Keychain fix proven (non-empty Bearer tokens reach Amadeus). New blocker:
+  noetl HTTP tool aborts the step on 5xx — pending task #88 in this project.
+  Direct curl with the bound token returns HTTP 500 code 38189 from the Amadeus
+  test API for flights and locations. Because the HTTP tool aborts, the
+  playbook's `render_amadeus_failure` arc never runs.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/ops/automation/agents/travel/runtime.yaml
+    - amadeus_search_flights → amadeus_call_flights (kind: python, urllib POST)
+    - amadeus_search_locations → amadeus_call_locations (kind: python, urllib GET)
+    - log_classification arcs route to the new amadeus_call_* steps
+    - render_flights / render_locations read from envelope.body.data
+    - render_amadeus_failure reads envelope.body / envelope.status_code
+    - The python steps catch HTTPError / URLError / Exception and return a
+      uniform `{ok, status_code, body}` envelope. Conditional arcs evaluate
+      `amadeus_call_*.ok`. Even when Amadeus 500s, the step succeeds at the
+      noetl level and the friendly error widget renders.
+
+  repos/ops/automation/agents/mcp/amadeus.yaml
+    - All 4 tool calls (search_flights, search_locations, search_hotels,
+      search_activities) collapsed from http+shape pair into a single Python
+      step that does urllib + MCP envelope shaping. Returns canonical MCP
+      shape `{status, content, isError, _meta, data}` with `data.ok` and
+      `data.error` populated on Amadeus 4xx/5xx. tools/list and get_token
+      paths unchanged.
+
+Codex job (8 phases — see task JSON):
+
+  1. validate:                  noetl validate both playbooks
+  2. ops PR:                    branch kadyapam/travel-amadeus-urllib-wrappers
+                                PR title: "fix(travel-agent): wrap Amadeus calls in urllib so 5xx renders as friendly widget instead of aborting"
+                                --squash --delete-branch on merge
+  3. re-register:               register both patched playbooks; capture new versions
+  4. terminal smoke (all 3):    travel help / flights from SFO to JFK / locations near Boston.
+                                Each MUST reach status=completed. Widget rendered is either
+                                happy-path (Amadeus 200) or friendly_error (Amadeus 5xx) — both
+                                are wins. Screenshots.
+  5. canvas smoke:              /travel page; flight query; widget below chat bubble;
+                                rerun resubmits.
+  6. Amadeus MCP smoke:         cd /mcp/amadeus; tools (5); get_token (regression); call all
+                                4 tools. Each completes at the noetl level. isError flag
+                                reflects upstream success/failure. Screenshots.
+  7. openai baseline:           travel --provider openai (explicit flag) to verify parser
+                                still works after the refactor.
+  8. ai-meta pointer bump:      git submodule update --remote repos/ops
+                                git add repos/ops
+                                git commit: "chore(sync): bump ops for travel-agent + Amadeus-MCP urllib wrappers (AMBER → GREEN)"
+                                DO NOT push ai-meta. Lands on top of existing 19 unpushed commits.
+
+Architectural rules:
+  - Only repos/ops changes. No gui/noetl/docs/e2e edits.
+  - No re-introducing kind:http for Amadeus calls (the urllib wrappers are the
+    workaround until noetl#88 lands).
+  - No references/chatui mods.
+  - Podman-only for kind.
+  - No noetl release.
+  - No tweaking Claude's playbook beyond obvious typos.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch travel-agent + Amadeus-MCP to urllib wrappers
+       (repos/ops: travel/runtime.yaml + mcp/amadeus.yaml)
+    2. chore(bridge): hand travel-amadeus-urllib AMBER → GREEN round to Codex
+       (bridge/inbox/delegated/20260509-060007-travel-amadeus-urllib-amber-to-green.task.json)
+    3. chore(scripts): codex prompt for travel-amadeus-urllib AMBER → GREEN
+       (scripts/travel_amadeus_urllib_amber_to_green_msg.txt)
+    4. memory(add): travel + Amadeus MCP urllib wrappers designed
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 19 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR — Amadeus call refactor; the largest churn but no schema changes).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops after the PR merges.
