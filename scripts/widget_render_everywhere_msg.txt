@@ -1,0 +1,80 @@
+Codex prompt — Round 2.x.1: widgets in every prompt path that produces an execution
+======================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-043207-gui-widget-render-everywhere.task.json
+
+Result goes to:
+  bridge/outbox/20260509-043207-gui-widget-render-everywhere.result.json
+
+Context:
+  Round 2.x closed GREEN (v1.9.0 + v1.9.1) with widget render visible from
+  `report` and `run`. Remaining producing paths still fall back to plain
+  text even when the playbook emits result.render.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/gui/src/components/NoetlPrompt.tsx — 4 small additions:
+    1. runMcpCommand("status") append() carries `render: extractAgentRender(execution)`
+    2. runKubernetesCommand append() same
+    3. runGenericMcpTool append() same
+    4. verb === "rerun" branch — gains report+open action buttons on the
+       started entry plus `void watchExecutionForRender(...)` so a rerun
+       that emits render shows the widget inline once it terminates
+       (mirrors what was done for `run` in v1.9.0/v1.9.1)
+
+Verified locally: `cd repos/gui && npx tsc --noEmit` exits 0. ~10-15
+lines added total.
+
+Codex job (5 phases — see task JSON):
+
+  1. typecheck + build:    cd repos/gui && npm install && npx tsc --noEmit && npm run build
+  2. gui PR:               branch kadyapam/widget-render-everywhere
+                           PR title: "feat(gui): surface widgets in mcp/k8s/call/rerun prompt paths"
+                           --squash --delete-branch on merge
+                           (semantic-release will likely cut v1.10.0 since this is feat)
+  3. redeploy gui:         noetl exec noetl/lifecycle/bump_image --runtime local
+                             --payload '{"deployment":"gui","namespace":"noetl",
+                             "image":"ghcr.io/noetl/gui:<TAG>"}'
+                           kubectl rollout status deploy/gui --timeout=180s
+  4. smoke each path:
+     - rerun:           pick a recent render-emitting execution_id, type `rerun <id>`.
+                        Expected: started entry with report+open buttons; ~10s later
+                        a NEW entry auto-appears with the rendered widget.
+     - k8s (regression): cd /mcp/kubernetes; pods. Plain-text should still work; no
+                        spurious empty-widget block; no console errors.
+     - call (regression): in any MCP workspace, `call <tool>`. Plain-text still works.
+     - mcp status:      cd /mcp/<workspace>; status. If a render-emitting MCP terminal
+                        agent is registered, widget should appear inline. If not (e.g.
+                        kubernetes), passive check — confirm no regression.
+     Screenshots for rerun auto-render + k8s regression.
+  5. ai-meta pointer bump: cd ai-meta && git submodule update --remote repos/gui
+                           git add repos/gui
+                           git commit: "chore(sync): bump gui for widget render in mcp/k8s/call/rerun paths"
+                           DO NOT push ai-meta.
+
+Architectural rules:
+  - GUI-only round. No noetl/ops/e2e/docs changes.
+  - No helm chart edits.
+  - No Colima/Docker fallback for kind.
+  - No tweaking Claude's TypeScript beyond obvious typos.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch GUI widget render for mcp/k8s/call/rerun
+       (repos/gui: src/components/NoetlPrompt.tsx)
+    2. chore(bridge): hand widget-render-everywhere round to Codex
+       (bridge/inbox/delegated/20260509-043207-gui-widget-render-everywhere.task.json)
+    3. chore(scripts): codex prompt for widget-render-everywhere
+       (scripts/widget_render_everywhere_msg.txt)
+    4. memory(add): widget-render-everywhere round 2.x.1 planned
+       (memory/inbox/2026/05/...)
+
+  Plus the 10-11 unpushed commits from prior rounds — push when ready.
+
+Codex commits + pushes:
+  repos/gui (1 PR; semantic-release likely v1.10.0).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/gui after the PR merges.

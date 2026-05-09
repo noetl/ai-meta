@@ -1,0 +1,119 @@
+Codex prompt — Travel agent + Amadeus MCP flagship widget demo (3 PRs, 11 phases)
+==================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-044651-travel-agent-widget-flagship.task.json
+
+Result goes to:
+  bridge/outbox/20260509-044651-travel-agent-widget-flagship.result.json
+
+Design doc:
+  sync/issues/2026-05-09-travel-agent-widget-flagship.md
+
+What Claude shipped (in working tree, NOT committed):
+
+  repos/ops/automation/agents/travel/runtime.yaml          NEW
+    Travel agent. Workload-templated AI provider (openai|vertex-ai|
+    anthropic|ollama via Jinja conditionals on URL/headers/body).
+    Intent classifier branches via next.arcs[when]. Renders widget
+    trees per intent: flights → carousel of cards; locations →
+    recordtable; help → onboarding screen with example buttons; error
+    → friendly alert + action buttons. Postgres event audit.
+
+  repos/ops/automation/agents/mcp/amadeus.yaml             NEW
+    Amadeus MCP server. tools/list returns 5-tool catalog
+    (search_flights, search_hotels, search_locations,
+    search_activities, get_token). tools/call dispatches by tool name
+    to the right Amadeus endpoint. Returns MCP-shaped envelopes
+    ({content, isError, _meta, data}). exposes_as_mcp: true; visible
+    in the prompt as `cd /mcp/amadeus`.
+
+  repos/gui/src/components/NoetlPrompt.tsx                MODIFIED
+    `verb === "travel"` — runs the travel agent, parses optional
+    `--provider <name>` flag, surfaces the started entry with action
+    buttons, fires the round-2.x watcher to auto-render the widget.
+    Help text updated.
+
+  repos/gui/src/components/GatewayAssistant.tsx           MODIFIED
+    Renamed AMADEUS_PLAYBOOK_PATH → TRAVEL_PLAYBOOK_PATH (now
+    automation/agents/travel/runtime). DirectExecutionResult and
+    ChatMessage gain optional render. executeDirectMode populates
+    render via extractAgentRender. Chat-log shows widget below text
+    via WidgetRenderer; widget command/navigate events route through
+    onSubmit/navigate so canvas users get the same buttons that
+    prompt users do.
+
+  repos/docs/docs/tutorials/07-travel-agent-with-widgets.md NEW
+    Flagship tutorial. 6 sections: register & run, read the agent,
+    pluggable AI provider (Jinja conditionals), widget output
+    contract, same capability via the Amadeus MCP server, travel
+    canvas as a parallel surface. Closes with the thesis: NoETL is
+    the templating library, AI providers / MCP / rendering are
+    pluggable.
+
+  sync/issues/2026-05-09-travel-agent-widget-flagship.md  NEW
+    3-phase plan. Phase 1 = this round; phase 2 = travel agent uses
+    the MCP server internally; phase 3 = AI provider parity smokes.
+
+Verified: `cd repos/gui && npx tsc --noEmit` exits 0.
+
+Codex job (11 phases — see task JSON):
+
+  1.  typecheck + build gui:        cd repos/gui && npm install && npx tsc --noEmit && npm run build
+  2.  pydantic validate playbooks:  noetl validate repos/ops/automation/agents/travel/runtime.yaml
+                                     noetl validate repos/ops/automation/agents/mcp/amadeus.yaml
+  3.  ops PR:                       branch kadyapam/travel-agent-and-amadeus-mcp
+                                     PR title: "feat(agents): travel agent + Amadeus MCP server playbooks (flagship widget demo)"
+  4.  gui PR:                       branch kadyapam/travel-verb-and-canvas-widgets
+                                     PR title: "feat(gui): travel verb in prompt + widget render in travel canvas"
+  5.  docs PR:                      branch kadyapam/travel-agent-tutorial
+                                     PR title: "docs(tutorials): travel agent + Amadeus MCP flagship walkthrough"
+  6.  redeploy gui + register pbs:  bump_image gui to new tag; noetl register both playbooks; verify
+                                     Playbook tab + MCP tab in /catalog show them.
+  7.  smoke terminal travel:        flights / locations / help intents in NoetlPrompt; widget auto-renders;
+                                     button callbacks (rerun) work. Screenshots.
+  8.  smoke travel canvas:          /travel page; same query; widget renders below chat bubble; button
+                                     callbacks resubmit. Screenshot.
+  9.  smoke Amadeus MCP:            cd /mcp/amadeus; tools (5 tools); call get_token (debug);
+                                     call search_locations keyword=Boston; call search_flights ...
+                                     Screenshots.
+  10. smoke provider switch:        travel --provider openai (default; already validated in phase 7).
+                                     travel --provider anthropic / vertex-ai / ollama where credentials
+                                     exist. Capture which providers worked + failure modes for the rest.
+  11. ai-meta pointer bumps:        cd ai-meta && git submodule update --remote repos/ops repos/gui repos/docs
+                                     git add repos/ops repos/gui repos/docs
+                                     git commit: "chore(sync): bump ops + gui + docs for travel agent widget flagship round"
+                                     DO NOT push ai-meta.
+
+Architectural rules:
+  - No noetl Python changes (DSL templating only).
+  - No helm chart edits.
+  - No references/chatui mods.
+  - Podman-only for kind.
+  - No tweaking Claude's playbook/TypeScript beyond obvious typos.
+  - Secrets are templated paths into secret_manager, never hardcoded.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch travel agent + Amadeus MCP + GUI + tutorial
+       (repos/ops: 2 new yaml files; repos/gui: NoetlPrompt.tsx + GatewayAssistant.tsx;
+        repos/docs: tutorials/07-travel-agent-with-widgets.md)
+    2. docs(sync): file travel agent widget flagship design
+       (sync/issues/2026-05-09-travel-agent-widget-flagship.md)
+    3. chore(bridge): hand travel agent flagship round to Codex
+       (bridge/inbox/delegated/20260509-044651-travel-agent-widget-flagship.task.json)
+    4. chore(scripts): codex prompt for travel agent flagship round
+       (scripts/travel_agent_widget_flagship_msg.txt)
+    5. memory(add): travel agent + Amadeus MCP + tutorial designed
+       (memory/inbox/2026/05/...)
+
+  Plus the prior round's unpushed commits — push when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR)
+  repos/gui (1 PR; semantic-release likely v1.10.x or v1.11.0)
+  repos/docs (1 PR)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/gui + repos/docs after PRs merge.
