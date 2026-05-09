@@ -1,0 +1,117 @@
+Codex prompt — Travel agent multi-provider classification (OpenAI + Anthropic)
+================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-180956-travel-multi-provider-anthropic.task.json
+
+Result goes to:
+  bridge/outbox/20260509-180956-travel-multi-provider-anthropic.result.json
+
+Authoring rules used (from the playbook authoring guide that just landed):
+  repos/docs/docs/reference/playbook_authoring_guide.md
+    - Keychain entries use bare workload references; bind unconditionally.
+    - Provider switching happens INSIDE a single python step, not via Jinja
+      conditionals on URL/headers/body or `when:` predicates on keychain.
+    - External calls go through urllib (kind: python) for graceful 5xx.
+    - Render-emitting step is the workflow tail.
+
+Context:
+  Travel agent flagship round closed GREEN. Tutorial 07 + authoring guide
+  published. Multi-provider abstraction was stripped during the keychain
+  AMBER rounds because Jinja conditionals didn't work in keychain context.
+  The authoring guide now codifies the working pattern: keychain entries
+  bound unconditionally with bare refs, provider switching inside a single
+  python step. This round restores Anthropic as a second provider on top
+  of the proven OpenAI baseline. Vertex AI (GCP ADC) and Ollama (in-cluster
+  bridge) stay deferred — they need different keychain kinds.
+
+Design brief (full detail in task JSON `design_brief_for_codex`):
+
+  1. KEYCHAIN ADDITION
+     Add anthropic_token entry to travel runtime's keychain block, mirroring
+     openai_token (kind: secret_manager, provider: gcp, scope: global,
+     auth: "{{ gcp_auth }}", map.api_key: "{{ anthropic_secret_path }}").
+     Bind unconditionally (no when:). New workload field anthropic_secret_path.
+
+  2. MERGED CLASSIFY_INTENT STEP
+     Replace classify_intent (kind: http) + parse_classification (kind: python)
+     pair with a single classify_intent step (kind: python). The merged step:
+       - Picks provider based on workload.ai_provider
+       - Snaps to openai if anthropic chosen but token empty (graceful fallback)
+       - Calls provider via urllib
+       - Unwraps response (provider-specific shape: openai choices[0].message.content,
+         anthropic content[0].text)
+       - Parses JSON intent
+       - Emits same fields parse_classification used to emit (intent, origin,
+         destination, departureDate, adults, city, keyword, json_str) plus
+         a NEW `effective_provider` field reflecting the actual provider
+         that ran (may differ from workload.ai_provider when fallback fires)
+       - On fallback: also sets `provider_fallback_reason` (e.g. 'anthropic
+         token missing')
+
+  3. DOWNSTREAM RENAMES
+     log_classification SQL: parse_classification.X → classify_intent.X.
+     log_classification arcs `when:` predicates: same rename.
+     amadeus_call_flights / amadeus_call_locations / render_help /
+     render_amadeus_failure inputs: same rename.
+     render_* status pills now show effective_provider (the actual provider
+     that ran) instead of workload.ai_provider.
+
+  4. TUTORIAL 07 UPDATE
+     repos/docs/docs/tutorials/07-travel-agent-with-widgets.md "Pluggable AI
+     provider" section: replace OpenAI-only Jinja example with the merged
+     python step's if/else pattern. Add try-it block:
+       travel --provider anthropic flights from SFO to JFK on 2026-07-15
+     Note Vertex AI / Ollama deferred (link to sync issue 2026-05-09).
+
+Codex job (8 phases — see task JSON):
+
+  1. validate playbook:        noetl validate repos/ops/automation/agents/travel/runtime.yaml
+  2. ops PR:                   branch kadyapam/travel-multi-provider-anthropic
+                               PR title: "feat(travel-agent): multi-provider classification (OpenAI + Anthropic) via merged python step"
+                               --squash --delete-branch on merge
+  3. docs PR:                  branch kadyapam/travel-tutorial-multi-provider
+                               PR title: "docs(tutorials): walk through Anthropic provider switch in travel agent tutorial"
+                               cd repos/docs && npm run build clean
+  4. re-register:              noetl register travel runtime; capture version 9
+  5. openai regression:        travel help / flights (default provider).
+                               Status pill shows effective_provider=openai.
+  6. anthropic smoke:          travel --provider anthropic help / flights / locations.
+                               Status pill shows effective_provider=anthropic.
+                               If anthropic_secret_path doesn't exist in cluster,
+                               note in result file (the round can still validate
+                               the fallback path in phase 7).
+  7. anthropic fallback:       Validate graceful snap-to-openai when token empty.
+                               (Non-destructive only — use workload override if
+                               possible; if not, document expected fallback
+                               without executing.)
+  8. ai-meta pointer bumps:    cd ai-meta && git submodule update --remote repos/ops repos/docs
+                               git add repos/ops repos/docs
+                               git commit: "chore(sync): bump ops + docs for travel multi-provider Anthropic addition"
+                               DO NOT push ai-meta.
+
+Architectural rules (from the authoring guide):
+  - Bare workload references in keychain (`{{ gcp_auth }}`, not `{{ workload.gcp_auth }}`)
+  - No `when:` predicates on keychain entries
+  - No Jinja conditionals on URL/headers/body — use python step for provider switch
+  - Use urllib in kind:python for external calls (HTTP tool aborts on 5xx)
+  - Render-emitting steps are workflow tails (no trailing audit chain)
+  - Use `outcome` (not `status: failed`) for non-status semantic state
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand travel multi-provider Anthropic round to Codex
+       (bridge/inbox/delegated/20260509-180956-travel-multi-provider-anthropic.task.json)
+    2. chore(scripts): codex prompt for travel multi-provider Anthropic
+       (scripts/travel_multi_provider_anthropic_msg.txt)
+    3. memory(add): handed travel multi-provider Anthropic to Codex
+       (memory/inbox/2026/05/...)
+
+  Push all 40+3 = 43 ai-meta commits when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR — keychain entry + merged classify_intent + downstream renames)
+  repos/docs (1 PR — tutorial 07 multi-provider section)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/docs after PRs merge.
