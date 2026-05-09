@@ -1,0 +1,49 @@
+{
+  "id": "20260509-162827-playbook-authoring-guide-from-9-round-arc",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T16:43:29Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_author_authoring_guide": {
+      "file": "repos/docs/docs/reference/playbook_authoring_guide.md",
+      "file_size_lines": 402,
+      "rules_covered": 11,
+      "has_good_bad_blocks": true,
+      "has_evidence_traces": true
+    },
+    "2_cross_link_from_existing_docs": {
+      "architecture_file": "repos/docs/docs/architecture/agent_orchestration.md",
+      "widgets_file": "repos/docs/docs/gui/widgets.md",
+      "arch_link_added": true,
+      "widget_link_added": true,
+      "docs_build_clean": true,
+      "verification": "cd repos/docs && npm install && npm run build"
+    },
+    "3_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/47",
+      "merged_sha": "117541e26bb4b979df67db35e74ea0969416d96e",
+      "checks": "No GitHub checks were reported on the branch; local Docusaurus build was clean."
+    },
+    "4_bump_ai_meta_pointer": {
+      "docs_sha": "117541e26bb4b979df67db35e74ea0969416d96e",
+      "ai_meta_commit_local": "f8de1b4c1eaed1fe06d1dd28de49725a7000fc42",
+      "pushed": false
+    }
+  },
+  "regressions_found": [],
+  "iterations": 1,
+  "verdict": "GREEN",
+  "notes": [
+    "The new guide pins the 11 travel-agent authoring rules by layer: keychain, step semantics, external HTTP, YAML/SQL quoting, and GUI integration.",
+    "agent_orchestration.md and widgets.md now link to the guide.",
+    "npm install reported existing audit findings, but npm run build completed successfully."
+  ],
+  "deferred_followups": [
+    "Audit table re-add as side effect inside each render_* python step",
+    "Multi-provider keychain restoration on top of OpenAI baseline",
+    "Phase 2: travel agent uses Amadeus MCP server internally",
+    "Wire hotels and activities branches",
+    "app:form widget for refining filters"
+  ]
+}
