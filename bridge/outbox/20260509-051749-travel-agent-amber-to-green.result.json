@@ -1,0 +1,130 @@
+{
+  "id": "20260509-051749-travel-agent-amber-to-green",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T05:43:00Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_pydantic_validate_fix": {
+      "validates": true,
+      "validation_method": "repos/noetl/.venv/bin/python imported noetl.core.dsl.engine.models.executor.Playbook and model_validate() passed for repos/ops/automation/agents/travel/runtime.yaml"
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/49",
+      "merged_sha": "18988bb5915506668652797fdfd364036f3010f9"
+    },
+    "3_re_register_travel": {
+      "new_catalog_id": "622745768260010040",
+      "new_version": 2
+    },
+    "4_replay_phase_7_terminal": {
+      "help_execution_id": "622745877731344441",
+      "help_status": "COMPLETED",
+      "flights_execution_id": "622746596920262831",
+      "flights_status": "FAILED",
+      "locations_execution_id": "622746596869931182",
+      "locations_status": "FAILED",
+      "button_callbacks_work": false,
+      "screenshots": [
+        "bridge/outbox/travel-agent-help-622745877731344441.png"
+      ],
+      "evidence": {
+        "sql_fix_proven": "help execution completed in 4.008s with completed_steps including log_classification, render_help, persist_and_callback, end",
+        "remaining_blocker": "flights and locations both reached log_classification, then failed in amadeus_search_* with Request error: Illegal header value b'Bearer '",
+        "db_audit_query_note": "noetl query against public.travel_agent_events and noetl.travel_agent_events returned relation does not exist; execution-step evidence was used for log_classification success"
+      }
+    },
+    "5_phase_8_canvas": {
+      "execution_id": null,
+      "widget_visible": false,
+      "button_callback_resubmits": false,
+      "screenshot": null,
+      "skipped_reason": "Stopped after phase 4 exposed a second runtime blocker in Amadeus-backed branches; continuing GUI canvas smokes would not reach GREEN."
+    },
+    "6_phase_9_amadeus_mcp": {
+      "tools_list_execution_id": "622747225478660441",
+      "tools_list_count": 5,
+      "get_token_execution_id": "622747225470271832",
+      "get_token_bound": true,
+      "search_locations_execution_id": "622748958464410404",
+      "search_locations_ok": false,
+      "search_flights_execution_id": "622748958472799013",
+      "search_flights_ok": false,
+      "screenshots": [],
+      "notes": "MCP tools/list and get_token succeeded; get_token reported token_bound=true without exposing token material in this result. Actual search_locations/search_flights calls failed with Tool returned error and shaped zero result counts."
+    },
+    "7_phase_10_provider_switch": {
+      "providers_validated": [
+        {
+          "provider": "openai",
+          "execution_id": "622745877731344441",
+          "status": "COMPLETED",
+          "notes": "Default OpenAI help path completed and rendered result.render app:column."
+        }
+      ],
+      "failure_modes": [
+        {
+          "provider": "openai",
+          "execution_id": "622746596920262831",
+          "status": "FAILED",
+          "notes": "OpenAI classified flights correctly, then Amadeus branch failed with empty Bearer token."
+        },
+        {
+          "provider": "vertex-ai",
+          "execution_id": "622747227877802330",
+          "status": "FAILED",
+          "notes": "classify_intent failed with Illegal header value b'Bearer '; parser fell through to help render but execution remained FAILED."
+        },
+        {
+          "provider": "ollama",
+          "execution_id": "622747227978465627",
+          "status": "FAILED",
+          "notes": "classify_intent failed with Request error after roughly 60s; parser fell through to help render but execution remained FAILED."
+        },
+        {
+          "provider": "anthropic",
+          "execution_id": "622748690179949231",
+          "status": "FAILED",
+          "notes": "classify_intent returned Tool returned error; parser fell through to help render but execution remained FAILED."
+        }
+      ]
+    },
+    "8_bump_ai_meta_pointer": {
+      "ops_sha": "18988bb5915506668652797fdfd364036f3010f9",
+      "ai_meta_commit_local": "64cefba"
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "travel runtime Amadeus branch has empty keychain.amadeus_token.access_token",
+      "status": "OPEN",
+      "details": "The SQL quoting regression is fixed, but flights and locations still fail because the travel runtime's Amadeus HTTP headers render to Bearer with an empty token. Evidence: executions 622746596920262831 and 622746596869931182 both reached log_classification and then failed in amadeus_search_flights/amadeus_search_locations with Illegal header value b'Bearer '. In contrast, the standalone automation/agents/mcp/amadeus get_token execution 622747225470271832 completed and reported token_bound=true, so the credentials exist and the issue is specific to the travel runtime/keychain path."
+    },
+    {
+      "name": "provider-specific keychain predicates do not validate cleanly for non-openai travel providers",
+      "status": "OPEN",
+      "details": "OpenAI help completed, but vertex-ai and anthropic provider switches failed during classify_intent, and ollama timed out/fell through. This likely needs a focused follow-up on keychain `when:` handling and provider URL/header rendering in the travel runtime."
+    },
+    {
+      "name": "Amadeus MCP search calls fail despite token_bound=true",
+      "status": "OPEN",
+      "details": "MCP tools/list returned tool_count=5 and get_token returned token_bound=true, but search_locations and search_flights executions failed with Tool returned error and shaped zero results. This may be an Amadeus API request-shape issue or response/error propagation issue in the new MCP playbook."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": [
+    "The one allowed ops PR was merged and the local catalog now uses travel runtime version 2.",
+    "The original AMBER blocker is fixed: log_classification no longer fails on the help path.",
+    "This round cannot be GREEN because the required flights/locations, canvas, MCP search, and provider-switch smokes are not all passing.",
+    "No validation log entry was appended because verdict is AMBER."
+  ],
+  "deferred_followups": [
+    "Focused ops/noetl investigation: why travel runtime keychain does not provide amadeus_token for Amadeus branches while automation/agents/mcp/amadeus get_token succeeds.",
+    "Focused ops investigation: Amadeus MCP search_locations/search_flights return Tool returned error despite token_bound=true.",
+    "Provider-switch parity: validate keychain `when:` predicates for openai, anthropic, vertex-ai, and ollama once the runtime keychain issue is understood.",
+    "Phase 2: travel agent uses the Amadeus MCP server internally.",
+    "Wire hotels and activities branches.",
+    "app:form widget for refining filters."
+  ]
+}
