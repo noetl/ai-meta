@@ -1,0 +1,99 @@
+{
+  "id": "20260509-054530-travel-keychain-amber-to-green",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T05:54:26Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_pydantic_validate": {
+      "travel_validates": true,
+      "mcp_validates": true,
+      "validation_method": "repos/noetl/.venv/bin/python imported noetl.core.dsl.engine.models.executor.Playbook and model_validate() passed for both playbooks"
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/50",
+      "merged_sha": "94f2f651e1b6f378479093558e237d423bc69f29"
+    },
+    "3_re_register_both_playbooks": {
+      "travel_catalog_id": "622759020515820462",
+      "travel_version": 3,
+      "mcp_catalog_id": "622759020683592623",
+      "mcp_version": 2
+    },
+    "4_smoke_terminal_all_intents": {
+      "help_execution_id": "622759104880051121",
+      "help_status": "COMPLETED",
+      "flights_execution_id": "622759104921994162",
+      "flights_status": "FAILED",
+      "locations_execution_id": "622759104863273904",
+      "locations_status": "FAILED",
+      "button_callbacks_work": false,
+      "screenshots": [],
+      "evidence": {
+        "help": "completed in 6.972s with render_help app:column",
+        "token_fix": "amadeus_search_flights command-issued header had a non-empty Bearer token; amadeus_search_locations command-issued header also had a non-empty Bearer token",
+        "remaining_failure": "both Amadeus HTTP steps returned Tool returned error status before render_amadeus_failure could run"
+      }
+    },
+    "5_smoke_canvas": {
+      "execution_id": null,
+      "widget_visible": false,
+      "button_callback": false,
+      "screenshot": null,
+      "skipped_reason": "Stopped after terminal flights/locations failed at Amadeus HTTP step; canvas cannot be declared GREEN until the same execution path completes or friendly-error rendering handles upstream failures."
+    },
+    "6_smoke_amadeus_mcp": {
+      "tools_list_execution_id": "622759913239871695",
+      "tools_listed": 5,
+      "get_token_execution_id": "622759913256648913",
+      "get_token_bound": true,
+      "search_locations_execution_id": "622760119322804675",
+      "search_locations_ok": false,
+      "search_flights_execution_id": "622760119415079364",
+      "search_flights_ok": false,
+      "search_hotels_execution_id": "622759913239871696",
+      "search_hotels_ok": false,
+      "search_activities_execution_id": "622759913256648914",
+      "search_activities_ok": true,
+      "screenshots": [],
+      "notes": "tools/list and get_token are green; search_activities completed with _meta.activities_total=0 and isError=false. search_locations/search_flights/search_hotels failed with Tool returned error status. Direct Amadeus curl using the bound token returned HTTP 500 code 38189 for locations and flights, so the token is valid enough to make the request and the remaining blocker is upstream/error-handling."
+    },
+    "7_smoke_openai_provider_baseline": {
+      "explicit_flag_execution_id": "622760279058678349",
+      "explicit_flag_works": true,
+      "notes": "Payload with ai_provider=openai and query=help completed in 2.297s. Explicit flight flag was not counted green because the Amadeus branch is still blocked by upstream/error-handling."
+    },
+    "8_bump_ai_meta_pointer": {
+      "ops_sha": "94f2f651e1b6f378479093558e237d423bc69f29",
+      "ai_meta_commit_local": "b7728b1"
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "Amadeus upstream 500 / HTTP-tool abort prevents friendly failure render",
+      "status": "OPEN",
+      "details": "After PR #50, the travel runtime Amadeus commands render non-empty Bearer tokens, proving the bare-reference keychain fix worked. The remaining terminal failures are Amadeus HTTP/tool failures. Direct curl with the bound token returned HTTP 500 with Amadeus error code 38189 for locations and flights. The playbook's render_amadeus_failure branch does not run because the HTTP tool failure aborts the workflow before next arcs can evaluate."
+    },
+    {
+      "name": "Amadeus MCP searches still fail for flights/locations/hotels",
+      "status": "OPEN",
+      "details": "MCP tools/list and get_token pass; search_activities completes. search_locations, search_flights, and search_hotels fail with Tool returned error status. This appears consistent with the direct Amadeus 500s for the test API plus current HTTP error propagation semantics."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": [
+    "The one allowed ops PR was merged and both playbooks were re-registered.",
+    "The empty Bearer-token failure is fixed: Amadeus command-issued events show non-empty Bearer tokens.",
+    "The round still cannot be GREEN because required flights/locations and MCP search smokes did not complete.",
+    "No validation log entry was appended because verdict is AMBER."
+  ],
+  "deferred_followups": [
+    "Make Amadeus HTTP failure handling load-bearing: either use a non-throwing HTTP mode if available, or call Amadeus from a Python step so 4xx/5xx responses can be shaped into render_amadeus_failure instead of aborting the workflow.",
+    "Re-run Amadeus locations/flights once the test API stops returning HTTP 500 code 38189, or add deterministic mocked/sandbox-safe fixtures for smoke stability.",
+    "Multi-provider keychain (anthropic/vertex/ollama) re-introduced once baseline is GREEN.",
+    "Phase 2: travel agent uses Amadeus MCP server internally.",
+    "Wire hotels and activities branches in the travel agent (currently fall through to render_help).",
+    "app:form widget for refining filters before re-running."
+  ]
+}
