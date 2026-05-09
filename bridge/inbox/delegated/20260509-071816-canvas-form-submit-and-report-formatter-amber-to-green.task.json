@@ -1,0 +1,127 @@
+{
+  "id": "20260509-071816-canvas-form-submit-and-report-formatter-amber-to-green",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T07:18:16Z",
+  "title": "GUI canvas form-submit + report formatter polish (AMBER round 7 → GREEN)",
+
+  "description": "Round 7 closed AMBER. Backend GREEN; terminal-prompt visibility GREEN; only the canvas widget visibility and the report summary's `result=-` formatter remain. Codex's report says submitting from /travel canvas navigates back to /catalog. Diagnosis: AntD's Input.Search inside the canvas doesn't have an explicit form preventDefault wrapper, so the browser's native form-submit default takes the URL to `/`, the AuthenticatedApp's root route (line 637-645 of main.tsx) redirects authenticated admins to /catalog. The user sees /catalog and the canvas state is gone because the canvas component unmounted before saveMessages ran. The report-formatter cosmetic: when extractAgentRender finds a widget but execution.result projection is empty, the textual summary printed `result=-` even though the widget rendered fine. Claude has shipped both fixes in working tree, NOT committed: (a) wrapped Input.Search in `<form onSubmit={(e) => { e.preventDefault(); ...; }}>` so submit stays on /travel; (b) report verb's resultLine now reads `render=<type>` when extractAgentRender finds a widget, falling back to `result=<json>` only when it doesn't. tsc --noEmit clean. Cap: 1 gui PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 8,
+
+  "files_claude_wrote": {
+    "repos/gui/src/components/GatewayAssistant.tsx": "modified — wrapped the Input.Search in `<form onSubmit={(e) => { e.preventDefault(); if (query.trim() && !submitting) onSubmit(query); }} style={{width: '100%'}}>`. Added a comment block citing the round-7 result-file diagnosis. The form's preventDefault stops the browser's native submit-to-`/` behavior. The Input.Search keeps its own onSearch prop wired to onSubmit so AntD's Send button + Enter still work. Both paths now stay on /travel.",
+    "repos/gui/src/components/NoetlPrompt.tsx": "modified — `verb === 'report'` branch's textual summary line now reads `render=<type>` when extractAgentRender finds a widget on the execution, falling back to `result=<json>` only when no render is present. Same widget-attaching behavior; just clearer summary text. Cosmetic but matches what the user actually sees in the prompt history."
+  },
+
+  "context_from_amber_round_7": {
+    "what_passed": "render_X-as-tail design proven. execution.result.render = {type: 'app:column', args: {...}} per `noetl status <id> --json | jq '.result.render'`. Terminal prompt widgets visible inline for help, flights, locations. report command surfaces widget below textual summary.",
+    "what_failed_canvas": "Submitting query from /travel canvas led to /catalog. Returning to /travel showed empty chat history. Diagnosed as the AntD Input.Search not preventDefault'ing the form submit; the browser navigates to `/`; the app router's default-redirect rule (visibleMenuItems[0].path) sends admins to /catalog.",
+    "what_failed_formatter": "report 622795473002168855 displayed the widget below the text, but the textual summary line still printed `result=-` because the GUI's getExecution response projects execution.result as empty (the watcher uses extractAgentRender which walks events to find render, but compactJson(execution.result) sees the empty top-level result)."
+  },
+
+  "phases": {
+    "1_typecheck_and_build": {
+      "objective": "Confirm GUI compiles cleanly.",
+      "spec": [
+        "`cd repos/gui && npm install && npx tsc --noEmit` — Claude verified locally; expect exit=0.",
+        "`cd repos/gui && npm run build`."
+      ],
+      "verify": "Both pass."
+    },
+
+    "2_open_and_merge_gui_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/gui && git checkout -b kadyapam/canvas-form-submit-and-report-formatter`.",
+        "Stage src/components/GatewayAssistant.tsx + src/components/NoetlPrompt.tsx.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `fix(gui): canvas form-submit preventDefault + report shows render type when widget present`. Body cites round 7 result file's two AMBER findings, explains the form preventDefault and the render=<type> formatter.",
+        "PR title: same.",
+        "Push, PR, merge. semantic-release will likely cut v1.10.x."
+      ],
+      "verify": "PR merged. Capture PR URL + merge SHA + new GUI release tag."
+    },
+
+    "3_redeploy_gui": {
+      "objective": "Deploy patched GUI to local kind.",
+      "spec": [
+        "Wait for GUI release tag.",
+        "`noetl exec noetl/lifecycle/bump_image --runtime local --payload '{\"deployment\":\"gui\",\"namespace\":\"noetl\",\"image\":\"ghcr.io/noetl/gui:<TAG>\"}'`.",
+        "kubectl rollout status deploy/gui --timeout=180s."
+      ],
+      "verify": "GUI rollout complete on the new tag."
+    },
+
+    "4_smoke_canvas_widget_visibility": {
+      "objective": "Confirm /travel canvas now keeps the chat + widget after submit.",
+      "spec": [
+        "Navigate to /travel.",
+        "Type a flight query (e.g. 'flights from SFO to JFK on 2026-07-15 for 2 adults') and press Enter (or click Send).",
+        "Expected: stays on /travel, user message appears in chat log, then assistant message with widget below appears once the agent execution completes.",
+        "Click rerun in the widget; canvas should resubmit (run a fresh execution) and append a new chat entry.",
+        "Refresh the page (hard reload). Expected: chat history is preserved (sessionStorage) and previous widget renders.",
+        "Capture screenshot showing widget below chat bubble on /travel."
+      ],
+      "verify": "Canvas stays on /travel after submit. Widget visible below chat bubble. Refresh preserves state."
+    },
+
+    "5_smoke_report_summary": {
+      "objective": "Confirm report command's textual summary shows render type when widget present.",
+      "spec": [
+        "In the prompt: `report <execution_id>` (any recent travel execution that emitted render).",
+        "Expected: textual summary line reads `render=app:column` (or whatever the widget's type is) instead of `result=-`. Widget still renders below.",
+        "Run `report` against a non-render execution (e.g. an old execution without render) — expected: line reads `result=<json>` (the original behavior)."
+      ],
+      "verify": "render=<type> line for render-emitting executions; result=<json> fallback otherwise."
+    },
+
+    "6_smoke_terminal_regression": {
+      "objective": "Confirm terminal travel verb still GREEN.",
+      "spec": [
+        "`travel help` / `travel flights from SFO to JFK on 2026-07-15` / `travel locations near Boston`.",
+        "All complete with widgets inline (regression check from round 6)."
+      ],
+      "verify": "All three intents still complete + widget visible."
+    },
+
+    "7_bump_ai_meta_pointer": {
+      "objective": "Bump repos/gui gitlink.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/gui`.",
+        "`git add repos/gui`.",
+        "Commit: `chore(sync): bump gui for canvas form-submit + report formatter (flagship GREEN)`.",
+        "Don't push ai-meta."
+      ],
+      "verify": "ai-meta has a fresh local commit on top of existing 32 unpushed commits."
+    }
+  },
+
+  "expected_state": {
+    "description": "Canvas keeps user on /travel after submit; widgets render below chat bubble. Report textual summary reads render=<type> when widget present. Terminal regression passes. ai-meta gitlink staged.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; FORM_FIX=$(grep -c 'preventDefault' repos/gui/src/components/GatewayAssistant.tsx 2>/dev/null || echo 0); FORMATTER_FIX=$(grep -c 'render=\\${(renderPayload as' repos/gui/src/components/NoetlPrompt.tsx 2>/dev/null || echo 0); echo \"form_fix:$FORM_FIX formatter_fix:$FORMATTER_FIX\"; if [ \"$FORM_FIX\" -ge 1 ] && [ \"$FORMATTER_FIX\" -ge 1 ]; then echo 'GOAL: CANVAS_FORM_AND_REPORT_FORMATTER_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: CANVAS_FORM_AND_REPORT_FORMATTER_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/ops, repos/docs, repos/e2e",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Switching kind from Podman",
+    "Cutting a noetl release",
+    "Tweaking Claude's TypeScript code beyond obvious typos",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "cd repos/gui && npm install && npx tsc --noEmit && npm run build",
+    "git apply / git commit -F - / git push (one topic branch in repos/gui only)",
+    "gh pr create / gh pr merge --squash --delete-branch / gh release view",
+    "noetl exec noetl/lifecycle/bump_image --runtime local",
+    "Browser screenshot for the canvas + report smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-071816-canvas-form-submit-and-report-formatter-amber-to-green.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_typecheck_and_build, 2_open_and_merge_gui_pr: {pr_url, merged_sha, gui_release_tag}, 3_redeploy_gui: {gui_tag, rollout_status}, 4_smoke_canvas_widget_visibility: {url_after_submit, chat_visible, widget_visible_below_bubble, refresh_preserves_state, rerun_button_works, screenshot}, 5_smoke_report_summary: {render_emitting_execution_summary_line, non_render_execution_summary_line}, 6_smoke_terminal_regression: {help_status, flights_status, locations_status}, 7_bump_ai_meta_pointer: {gui_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Audit table re-add as side effect inside each render_* step', 'Gateway SSE callback re-add as side effect', 'Multi-provider keychain re-introduction', 'Phase 2 travel agent uses Amadeus MCP server internally', 'Wire hotels and activities branches', 'app:form widget for refining filters', 'Pin design rule in architecture/agent_orchestration.md: render-emitting step is the workflow tail; audit/callback are side effects']}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting the travel agent flagship round closed GREEN."
+}

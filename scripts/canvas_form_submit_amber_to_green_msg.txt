@@ -1,0 +1,87 @@
+Codex prompt — Canvas form-submit + report formatter polish (AMBER round 7 → GREEN)
+======================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-071816-canvas-form-submit-and-report-formatter-amber-to-green.task.json
+
+Result goes to:
+  bridge/outbox/20260509-071816-canvas-form-submit-and-report-formatter-amber-to-green.result.json
+
+Prior round (AMBER round 7):
+  bridge/outbox/20260509-065650-travel-render-tail-amber-to-green.result.json
+
+Context:
+  Backend GREEN, terminal-prompt visibility GREEN. Two AMBER findings remain:
+    1. /travel canvas submit navigates to /catalog and chat history is lost.
+       Diagnosed as AntD's Input.Search not preventDefault'ing the form
+       submit; browser navigates to "/", app router redirects authenticated
+       admins to /catalog (visibleMenuItems[0].path).
+    2. report command summary line printed `result=-` even when widget
+       rendered correctly below — execution.result projection by GUI's
+       getExecution leaves top-level result empty; extractAgentRender finds
+       render via events but compactJson(execution.result) sees nothing.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/gui/src/components/GatewayAssistant.tsx
+    Wrapped the Input.Search in `<form onSubmit={(e) => { e.preventDefault();
+    if (query.trim() && !submitting) onSubmit(query); }} style={{width: '100%'}}>`.
+    Comment block cites the round-7 result diagnosis. Form preventDefault
+    keeps user on /travel; AntD's Input.Search keeps its onSearch wired to
+    onSubmit so Send button + Enter both work without triggering the browser's
+    native form-submit-to-`/`.
+
+  repos/gui/src/components/NoetlPrompt.tsx
+    `verb === 'report'` branch: textual summary line now reads
+    `render=<type>` when extractAgentRender finds a widget; falls back to
+    `result=<json>` when no render is present. Cosmetic — widget still attaches.
+
+Verified: tsc --noEmit clean.
+
+Codex job (7 phases — see task JSON):
+
+  1. typecheck + build:        cd repos/gui && npm install && npx tsc --noEmit && npm run build
+  2. gui PR:                   branch kadyapam/canvas-form-submit-and-report-formatter
+                               PR title: "fix(gui): canvas form-submit preventDefault + report shows render type when widget present"
+                               --squash --delete-branch on merge
+                               (semantic-release likely v1.10.x patch)
+  3. redeploy gui:             noetl exec noetl/lifecycle/bump_image --runtime local
+                               kubectl rollout status deploy/gui --timeout=180s
+  4. canvas widget visibility: /travel page; flight query; press Enter or click Send.
+                               Expected: stays on /travel; chat bubble + widget
+                               below; rerun button resubmits; refresh preserves state.
+                               Screenshot.
+  5. report formatter:         report <render-emitting-execution-id>. Expected:
+                               summary line reads render=<type>. Widget renders below.
+                               report against a non-render execution → result=<json>.
+  6. terminal regression:      travel help/flights/locations still complete with widgets.
+  7. ai-meta pointer bump:     git submodule update --remote repos/gui
+                               git add repos/gui
+                               git commit: "chore(sync): bump gui for canvas form-submit + report formatter (flagship GREEN)"
+                               DO NOT push. Lands on top of existing 32 unpushed commits.
+
+Architectural rules:
+  - Only repos/gui change.
+  - Podman-only for kind.
+  - No noetl release.
+  - No tweaking Claude's TypeScript beyond obvious typos.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch GUI canvas form-submit + report formatter
+       (repos/gui: GatewayAssistant.tsx + NoetlPrompt.tsx)
+    2. chore(bridge): hand canvas-form-submit AMBER → GREEN round to Codex
+       (bridge/inbox/delegated/20260509-071816-canvas-form-submit-and-report-formatter-amber-to-green.task.json)
+    3. chore(scripts): codex prompt for canvas-form-submit AMBER → GREEN
+       (scripts/canvas_form_submit_amber_to_green_msg.txt)
+    4. memory(add): canvas form-submit + report formatter designed
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 32 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/gui (1 PR — surgical 2-spot edit).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/gui after the PR merges.
