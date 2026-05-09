@@ -1,0 +1,105 @@
+{
+  "id": "20260509-061206-travel-failure-status-amber-to-green",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T06:25:29Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_validate": {
+      "validates": true,
+      "command": "repos/noetl/.venv/bin/python - <<'PY' ... Playbook.model_validate(...)",
+      "evidence": "PASS repos/ops/automation/agents/travel/runtime.yaml"
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/52",
+      "branch": "kadyapam/travel-render-failure-no-fail-status",
+      "local_commit": "81f62d1",
+      "merged_sha": "a73f56027906420a633663246f412c6a55bacf67",
+      "title": "fix(travel-agent): render_amadeus_failure returns ok status so widget surfaces in prompt"
+    },
+    "3_re_register": {
+      "travel_catalog_id": "622771646864032262",
+      "travel_version": 5,
+      "path": "automation/agents/travel/runtime"
+    },
+    "4_smoke_terminal_all_intents": {
+      "help_status": "completed",
+      "help_execution_id": "622771716573364743",
+      "help_duration_seconds": 4.828,
+      "help_render_tree_present": true,
+      "flights_status": "completed",
+      "flights_execution_id": "622771716573364744",
+      "flights_duration_seconds": 8.97,
+      "flights_render_tree_present": true,
+      "flights_widget_visible": false,
+      "flights_outcome": "amadeus_failure",
+      "flights_upstream_status_code": 500,
+      "locations_status": "completed",
+      "locations_execution_id": "622771717605163529",
+      "locations_duration_seconds": 8.998,
+      "locations_render_tree_present": true,
+      "locations_widget_visible": false,
+      "locations_outcome": "amadeus_failure",
+      "locations_upstream_status_code": 500,
+      "screenshots": [
+        "bridge/outbox/travel-final-help-622771716573364743.png",
+        "bridge/outbox/travel-final-flights-622771716573364744.png",
+        "bridge/outbox/travel-final-locations-622771717605163529.png"
+      ],
+      "notes": "All three intents completed at the NoETL/playbook level and retained render payloads in step data. The prompt history visibility assertion still failed: running the travel command from the terminal-style prompt produced a completed execution but no widget appeared inline."
+    },
+    "5_smoke_canvas": {
+      "execution_id": null,
+      "widget_visible": false,
+      "screenshot": null,
+      "status": "blocked",
+      "notes": "The deployed /travel canvas still displayed the old api_integration/amadeus_ai_api wording and POST /execute returned HTTP 422, so the flagship travel runtime was not exercised from the canvas surface in this round."
+    },
+    "6_bump_ai_meta_pointer": {
+      "ops_sha": "a73f56027906420a633663246f412c6a55bacf67",
+      "ai_meta_commit_local": null,
+      "status": "pending_commit_at_result_write"
+    }
+  },
+  "additional_prompt_auto_render_probe": {
+    "execution_id": "622774401993278342",
+    "status": "completed",
+    "failed": false,
+    "duration_seconds": 7.354,
+    "intent": "flights",
+    "outcome": "amadeus_failure",
+    "upstream_status_code": 500,
+    "render_type": "app:column",
+    "prompt_history_visible": false,
+    "report_text": "622774401993278342 | completed | automation/agents/travel/runtime | 100% | 7s events=20 result=-",
+    "diagnosis": "The one-line status->outcome fix works: render_amadeus_failure no longer fails the execution. However, completed travel executions still expose no top-level execution.result.render. The GUI watcher/report path appears to depend on top-level result.render, so the widget remains invisible even though the step-level render payload exists."
+  },
+  "regressions_found": [
+    {
+      "name": "completed travel executions have result=- for GUI watcher/report",
+      "severity": "HIGH",
+      "details": "The backend execution completes and the render widget exists in step data, but no top-level execution.result.render is persisted. The NoETL prompt auto-render watcher did not surface the widget after more than 60 seconds, and report showed result=-."
+    },
+    {
+      "name": "/travel canvas still targets old api_integration/amadeus_ai_api path",
+      "severity": "HIGH",
+      "details": "The deployed travel canvas displayed the old api_integration/amadeus_ai_api helper text and POST /execute returned 422, so the canvas widget smoke could not validate the new flagship travel runtime."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": [
+    "The ops PR successfully fixed the NoETL step-failure convention problem: result.status='failed' was renamed to result.outcome='amadeus_failure'.",
+    "All three terminal intents completed at the NoETL level after re-registering travel runtime version 5.",
+    "The remaining gap is not the original step status bug. It is render propagation/visibility: the GUI has no top-level render payload to attach in prompt history, and /travel still appears to be wired to the old playbook surface.",
+    "No GREEN validation log paragraph was appended because the acceptance criterion required widgets visible in prompt/canvas, and that did not pass."
+  ],
+  "deferred_followups": [
+    "Make the travel runtime's final/top-level execution result carry the selected render payload, or update the GUI watcher/report path to extract the latest render payload from persisted events/step variables.",
+    "Update and redeploy the /travel canvas to target automation/agents/travel/runtime instead of api_integration/amadeus_ai_api, then repeat the canvas smoke.",
+    "Add a playbook authoring guide note: do not use result.status='failed' for semantic failure states; use outcome, kind, category, or another non-magic field.",
+    "After noetl#88 preserves HTTP response bodies on error, consider returning Amadeus calls to kind:http with an error-envelope option instead of urllib wrappers.",
+    "Phase 2 travel follow-up remains: route travel agent API calls through mcp/amadeus internally and add hotels/activities branches.",
+    "Phase 3 travel follow-up remains: restore multi-provider parity with a keychain-compatible mechanism."
+  ]
+}
