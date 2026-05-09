@@ -1,0 +1,114 @@
+{
+  "id": "20260509-061206-travel-failure-status-amber-to-green",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T06:12:06Z",
+  "title": "Travel agent — render_amadeus_failure returns ok status (AMBER round 4 → GREEN, one-line fix)",
+
+  "description": "Round 4 closed AMBER but very close. urllib wrappers landed; Amadeus 500s no longer abort steps. render_amadeus_failure now runs and builds the friendly error widget. The remaining blocker is one line: that step's result dict had `status: failed`, which NoETL interprets as a step-level failure and propagates to the whole execution. The widget IS attached to the result, but the execution status is FAILED. Claude has shipped the fix in working tree, NOT committed: changed `result['status'] = 'failed'` to `result['outcome'] = 'amadeus_failure'` (a non-status field). The widget content, upstream_status_code, alert variant, and user_message are all preserved. Codex job: validate, ship 1 ops PR, re-register, replay smokes — all should now reach status=completed regardless of Amadeus 200/5xx. Cap: 1 ops PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "files_claude_wrote": {
+    "repos/ops/automation/agents/travel/runtime.yaml": "modified — render_amadeus_failure step's result dict no longer sets `status: failed`. The field is renamed to `outcome: amadeus_failure` (non-magic field name). `upstream_status_code`, `user_message`, `summary`, `text`, and the `render` widget tree are unchanged. The widget still surfaces the friendly error UI; the execution now completes at the NoETL level."
+  },
+
+  "context_from_amber_round_4": {
+    "what_passed": "Both keychain fixes and urllib wrappers proven. travel help completed. MCP tools/list, get_token, search_activities all green. MCP search_locations/search_flights/search_hotels complete at NoETL level with isError=true and Amadeus 500 captured.",
+    "what_failed": "travel flights and travel locations executions reach render_amadeus_failure (which IS the right path), build the friendly error widget, but render_amadeus_failure returned `status: failed` and NoETL marked the whole execution as FAILED.",
+    "diagnosis": "NoETL convention: if a step's result dict contains `status: failed`, the step itself is treated as failed at the runtime level. The widget IS attached to the execution, but the auto-render watcher's `if (status === 'completed')` gate means the widget never surfaces in the prompt. Same applies to the canvas which only attaches widgets to completed executions.",
+    "fix": "Rename the field to `outcome: amadeus_failure`. NoETL no longer sees a step-level failure; the execution completes; the watcher fires; the widget renders inline."
+  },
+
+  "phases": {
+    "1_validate": {
+      "objective": "Confirm playbook still validates.",
+      "spec": ["`noetl validate repos/ops/automation/agents/travel/runtime.yaml`"],
+      "verify": "Validates."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge the one-line fix.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-render-failure-no-fail-status`.",
+        "Stage automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `fix(travel-agent): render_amadeus_failure returns ok status so widget surfaces in prompt`. Body cites AMBER round 4 result, notes the field rename from status:failed to outcome:amadeus_failure.",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged. Capture PR URL + merge SHA."
+    },
+
+    "3_re_register": {
+      "objective": "Re-register the patched travel runtime.",
+      "spec": [
+        "Pull merged ops at HEAD.",
+        "`noetl register repos/ops/automation/agents/travel/runtime.yaml` (now version 5).",
+        "Capture new catalog_id + version."
+      ],
+      "verify": "New version registered."
+    },
+
+    "4_smoke_terminal_all_intents": {
+      "objective": "All three intents complete, with widgets surfacing in the prompt.",
+      "spec": [
+        "`travel help` — expected: status=completed (regression).",
+        "`travel flights from SFO to JFK on 2026-07-15 for 2 adults` — expected: status=completed regardless of Amadeus 200/5xx. Widget rendered is either flight carousel (200) or friendly error (5xx). The auto-render watcher attaches the widget below the textual report.",
+        "`travel locations near Boston` — same: status=completed, widget surfaces.",
+        "Capture screenshots of the widgets actually appearing inline in the prompt history (this was missing in round 4 because executions were FAILED)."
+      ],
+      "verify": "All three intents reach status=completed AND widgets visible in prompt."
+    },
+
+    "5_smoke_canvas": {
+      "objective": "Travel canvas surfaces the widget below the chat bubble.",
+      "spec": [
+        "Navigate to /travel. Type a flight query.",
+        "Expected: chat bubble with text + widget below — even if Amadeus 500s.",
+        "Click rerun in the widget; canvas re-runs.",
+        "Capture screenshot."
+      ],
+      "verify": "Canvas widget renders for both happy-path and friendly-error outcomes."
+    },
+
+    "6_bump_ai_meta_pointer": {
+      "objective": "Bump repos/ops gitlink.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops`.",
+        "`git add repos/ops`.",
+        "Commit: `chore(sync): bump ops for render_amadeus_failure ok-status fix (flagship GREEN)`.",
+        "Don't push ai-meta."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "render_amadeus_failure no longer sets status:failed. All travel intents complete with widgets visible in the prompt. ai-meta gitlink staged.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; BAD=$(grep -c '\"status\": \"failed\"' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); GOOD=$(grep -c 'outcome.*amadeus_failure' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"bad:$BAD good:$GOOD\"; if [ \"$BAD\" -eq 0 ] && [ \"$GOOD\" -ge 1 ]; then echo 'GOAL: TRAVEL_RENDER_FAILURE_OK_STATUS_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_RENDER_FAILURE_OK_STATUS_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/docs, repos/e2e",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Switching kind from Podman",
+    "Cutting a noetl release",
+    "Tweaking Claude's playbook beyond obvious typos",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate / noetl register",
+    "noetl status <execution_id> --json",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-061206-travel-failure-status-amber-to-green.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_validate: {validates}, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_re_register: {travel_catalog_id, travel_version}, 4_smoke_terminal_all_intents: {help_status, flights_status, flights_widget_visible, locations_status, locations_widget_visible, screenshots: []}, 5_smoke_canvas: {execution_id, widget_visible, screenshot}, 6_bump_ai_meta_pointer: {ops_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting the travel agent flagship round closed GREEN."
+}

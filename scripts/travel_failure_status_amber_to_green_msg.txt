@@ -1,0 +1,73 @@
+Codex prompt — Travel agent render_amadeus_failure ok status (AMBER round 4 → GREEN)
+=======================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-061206-travel-failure-status-amber-to-green.task.json
+
+Result goes to:
+  bridge/outbox/20260509-061206-travel-failure-status-amber-to-green.result.json
+
+Prior round (AMBER round 4):
+  bridge/outbox/20260509-060007-travel-amadeus-urllib-amber-to-green.result.json
+
+Context:
+  Round 4 closed AMBER but very close. urllib wrappers landed; Amadeus 500s no
+  longer abort steps. render_amadeus_failure now runs and builds the friendly
+  error widget. Remaining blocker: the step's result dict had `status: failed`,
+  which NoETL interprets as a step-level failure → execution marked FAILED →
+  the auto-render watcher's `if (status === 'completed')` gate prevents the
+  widget from surfacing.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/ops/automation/agents/travel/runtime.yaml — render_amadeus_failure step
+    Renamed `result['status'] = 'failed'` to `result['outcome'] = 'amadeus_failure'`.
+    A non-magic field name. NoETL no longer sees a step-level failure; the
+    execution completes; the watcher fires; the widget renders inline.
+    All other fields (upstream_status_code, user_message, summary, text, render)
+    unchanged.
+
+Codex job (6 phases — see task JSON):
+
+  1. validate:                  noetl validate repos/ops/automation/agents/travel/runtime.yaml
+  2. ops PR:                    branch kadyapam/travel-render-failure-no-fail-status
+                                PR title: "fix(travel-agent): render_amadeus_failure returns ok status so widget surfaces in prompt"
+                                --squash --delete-branch on merge
+  3. re-register:               noetl register the patched runtime; capture new version
+  4. terminal smoke (all 3):    travel help / flights / locations. All MUST reach
+                                status=completed AND widget visible in prompt history.
+                                For Amadeus-flaky cases, friendly-error widget appears
+                                instead of carousel/recordtable — that is GREEN, not
+                                AMBER. Screenshots showing widgets in the prompt.
+  5. canvas smoke:              /travel page; flight query; widget below chat bubble;
+                                rerun resubmits.
+  6. ai-meta pointer bump:      git submodule update --remote repos/ops
+                                git add repos/ops
+                                git commit: "chore(sync): bump ops for render_amadeus_failure ok-status fix (flagship GREEN)"
+                                DO NOT push ai-meta. Lands on top of existing 22 unpushed commits.
+
+Architectural rules:
+  - Only repos/ops change.
+  - Podman-only for kind.
+  - No noetl release.
+  - No tweaking Claude's playbook beyond obvious typos.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch travel render_amadeus_failure to non-failure status
+       (repos/ops: travel/runtime.yaml — single field rename)
+    2. chore(bridge): hand travel-failure-status AMBER → GREEN round to Codex
+       (bridge/inbox/delegated/20260509-061206-travel-failure-status-amber-to-green.task.json)
+    3. chore(scripts): codex prompt for travel-failure-status AMBER → GREEN
+       (scripts/travel_failure_status_amber_to_green_msg.txt)
+    4. memory(add): travel render-failure ok-status fix designed
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 22 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR — single field rename).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops after the PR merges.
