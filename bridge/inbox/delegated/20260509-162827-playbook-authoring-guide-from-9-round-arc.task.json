@@ -1,0 +1,169 @@
+{
+  "id": "20260509-162827-playbook-authoring-guide-from-9-round-arc",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T16:28:27Z",
+  "title": "Playbook Authoring Guide — pin the 11 design rules from the 9-round travel agent arc into docs",
+
+  "description": "Travel agent flagship round closed GREEN after 9 rounds of fix→smoke→AMBER→fix iteration. Each round surfaced a generalizable design rule (NoETL convention, Jinja/YAML quoting, GUI form-submit, widget event handling, etc.) that future playbook/agent authors will hit if not documented. Codex is asked to land a new authoring guide at `repos/docs/docs/reference/playbook_authoring_guide.md` and cross-link from `architecture/agent_orchestration.md` and `gui/widgets.md`. Pure docs round — no code changes anywhere. Captures fresh institutional knowledge before it's forgotten. Each rule has a code snippet (good vs. bad), a one-line trace from the 9-round result-file evidence, and a 'why' so the rule reads as design rationale not just dogma. Cap: 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "claude_brief_for_codex": {
+    "shape_of_the_doc": "Single new file at repos/docs/docs/reference/playbook_authoring_guide.md. Frontmatter: title 'Playbook authoring guide — design rules learned from the AI-OS travel agent arc', sidebar_label 'Playbook authoring guide', sidebar_position 4, description matching widgets.md tonal style. Body has one section per rule, each ~80-150 words: (1) statement of the rule, (2) good-pattern code snippet, (3) bad-pattern code snippet that motivated the rule, (4) one-sentence trace to the round + result-file path that surfaced it. Final 'See also' section cross-links architecture/agent_orchestration.md, gui/widgets.md, gui/catalog-ux.md, tutorials/07-travel-agent-with-widgets.md.",
+    "11_rules_to_pin_with_evidence_anchors": [
+      {
+        "rule": "Use a distinct field name (outcome / kind / category) for non-status semantic state in step result; never set result.status='failed' for a step that succeeded at the workflow level.",
+        "round": 4,
+        "evidence": "bridge/outbox/20260509-061206-travel-failure-status-amber-to-green.result.json",
+        "good": "result = {'outcome': 'amadeus_failure', 'upstream_status_code': 500, 'render': render_widget}",
+        "bad": "result = {'status': 'failed', 'upstream_status_code': 500, 'render': render_widget}  # NoETL marks the execution FAILED"
+      },
+      {
+        "rule": "Render-emitting step is the workflow tail. Audit (postgres) and gateway callback (http) are SIDE EFFECTS inside that step (psycopg / urllib), never trailing steps that overwrite the result.",
+        "round": 6,
+        "evidence": "bridge/outbox/20260509-065650-travel-render-tail-amber-to-green.result.json",
+        "good": "render_flights step emits result.render and has no `next.arcs` — it's the tail. NoETL sets execution.result = render_flights.result.",
+        "bad": "render_flights → persist_and_callback (kind: postgres) → end (noop). Postgres step's result clobbers render. execution.result.render is empty."
+      },
+      {
+        "rule": "NoETL keychain block evaluates Jinja with workload merged into top-level scope. Use bare references (`{{ gcp_auth }}`, `{{ amadeus_key_path }}`) — `{{ workload.X }}` silently binds to empty strings.",
+        "round": 2,
+        "evidence": "bridge/outbox/20260509-054530-travel-keychain-amber-to-green.result.json",
+        "good": "auth: \"{{ gcp_auth }}\"\nmap:\n  api_key: \"{{ openai_secret_path }}\"",
+        "bad": "auth: \"{{ workload.gcp_auth }}\"\nmap:\n  api_key: \"{{ workload.openai_secret_path }}\"  # binds to empty"
+      },
+      {
+        "rule": "OAuth2 keychain endpoint URL must be a plain string. Jinja conditionals don't render in keychain context.",
+        "round": 2,
+        "evidence": "bridge/outbox/20260509-054530-travel-keychain-amber-to-green.result.json",
+        "good": "endpoint: https://test.api.amadeus.com/v1/security/oauth2/token",
+        "bad": "endpoint: \"{{ 'https://test.api...' if workload.env == 'test' else 'https://api...' }}/v1/security/oauth2/token\""
+      },
+      {
+        "rule": "External HTTP calls (Amadeus, third-party APIs) that may return 4xx/5xx should be wrapped in `kind: python` with urllib.request — NoETL's HTTP tool currently aborts the step on non-2xx (pending task #88), preventing conditional arcs from routing to a friendly error path. The wrapper returns a uniform `{ok, status_code, body}` envelope.",
+        "round": 3,
+        "evidence": "bridge/outbox/20260509-060007-travel-amadeus-urllib-amber-to-green.result.json",
+        "good": "kind: python with urllib.request.urlopen + try/except HTTPError → returns {ok, status_code, body}",
+        "bad": "kind: http with retry: max_attempts: 3 — workflow halts on 5xx after retries exhaust"
+      },
+      {
+        "rule": "YAML-quoted Jinja with `| int` filter still renders as a string in the resulting payload. Hardcode integer-typed payload fields, or build the payload in a python step and pass it through.",
+        "round": 3,
+        "evidence": "bridge/outbox/20260509-054530-travel-keychain-amber-to-green.result.json",
+        "good": "searchCriteria:\n  maxFlightOffers: 10",
+        "bad": "searchCriteria:\n  maxFlightOffers: \"{{ workload.maxFlightOffers | default(10) | int }}\"  # still a string"
+      },
+      {
+        "rule": "When inserting JSON into postgres SQL via Jinja, pre-serialise the dict to a string field in a python step, then use the proven `'{{ field | replace(\"'\", \"''\") }}'::jsonb` pattern. Inline `{{ dict | tojson | replace(\"'\", \"''\") }}` doesn't render reliably inside YAML literal blocks.",
+        "round": 1,
+        "evidence": "bridge/outbox/20260509-051749-travel-agent-amber-to-green.result.json",
+        "good": "result['json_str'] = json.dumps(result, separators=(',', ':'))  # in python step\n# then in SQL:\n'{{ parse_classification.json_str | replace(\"'\", \"''\") }}'::jsonb",
+        "bad": "'{{ parse_classification | tojson | replace(\"'\", \"''\") }}'::jsonb  # Postgres receives literal Jinja"
+      },
+      {
+        "rule": "When introducing a constant for a playbook/catalog path in repos/gui, grep the whole src/ for any other hardcoded references — at least two places (component + service layer) often need the same path.",
+        "round": 5,
+        "evidence": "bridge/outbox/20260509-063112-travel-bubble-render-and-canvas-amber-to-green.result.json",
+        "good": "Update both src/components/GatewayAssistant.tsx (TRAVEL_PLAYBOOK_PATH) AND src/services/gatewayAuth.ts (PLAYBOOK_NAME) when the canonical path changes.",
+        "bad": "Updating only the component — the service layer's hardcoded constant still routes to the old playbook."
+      },
+      {
+        "rule": "Inputs (Input.Search, Input with onPressEnter) outside an explicit `<form onSubmit={(e) => e.preventDefault()}>` wrapper can navigate to `/` via the browser's native form-submit. The app router's default-redirect rule then lands the user on the wrong page.",
+        "round": 7,
+        "evidence": "bridge/outbox/20260509-065650-travel-render-tail-amber-to-green.result.json",
+        "good": "<form onSubmit={(e) => { e.preventDefault(); if (query.trim() && !submitting) onSubmit(query); }}>\n  <Input.Search value={query} onChange={...} onSearch={onSubmit} />\n</form>",
+        "bad": "<Input.Search value={query} onChange={...} onSearch={onSubmit} />  // no form wrapper — Enter navigates to /"
+      },
+      {
+        "rule": "Widget buttons need preventDefault() + stopPropagation() in their onClick because they may be rendered inside parent forms / event-bubbling surfaces. Without them, the widget callback fires AND the surrounding form-submit also fires, causing double-effects (widget command + accidental nav).",
+        "round": 8,
+        "evidence": "bridge/outbox/20260509-155138-canvas-widget-rerun-green.result.json",
+        "good": "onClick={(clickEvent) => { clickEvent.preventDefault(); clickEvent.stopPropagation(); onWidgetEvent({event:'onPressEvent', key:event.key, value:event.value}); }}",
+        "bad": "onClick={() => onWidgetEvent({event:'onPressEvent', key:event.key, value:event.value})}  // bubbles to ancestor form"
+      },
+      {
+        "rule": "When a widget's button emits `command: 'rerun <id>'` and the surface needs to re-execute, the surface must keep the original semantic input (`sourcePrompt`) in chat-message state — `<id>` alone isn't enough to resubmit a natural-language query against the playbook. Without sourcePrompt, the rerun verb sees the literal `<id>` and produces noise.",
+        "round": 8,
+        "evidence": "bridge/outbox/20260509-155138-canvas-widget-rerun-green.result.json",
+        "good": "ChatMessage type carries `sourcePrompt?: string`. Widget rerun → look up the source message's sourcePrompt → call onSubmit(sourcePrompt).",
+        "bad": "Widget rerun → call runCommand(`rerun ${id}`) — surface has no original query to resubmit."
+      }
+    ]
+  },
+
+  "phases": {
+    "1_author_authoring_guide": {
+      "objective": "Write the new doc.",
+      "spec": [
+        "Create repos/docs/docs/reference/playbook_authoring_guide.md.",
+        "Frontmatter per the brief above.",
+        "Open with a short intro: 'These rules came from the 9-round travel agent flagship round (sync/issues/2026-05-09-travel-agent-widget-flagship.md). Each is a generalizable design rule a NoETL playbook or agent author can use without reproducing the AMBER→GREEN cycle.'",
+        "One section per rule. Format consistently: H3 heading (the rule, declarative), 'Why' paragraph (~3 sentences), good/bad code blocks side by side or sequential, one-line evidence trace ('Surfaced in round N — see <result-file>').",
+        "Order rules by playbook layer, not by round number: keychain (rule 3, 4), step semantics (rule 1, 2), HTTP tool (rule 5), YAML quoting (rule 6, 7), GUI integration (rule 8, 9, 10, 11).",
+        "Final 'See also' section: link to architecture/agent_orchestration.md, gui/widgets.md, gui/catalog-ux.md, tutorials/07-travel-agent-with-widgets.md, plus an external link to the chatui reference repo."
+      ],
+      "verify": "File exists at repos/docs/docs/reference/playbook_authoring_guide.md with all 11 rules covered, each with good/bad code blocks and a result-file trace."
+    },
+
+    "2_cross_link_from_existing_docs": {
+      "objective": "Add cross-references in 2 existing files so the new guide is discoverable.",
+      "spec": [
+        "repos/docs/docs/architecture/agent_orchestration.md — add a 'Authoring rules' subsection near the top (after the intro) with one paragraph: 'The travel agent flagship round (May 2026) surfaced 11 generalizable design rules for playbook authors. They're documented in the Playbook authoring guide.' Link to the new file.",
+        "repos/docs/docs/gui/widgets.md — add a paragraph at the bottom of 'Where widgets surface today' or near the security section: 'For the broader set of design rules learned during the travel agent flagship build (render-as-tail, side-effect audit, pluggable AI providers, widget button event handling), see the Playbook authoring guide.' Link to the new file.",
+        "Verify both cross-links render correctly with `cd repos/docs && npm install && npm run build`."
+      ],
+      "verify": "Both pages have working cross-links to the new guide. Docs build clean."
+    },
+
+    "3_open_and_merge_docs_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/playbook-authoring-guide`.",
+        "Stage the new file + the two updated files (architecture/agent_orchestration.md, gui/widgets.md).",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `docs(reference): playbook authoring guide pinning 11 design rules from the AI-OS travel agent arc`.",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged. Docs build clean on Cloudflare Pages."
+    },
+
+    "4_bump_ai_meta_pointer": {
+      "objective": "Bump repos/docs gitlink in ai-meta.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/docs`.",
+        "`git add repos/docs`.",
+        "Commit: `chore(sync): bump docs for playbook authoring guide`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit on top of existing 37 unpushed commits."
+    }
+  },
+
+  "expected_state": {
+    "description": "playbook_authoring_guide.md exists in repos/docs with all 11 rules. agent_orchestration.md and widgets.md cross-link to it. Docs build clean. ai-meta gitlink staged.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; HAS=0; if [ -f repos/docs/docs/reference/playbook_authoring_guide.md ]; then HAS=1; fi; ARCH_LINK=$(grep -c 'playbook_authoring_guide' repos/docs/docs/architecture/agent_orchestration.md 2>/dev/null || echo 0); WIDGET_LINK=$(grep -c 'playbook_authoring_guide' repos/docs/docs/gui/widgets.md 2>/dev/null || echo 0); echo \"has:$HAS arch_link:$ARCH_LINK widget_link:$WIDGET_LINK\"; if [ \"$HAS\" -eq 1 ] && [ \"$ARCH_LINK\" -ge 1 ] && [ \"$WIDGET_LINK\" -ge 1 ]; then echo 'GOAL: PLAYBOOK_AUTHORING_GUIDE_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: PLAYBOOK_AUTHORING_GUIDE_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/ops, repos/e2e — docs-only round",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Cutting a noetl/gui/e2e release",
+    "Adding new features or examples beyond the 11 rules",
+    "Rewriting agent_orchestration.md or widgets.md beyond the new cross-link paragraph",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "cd repos/docs && npm install && npm run build (verify clean)",
+    "git apply / git commit -F - / git push (one topic branch in repos/docs only)",
+    "gh pr create / gh pr merge --squash --delete-branch"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-162827-playbook-authoring-guide-from-9-round-arc.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_author_authoring_guide: {file_size_lines, rules_covered: 11, has_good_bad_blocks, has_evidence_traces}, 2_cross_link_from_existing_docs: {arch_link_added, widget_link_added, docs_build_clean: bool}, 3_open_and_merge_docs_pr: {pr_url, merged_sha}, 4_bump_ai_meta_pointer: {docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Audit table re-add as side effect inside each render_* python step', 'Multi-provider keychain restoration on top of OpenAI baseline', 'Phase 2: travel agent uses Amadeus MCP server internally', 'Wire hotels and activities branches', 'app:form widget for refining filters']}. If verdict GREEN, append a one-line entry to bridge/outbox/codex-spike-green-validation.md noting the authoring guide milestone."
+}

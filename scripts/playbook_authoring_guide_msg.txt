@@ -1,0 +1,84 @@
+Codex prompt — Playbook authoring guide from the 9-round travel agent arc (docs-only round)
+==============================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-162827-playbook-authoring-guide-from-9-round-arc.task.json
+
+Result goes to:
+  bridge/outbox/20260509-162827-playbook-authoring-guide-from-9-round-arc.result.json
+
+Closing the flagship round:
+  bridge/outbox/codex-spike-green-validation.md (validation log entry from round 8 GREEN)
+
+Context:
+  Travel agent flagship round closed GREEN after 9 rounds of fix→smoke→AMBER→fix
+  iteration. Each round surfaced a generalizable design rule that future
+  playbook/agent authors will hit if not documented. This round pins 11 rules
+  into a new doc at repos/docs/docs/reference/playbook_authoring_guide.md and
+  cross-links from architecture/agent_orchestration.md and gui/widgets.md.
+  Docs-only round — no code changes anywhere.
+
+What Claude prepared (in the bridge task JSON, not in working tree):
+
+  The full 11-rule brief is in the bridge task's `claude_brief_for_codex.11_rules_to_pin_with_evidence_anchors`
+  array. Each entry has:
+    - rule (declarative one-line)
+    - round (1-8)
+    - evidence (path to the result file from that round)
+    - good code snippet
+    - bad code snippet (the pattern that failed in that round)
+
+  Rules grouped by playbook layer (suggested doc ordering):
+    Keychain (rounds 2): bare workload references; OAuth2 endpoint must be plain string
+    Step semantics (rounds 4, 6): outcome instead of status:failed; render-emitting step is the workflow tail
+    External HTTP (round 3): wrap in kind:python urllib for graceful 5xx envelopes
+    YAML quoting (rounds 1, 3): pre-serialise JSON for SQL; YAML-quoted Jinja int still renders as string
+    GUI integration (rounds 5, 7, 8):
+      - constants for playbook paths shadow each other across files
+      - Inputs outside form preventDefault wrapper navigate to /
+      - widget buttons need preventDefault + stopPropagation
+      - canvas needs sourcePrompt round-trip for widget rerun
+
+Codex job (4 phases — see task JSON):
+
+  1. author guide:              new file at repos/docs/docs/reference/playbook_authoring_guide.md.
+                                Frontmatter sidebar_position 4, sidebar_label 'Playbook authoring guide'.
+                                One section per rule with H3 heading, 3-sentence Why, good/bad code
+                                blocks, one-line evidence trace. Final 'See also' section cross-links
+                                architecture/agent_orchestration.md, gui/widgets.md, gui/catalog-ux.md,
+                                tutorials/07-travel-agent-with-widgets.md, mlflowio/chatui (external).
+  2. cross-link existing docs:  add one paragraph + link to the new guide in:
+                                  - architecture/agent_orchestration.md (subsection near top)
+                                  - gui/widgets.md (paragraph near security section)
+                                Verify cd repos/docs && npm run build is clean.
+  3. docs PR:                   branch kadyapam/playbook-authoring-guide
+                                PR title: "docs(reference): playbook authoring guide pinning 11 design rules from the AI-OS travel agent arc"
+                                --squash --delete-branch on merge
+  4. ai-meta pointer bump:      cd ai-meta && git submodule update --remote repos/docs
+                                git add repos/docs
+                                git commit: "chore(sync): bump docs for playbook authoring guide"
+                                DO NOT push ai-meta. Lands on top of existing 37 unpushed commits.
+
+Architectural rules:
+  - Docs-only. No code changes anywhere (noetl/gui/ops/e2e).
+  - No references/chatui mods.
+  - No new features beyond the 11 rules from the arc.
+  - Don't rewrite agent_orchestration.md / widgets.md beyond the new cross-link paragraph.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand playbook-authoring-guide round to Codex
+       (bridge/inbox/delegated/20260509-162827-playbook-authoring-guide-from-9-round-arc.task.json)
+    2. chore(scripts): codex prompt for playbook authoring guide
+       (scripts/playbook_authoring_guide_msg.txt)
+    3. memory(add): handed playbook authoring guide to Codex
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 37 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/docs (1 PR — new doc + 2 small cross-link paragraphs).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/docs after the PR merges.
