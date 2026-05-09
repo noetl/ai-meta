@@ -1,0 +1,149 @@
+{
+  "id": "20260509-063112-travel-bubble-render-and-canvas-amber-to-green",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T06:31:12Z",
+  "title": "Travel agent — bubble render to execution-level + canvas wiring (AMBER round 5 → GREEN)",
+
+  "description": "Round 5 closed AMBER with backend GREEN: all three intents complete, render payloads exist in step events, ops PR #52 landed the status→outcome rename. Two visibility blockers remain: (1) execution.result.render is empty because the playbook's tail step `end` was a noop — the auto-render watcher and the report command both rely on top-level execution.result.render, and the watcher's event walk apparently doesn't surface it cleanly either; (2) the /travel canvas was still wired to the legacy api_integration/amadeus_ai_api playbook because gatewayAuth.ts hardcoded that path in `executeGatewayPlaybook`'s GraphQL call, separately from the GatewayAssistant.tsx constant I'd already updated. Claude has shipped both fixes in working tree, NOT committed: (a) replaced the `end` noop with a python step that pulls the selected render_* step's payload into the execution-level result (so execution.result.render is populated for any branch — flights, locations, help, amadeus_failure); (b) updated gatewayAuth.ts PLAYBOOK_NAME to automation/agents/travel/runtime; (c) updated the canvas helper text to match. Cap: 1 ops PR + 1 gui PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 10,
+
+  "files_claude_wrote": {
+    "repos/ops/automation/agents/travel/runtime.yaml": "modified — `end` step replaced from `kind: noop` to `kind: python`. The new tail reads each render_* step's result via `{{ render_X | default({}) }}` inputs and selects whichever branch fired (only one runs per execution because the log_classification arcs are exclusive). It mirrors the chosen step's `render` widget tree into execution.result.render, plus `text`/`summary`/`intent`/`outcome`/`upstream_status_code` for the audit trail. The GUI watcher's extractAgentRender finds the widget at the top of execution.result without needing to walk events.",
+    "repos/gui/src/services/gatewayAuth.ts": "modified — PLAYBOOK_NAME constant updated from 'api_integration/amadeus_ai_api' to 'automation/agents/travel/runtime'. The legacy fixture stays in repos/e2e for smoke purposes; the canvas's gateway-mode path now targets the flagship agent runtime. Added a comment explaining the rename.",
+    "repos/gui/src/components/GatewayAssistant.tsx": "modified — the canvas's helper text in the header was still describing 'api_integration/amadeus_ai_api'. Updated to describe the new flagship agent runtime and note that results render as widgets below the chat bubble."
+  },
+
+  "context_from_amber_round_5": {
+    "what_passed": "All three terminal intents reach status=completed (help in 4.8s, flights in 9.0s, locations in 9.0s). render_tree_present=true on every execution. Backend convention fix proven (status:failed → outcome:amadeus_failure).",
+    "what_failed": "Both visibility assertions: prompt history shows result=- (execution.result.render empty) and the /travel canvas displayed the legacy playbook's wording + 422 on POST /execute.",
+    "diagnosis": "The travel runtime's tail was a noop, so execution.result was empty. The GUI watcher's extractAgentRender DOES walk events as a fallback, but Codex's smoke shows it didn't surface the widget — likely because event payloads are paginated and the relevant event isn't in the first page, OR the projection lossy-strips render in event records. Top-level execution.result.render is the reliable carrier. Separately, gatewayAuth.ts had its own PLAYBOOK_NAME constant that I missed when wiring GatewayAssistant.tsx in the flagship round."
+  },
+
+  "phases": {
+    "1_validate": {
+      "objective": "Confirm patched playbook still validates.",
+      "spec": ["`noetl validate repos/ops/automation/agents/travel/runtime.yaml`"],
+      "verify": "Validates."
+    },
+
+    "2_typecheck_and_build_gui": {
+      "objective": "Confirm GUI compiles cleanly.",
+      "spec": [
+        "`cd repos/gui && npm install && npx tsc --noEmit` — Claude verified locally; expect exit=0.",
+        "`cd repos/gui && npm run build`."
+      ],
+      "verify": "Both pass."
+    },
+
+    "3_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge the playbook tail-bubble fix.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-bubble-render-to-execution`.",
+        "Stage automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `fix(travel-agent): bubble selected render branch into execution-level result so GUI watcher attaches widget`.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged. Capture PR URL + merge SHA."
+    },
+
+    "4_open_and_merge_gui_pr": {
+      "objective": "Branch, commit, push, PR, merge the gateway/canvas wiring update.",
+      "spec": [
+        "`cd repos/gui && git checkout -b kadyapam/canvas-target-travel-agent`.",
+        "Stage src/services/gatewayAuth.ts + src/components/GatewayAssistant.tsx.",
+        "Commit: `fix(gui): canvas + gateway path target the new travel agent playbook`. Body explains: gatewayAuth.ts had its own PLAYBOOK_NAME hardcode that was missed in the flagship round; helper text in the canvas header also referenced the legacy playbook. Both updated.",
+        "PR title: same.",
+        "Push, PR, merge. semantic-release will likely cut v1.10.x or v1.11.0."
+      ],
+      "verify": "PR merged. Capture PR URL + merge SHA + new GUI release tag."
+    },
+
+    "5_redeploy_and_register": {
+      "objective": "Deploy patched GUI + re-register the patched travel runtime.",
+      "spec": [
+        "Wait for GUI release tag.",
+        "`noetl exec noetl/lifecycle/bump_image --runtime local --payload '{\"deployment\":\"gui\",\"namespace\":\"noetl\",\"image\":\"ghcr.io/noetl/gui:<TAG>\"}'`.",
+        "kubectl rollout status deploy/gui --timeout=180s.",
+        "Pull merged ops at HEAD; `noetl register repos/ops/automation/agents/travel/runtime.yaml` (now version 6).",
+        "Capture new catalog_id + version."
+      ],
+      "verify": "Both deployed/registered."
+    },
+
+    "6_smoke_terminal_widget_visibility": {
+      "objective": "Replay all three intents — widgets MUST appear inline in the prompt history.",
+      "spec": [
+        "`travel help` — expected: status=completed AND a fresh prompt entry with the help widget appears below the started entry within ~10 seconds (auto-render watcher).",
+        "`travel flights from SFO to JFK on 2026-07-15 for 2 adults` — same: widget visible inline, either flight carousel (Amadeus 200) or friendly error (Amadeus 5xx).",
+        "`travel locations near Boston` — same.",
+        "Run `report <execution_id>` for one of them — expected: report shows the textual summary AND the widget below it (no more `result=-`).",
+        "Capture screenshots showing widgets actually inline in the prompt."
+      ],
+      "verify": "Widgets visible in prompt history for all three intents. Report command surfaces widgets."
+    },
+
+    "7_smoke_canvas_widget_visibility": {
+      "objective": "Travel canvas surfaces widgets and uses the new playbook.",
+      "spec": [
+        "Navigate to /travel. The header copy should now mention the flagship agent runtime, not the legacy playbook.",
+        "Type a flight query. Expected: chat bubble + widget below — no more 422 on POST /execute.",
+        "Click rerun in the widget; canvas re-runs.",
+        "Capture screenshot."
+      ],
+      "verify": "Canvas works against the new playbook with widget rendering."
+    },
+
+    "8_smoke_amadeus_mcp_regression": {
+      "objective": "Confirm MCP playbook still works after the playbook tail change (regression check).",
+      "spec": [
+        "`cd /mcp/amadeus`; `tools` (5); `call get_token` (token_bound=true); `call search_locations keyword=Boston`; `call search_flights origin=SFO destination=JFK departureDate=2026-07-15`.",
+        "All should complete at the noetl level (urllib wrappers in place; envelope shape preserved)."
+      ],
+      "verify": "MCP regression clean."
+    },
+
+    "9_bump_ai_meta_pointers": {
+      "objective": "Bump repos/ops + repos/gui gitlinks.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops repos/gui`.",
+        "`git add repos/ops repos/gui`.",
+        "Commit: `chore(sync): bump ops + gui for travel render bubble + canvas wiring (flagship GREEN)`.",
+        "Don't push ai-meta."
+      ],
+      "verify": "ai-meta has a fresh local commit on top of existing 26 unpushed commits."
+    }
+  },
+
+  "expected_state": {
+    "description": "Tail step bubbles render to execution-level result. Canvas + gateway target the new playbook. All three terminal intents show widgets inline. Canvas shows widgets. ai-meta gitlinks staged.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; TAIL_FIX=$(grep -c 'Bubble the selected render branch' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); GUI_FIX=$(grep -c 'automation/agents/travel/runtime' repos/gui/src/services/gatewayAuth.ts 2>/dev/null || echo 0); echo \"tail_fix:$TAIL_FIX gui_fix:$GUI_FIX\"; if [ \"$TAIL_FIX\" -ge 1 ] && [ \"$GUI_FIX\" -ge 1 ]; then echo 'GOAL: TRAVEL_BUBBLE_RENDER_AND_CANVAS_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_BUBBLE_RENDER_AND_CANVAS_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/docs, repos/e2e",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Switching kind from Podman",
+    "Cutting a noetl release",
+    "Tweaking Claude's playbook or TypeScript code beyond obvious typos",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate / noetl register",
+    "cd repos/gui && npx tsc --noEmit && npm run build",
+    "git apply / git commit -F - / git push (2 topic branches: ops + gui)",
+    "gh pr create / gh pr merge --squash --delete-branch / gh release view",
+    "noetl exec noetl/lifecycle/bump_image --runtime local",
+    "noetl status <execution_id> --json",
+    "Browser screenshot for the smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-063112-travel-bubble-render-and-canvas-amber-to-green.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_validate, 2_typecheck_and_build_gui, 3_open_and_merge_ops_pr: {pr_url, merged_sha}, 4_open_and_merge_gui_pr: {pr_url, merged_sha, gui_release_tag}, 5_redeploy_and_register: {gui_tag, travel_catalog_id, travel_version}, 6_smoke_terminal_widget_visibility: {help_widget_visible, flights_widget_visible, locations_widget_visible, report_command_shows_widget, screenshots: []}, 7_smoke_canvas_widget_visibility: {execution_id, widget_visible, header_copy_updated, screenshot}, 8_smoke_amadeus_mcp_regression: {get_token_bound, search_flights_status, search_locations_status}, 9_bump_ai_meta_pointers: {ops_sha, gui_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting the travel agent flagship round closed GREEN."
+}

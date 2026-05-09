@@ -1,0 +1,95 @@
+Codex prompt — Travel agent bubble render + canvas wiring (AMBER round 5 → GREEN)
+====================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-063112-travel-bubble-render-and-canvas-amber-to-green.task.json
+
+Result goes to:
+  bridge/outbox/20260509-063112-travel-bubble-render-and-canvas-amber-to-green.result.json
+
+Prior round (AMBER round 5):
+  bridge/outbox/20260509-061206-travel-failure-status-amber-to-green.result.json
+
+Context:
+  Backend GREEN — all 3 intents complete with render payloads in step events.
+  Two visibility blockers remain:
+    1. execution.result.render is empty because tail was a noop. The auto-render
+       watcher and `report` command both rely on top-level execution.result.
+    2. /travel canvas displayed legacy playbook wording + 422 on POST /execute
+       because gatewayAuth.ts had its own PLAYBOOK_NAME hardcode missed in the
+       flagship round.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/ops/automation/agents/travel/runtime.yaml — tail step
+    `end` step changed from `kind: noop` to `kind: python`. New tail reads
+    each render_* step's result via `{{ render_X | default({}) }}` inputs and
+    selects whichever branch fired. Mirrors the chosen render widget tree
+    into execution.result.render plus text/summary/intent/outcome/
+    upstream_status_code for the audit trail. The watcher's
+    extractAgentRender finds the widget at the top of execution.result
+    without needing to walk events.
+
+  repos/gui/src/services/gatewayAuth.ts
+    PLAYBOOK_NAME constant updated from 'api_integration/amadeus_ai_api' to
+    'automation/agents/travel/runtime'. This was a separate hardcode in the
+    gateway-mode GraphQL call path; the GatewayAssistant.tsx constant was
+    already on the new path but gatewayAuth.ts wasn't.
+
+  repos/gui/src/components/GatewayAssistant.tsx
+    Header helper text updated to describe the new playbook. (Cosmetic but
+    Codex's smoke flagged it as misleading.)
+
+Verified: `cd repos/gui && npx tsc --noEmit` exits 0.
+
+Codex job (9 phases — see task JSON):
+
+  1.  validate:                   noetl validate the travel runtime
+  2.  typecheck + build gui:      tsc --noEmit + vite build
+  3.  ops PR:                     branch kadyapam/travel-bubble-render-to-execution
+                                  PR title: "fix(travel-agent): bubble selected render branch into execution-level result so GUI watcher attaches widget"
+  4.  gui PR:                     branch kadyapam/canvas-target-travel-agent
+                                  PR title: "fix(gui): canvas + gateway path target the new travel agent playbook"
+                                  semantic-release likely v1.10.x or v1.11.0
+  5.  redeploy + register:        bump_image gui to new tag; register travel runtime version 6
+  6.  terminal widget visibility: travel help / flights / locations — widgets MUST appear
+                                  inline in prompt history within ~10s. report <id> shows
+                                  widget too (no more `result=-`). Screenshots.
+  7.  canvas widget visibility:   /travel page. Header copy mentions the new playbook.
+                                  Flight query → chat bubble + widget below. No 422.
+                                  Click rerun → canvas re-runs. Screenshot.
+  8.  MCP regression:             cd /mcp/amadeus; tools; get_token; search_flights;
+                                  search_locations. Should still work post-tail-change.
+  9.  ai-meta pointer bump:       cd ai-meta; git submodule update --remote repos/ops repos/gui
+                                  git add repos/ops repos/gui
+                                  git commit: "chore(sync): bump ops + gui for travel render bubble + canvas wiring (flagship GREEN)"
+                                  DO NOT push. Lands on top of existing 26 unpushed commits.
+
+Architectural rules:
+  - Two PRs (ops + gui). No noetl/docs/e2e edits.
+  - No references/chatui mods.
+  - No helm chart edits.
+  - Podman-only for kind.
+  - No noetl release.
+  - No tweaking Claude's playbook or TypeScript code beyond obvious typos.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch travel-agent tail to bubble render + canvas wiring
+       (repos/ops: travel/runtime.yaml; repos/gui: gatewayAuth.ts + GatewayAssistant.tsx)
+    2. chore(bridge): hand travel-bubble-render AMBER → GREEN round to Codex
+       (bridge/inbox/delegated/20260509-063112-travel-bubble-render-and-canvas-amber-to-green.task.json)
+    3. chore(scripts): codex prompt for travel-bubble-render AMBER → GREEN
+       (scripts/travel_bubble_render_canvas_amber_to_green_msg.txt)
+    4. memory(add): travel render bubble + canvas wiring designed
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 26 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR — single-step rewrite of the playbook tail).
+  repos/gui (1 PR — gatewayAuth.ts constant + canvas helper text).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/gui after PRs merge.
