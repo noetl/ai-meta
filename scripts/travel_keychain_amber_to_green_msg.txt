@@ -1,0 +1,94 @@
+Codex prompt — Travel agent + Amadeus MCP keychain fix (AMBER round 2 → GREEN)
+================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-054530-travel-keychain-amber-to-green.task.json
+
+Result goes to:
+  bridge/outbox/20260509-054530-travel-keychain-amber-to-green.result.json
+
+Prior round result (AMBER round 2):
+  bridge/outbox/20260509-051749-travel-agent-amber-to-green.result.json
+
+Context:
+  SQL fix shipped clean (log_classification works). Both Amadeus HTTP branches
+  fail with `Illegal header value b'Bearer '` — empty access_token. MCP get_token
+  reports token_bound=true but search_flights/search_locations also fail. Multi-
+  provider classify_intent fails for vertex/anthropic/ollama. Diagnosed as three
+  structural keychain issues compared to the proven amadeus_ai_api.yaml pattern:
+    1. Keychain Jinja templates use `{{ workload.X }}` instead of bare `{{ X }}`
+    2. OAuth2 endpoint URL uses Jinja conditional (doesn't render in keychain)
+    3. `when:` predicates on per-provider entries appear unsupported
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/ops/automation/agents/travel/runtime.yaml
+    - Keychain block rewritten: bare `gcp_auth` / `amadeus_key_path` etc.
+      (matches repos/e2e/.../amadeus_ai_api.yaml line 25-53 pattern).
+    - Removed anthropic_token, vertex_token keychain entries (multi-provider
+      returns as a follow-up after this OpenAI-only baseline is GREEN).
+    - OAuth2 endpoint hardcoded: https://test.api.amadeus.com/v1/security/oauth2/token
+    - classify_intent step is OpenAI-only — explicit URL/headers/payload, no
+      provider conditionals.
+    - parse_classification step's response unwrap drops vertex/anthropic
+      branches, parses OpenAI choices[0].message.content directly.
+    - Amadeus search URLs collapsed from Jinja conditional to plain strings.
+
+  repos/ops/automation/agents/mcp/amadeus.yaml
+    - Keychain block: bare references, hardcoded OAuth2 endpoint.
+    - All 4 search URLs (flights, locations, hotels, activities) use plain
+      test.api.amadeus.com strings.
+    - searchCriteria.maxFlightOffers hardcoded to integer 10 (YAML-quoted
+      Jinja `| int` still renders as a string; the proven pattern hardcodes).
+
+Codex job (8 phases — see task JSON):
+
+  1.  validate:                 noetl validate both playbooks
+  2.  ops PR:                   branch kadyapam/travel-keychain-bare-refs-baseline
+                                PR title: "fix(travel-agent): keychain bare references + OpenAI-only baseline (AMBER unblock)"
+                                --squash --delete-branch on merge
+  3.  re-register:              register both patched playbooks; capture new versions
+  4.  terminal smoke (all 3):   travel help / travel flights from SFO to JFK / travel locations near Boston
+                                — all should reach status=completed with widgets rendered.
+                                Click rerun in any widget to verify button callback. Screenshots.
+  5.  canvas smoke:             /travel page; flight query; widget below chat bubble; rerun resubmits.
+  6.  Amadeus MCP smoke:        cd /mcp/amadeus; tools (5); call get_token (regression);
+                                call search_locations keyword=Boston; call search_flights
+                                origin=SFO destination=JFK departureDate=2026-07-15;
+                                call search_hotels cityCode=NYC; call search_activities
+                                latitude=42.3601 longitude=-71.0589. Screenshots.
+  7.  openai baseline:          travel --provider openai (explicit flag); note that
+                                anthropic/vertex/ollama parity is deferred — keychain
+                                refactor removed those entries for this round.
+  8.  ai-meta pointer bump:     git submodule update --remote repos/ops
+                                git add repos/ops
+                                git commit: "chore(sync): bump ops for travel-agent + Amadeus-MCP keychain fix (AMBER → GREEN)"
+                                DO NOT push ai-meta. Lands on top of existing 16 unpushed commits.
+
+Architectural rules:
+  - Only repos/ops changes. No gui/noetl/docs/e2e edits.
+  - No re-introducing multi-provider keychain in this round (next round, after baseline GREEN).
+  - No references/chatui mods.
+  - Podman-only for kind.
+  - No noetl release.
+  - No tweaking Claude's playbook beyond obvious typos.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch travel-agent + Amadeus-MCP keychain to bare refs
+       (repos/ops: travel/runtime.yaml + mcp/amadeus.yaml)
+    2. chore(bridge): hand travel-keychain AMBER → GREEN round to Codex
+       (bridge/inbox/delegated/20260509-054530-travel-keychain-amber-to-green.task.json)
+    3. chore(scripts): codex prompt for travel-keychain AMBER → GREEN
+       (scripts/travel_keychain_amber_to_green_msg.txt)
+    4. memory(add): travel keychain bare-refs fix designed
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 16 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR — surgical keychain refactor + URL collapses + integer cast).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops after the PR merges.
