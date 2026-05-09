@@ -1,0 +1,90 @@
+{
+  "id": "20260509-194100-travel-anthropic-resmoke",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T19:41:00Z",
+  "title": "Travel agent — re-smoke Anthropic provider after secret provisioned (AMBER → GREEN)",
+
+  "description": "Multi-provider round (bridge/outbox/20260509-180956-travel-multi-provider-anthropic.result.json) shipped the code GREEN — OpenAI baseline regression-clean, Anthropic fallback path proven (snaps to OpenAI with provider_fallback_reason='anthropic token missing'). The actual Anthropic GREEN couldn't be proven because the GCP secret `projects/1014428265962/secrets/anthropic-api-key/versions/1` was NOT_FOUND. Kadyapam will provision the secret out-of-band (gcloud secrets create / versions add). This round is the small follow-up: once the secret exists, re-run `travel --provider anthropic` smokes for help / flights / locations and confirm `effective_provider=anthropic` in the rendered widget. No code changes — playbook + tutorial already correct. Cap: 0 PRs (no merges expected; smoke + audit only).",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 3600,
+  "max_iterations": 4,
+
+  "files_claude_wrote": {},
+
+  "context_from_amber_round": {
+    "what_passed": "Code shipped clean. OpenAI baseline regression-clean (execution 623168990856085624). OpenAI flights at NoETL/widget level (execution 623169017406030013) with friendly Amadeus auth-error widget rendered. Anthropic requested → fallback fired correctly with provider_fallback_reason audit field present.",
+    "what_blocked": "Anthropic GCP secret not provisioned: projects/1014428265962/secrets/anthropic-api-key/versions/1 returned NOT_FOUND. Local ANTHROPIC_API_KEY env not set on cluster either. Without a valid token, classify_intent's effective_provider check snaps to OpenAI by design.",
+    "user_action_before_this_round": "Kadyapam provisions the Anthropic API key in GCP secret manager via `gcloud secrets create anthropic-api-key --replication-policy=automatic --project=noetl-cluster --data-file=-` (or `versions add` if the secret already exists). The playbook's workload field expects `projects/1014428265962/secrets/anthropic-api-key/versions/1` — make sure the version matches.",
+    "no_code_changes_in_this_round": "Playbook (catalog version 10) and tutorial 07 are already correct. This round only re-runs smokes and writes a result file."
+  },
+
+  "phases": {
+    "1_verify_secret_exists": {
+      "objective": "Confirm the GCP secret is provisioned and the noetl worker can read it.",
+      "spec": [
+        "`gcloud secrets versions access 1 --secret=anthropic-api-key --project=noetl-cluster | head -c 20 && echo ...` — should print something like `sk-ant-api03-...` (first 20 chars of the API key, never the full value).",
+        "If NOT_FOUND, write a result file noting the secret still isn't provisioned and STOP. Don't try to provision it from Codex's environment.",
+        "Verify the workload's secret path in repos/ops/automation/agents/travel/runtime.yaml matches the actual version: `projects/1014428265962/secrets/anthropic-api-key/versions/<N>`. If the secret exists at a different version, update the workload field, re-register the playbook (catalog version 11), and note it in the result file."
+      ],
+      "verify": "Secret accessible at the version the playbook expects."
+    },
+
+    "2_smoke_anthropic_provider": {
+      "objective": "Run the three Anthropic intents and confirm effective_provider=anthropic.",
+      "spec": [
+        "`travel --provider anthropic help` — expected: completed; widget visible inline; status pill / json shows effective_provider='anthropic' (not the fallback 'openai'). `noetl status <id> --json | jq '.result.effective_provider'` must equal 'anthropic' AND `.result.provider_fallback_reason` must be null/absent.",
+        "`travel --provider anthropic flights from SFO to JFK on 2026-07-15 for 2 adults` — expected: completed; flight carousel OR friendly error widget; effective_provider='anthropic'.",
+        "`travel --provider anthropic locations near Boston` — expected: completed; locations recordtable; effective_provider='anthropic'.",
+        "Capture screenshots showing the anthropic provider pill on the rendered widget for at least one intent (help is fine if Amadeus is flaky)."
+      ],
+      "verify": "All three Anthropic intents reach status=completed with effective_provider='anthropic' and no provider_fallback_reason. Widgets visible in prompt."
+    },
+
+    "3_smoke_openai_regression": {
+      "objective": "Confirm OpenAI default path still works (regression check).",
+      "spec": [
+        "`travel help` (no --provider flag). Expected: completed; effective_provider='openai'.",
+        "`travel --provider openai flights from SFO to JFK on 2026-07-15`. Expected: completed; effective_provider='openai'."
+      ],
+      "verify": "OpenAI default unchanged."
+    },
+
+    "4_close_out_or_capture_blocker": {
+      "objective": "Write the result file and update the memory entry.",
+      "spec": [
+        "If all anthropic smokes GREEN: write bridge/outbox/20260509-194100-travel-anthropic-resmoke.result.json with verdict=GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting multi-provider closed.",
+        "If secret still NOT_FOUND or any anthropic smoke fails: write the result file with verdict=AMBER and a clear note about what Kadyapam still needs to do (e.g. 'rotate secret', 'enable secret manager API on the project').",
+        "No ai-meta commit is needed in this round (no code changes), unless Codex bumped the workload's secret version path — in which case bump repos/ops gitlink in ai-meta with the standard `chore(sync):` commit and stage (don't push)."
+      ],
+      "verify": "Result file written. If GREEN: validation log appended. If AMBER: blocker articulated."
+    }
+  },
+
+  "expected_state": {
+    "description": "Anthropic provider proven end-to-end with effective_provider='anthropic' for at least the help intent. OpenAI baseline regression-clean. Result file written.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; HAS_RESULT=0; if [ -f bridge/outbox/20260509-194100-travel-anthropic-resmoke.result.json ]; then HAS_RESULT=1; fi; echo \"has_result:$HAS_RESULT\"; if [ \"$HAS_RESULT\" -eq 1 ]; then echo 'GOAL: TRAVEL_ANTHROPIC_RESMOKE_RUN'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_ANTHROPIC_RESMOKE_RUN"
+  },
+
+  "denied_tools": [
+    "Provisioning the GCP secret yourself (Codex doesn't have Kadyapam's API key)",
+    "Modifying repos/noetl, repos/gui, repos/docs, repos/e2e — smoke-only round",
+    "Modifying anything in references/chatui",
+    "Tweaking Claude's playbook or tutorial — they're already correct",
+    "Cutting a noetl release",
+    "Switching kind from Podman",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "gcloud secrets versions access (read-only verification — never write the value)",
+    "noetl status <execution_id> --json | jq '.result.effective_provider'",
+    "Browser screenshot for at least the help-with-anthropic widget",
+    "git apply / git commit -F - (only if a workload version-path change is needed)"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-194100-travel-anthropic-resmoke.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_verify_secret_exists: {accessible, version_path_used, version_path_in_playbook_matches}, 2_smoke_anthropic_provider: {help_execution_id, help_effective_provider, flights_execution_id, flights_effective_provider, locations_execution_id, locations_effective_provider, screenshots: []}, 3_smoke_openai_regression: {help_status, flights_status, effective_provider}, 4_close_out_or_capture_blocker: {action_taken, validation_log_appended}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Vertex AI provider — needs gcp_access_token keychain kind', 'Ollama provider — needs in-cluster bridge URL', 'Audit table re-add as side effect inside each render_* python step', 'Phase 2: travel agent uses Amadeus MCP server internally', 'Wire hotels and activities branches', 'app:form widget for refining Amadeus filters before re-running']}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md."
+}
