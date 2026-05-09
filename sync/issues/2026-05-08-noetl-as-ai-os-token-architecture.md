@@ -370,6 +370,51 @@ GUI evolution.
   Form set) — the round-2 deploy report flagged the bundle delta
   at +191 KB gzip vs the 60 KB threshold.
 
+### Round 2.x — LAN-routable API base + post-run widget visibility (2026-05-09)
+
+After round 2 closed GREEN, Codex did a same-LAN-but-different-machine
+smoke and surfaced two usability gaps captured in
+`bridge/outbox/20260509-025240-widget-lan-handover-to-claude.md`:
+
+1. **LAN access**. The local kind helm chart bakes
+   `VITE_API_BASE_URL=http://localhost:8082` into the GUI runtime config.
+   From a non-localhost client the browser resolves `localhost` to the
+   client itself, so the prompt rendered fine but every API call was
+   `Network Error`. Codex band-aided with `kubectl set env` to the host's
+   LAN IP, but every redeploy undoes that.
+
+2. **Widget visibility**. The user asked "playbook executing but how
+   would I see widgets?" Round 2 left widget rendering behind an
+   explicit `report <execution_id>` step — which is fine for the
+   contract but not discoverable.
+
+Claude shipped both fixes in `repos/gui` (working tree, not committed):
+
+- `src/services/gatewayBaseUrl.ts` — `rewriteLocalhostForLan(envValue,
+  pageHostname)` rewrites only when the env URL has a localhost
+  hostname AND the page is loaded from a non-localhost host. Preserves
+  scheme + port. Single-machine dev (localhost-on-localhost) and
+  production (`gateway.<domain>`) flows untouched. Inline-tested 7/7
+  cases.
+- `src/components/NoetlPrompt.tsx` — `watchExecutionForRender` polls
+  the just-launched execution every second up to 60 seconds; when it
+  reaches a terminal status with a `result.render` payload (via
+  `extractAgentRender`), appends a fresh prompt entry carrying the
+  rendered widget. Wired into `verb === "run"` — the started entry
+  also gains `report` + `open` action buttons. Fire-and-forget.
+
+`tsc --noEmit` clean. Bridge task
+`bridge/inbox/delegated/20260509-030314-gui-lan-rewrite-and-run-auto-render.task.json`
+hands deploy + LAN smoke + auto-render smoke + ai-meta gitlink bump
+to Codex (7 phases). The first phase is recovering Podman/kind which
+was disconnected at the end of the prior session.
+
+The fix is GUI-only — no helm chart change. A follow-up could flip the
+helm default to `VITE_API_BASE_URL=""` so the GUI derives entirely
+from `window.location` (cleaner than the rewrite, but requires a chart
+PR). For now, the rewrite is non-destructive and forward-compatible
+with that future change.
+
 ### Round 2 deployment notes (2026-05-08, RED → unblock-in-flight)
 
 Codex shipped the round-2 deploy task and reported RED:

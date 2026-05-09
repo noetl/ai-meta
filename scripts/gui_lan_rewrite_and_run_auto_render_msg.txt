@@ -1,0 +1,99 @@
+Codex prompt — GUI LAN auto-rewrite + run auto-render widgets (round-2 UX cleanup)
+====================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-030314-gui-lan-rewrite-and-run-auto-render.task.json
+
+Result goes to:
+  bridge/outbox/20260509-030314-gui-lan-rewrite-and-run-auto-render.result.json
+
+Context (from your handover at bridge/outbox/20260509-025240-widget-lan-handover-to-claude.md):
+  1. LAN gap: helm-chart bakes `VITE_API_BASE_URL=http://localhost:8082`; from another
+     LAN client browser, `localhost` resolves to that client → Network Error. You
+     band-aided with `kubectl set env`; every redeploy undoes it.
+  2. Widget visibility gap: user asked "playbook executing but how would I see widgets?"
+     — round 2 leaves widgets behind explicit `report <execution_id>`.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/gui/src/services/gatewayBaseUrl.ts
+    Added rewriteLocalhostForLan(envValue, pageHostname) helper. Applied in
+    resolveGatewayBaseUrl when an env value is present. Rewrites only when the
+    env URL has a localhost hostname AND the page is loaded from a non-localhost
+    host. Preserves scheme + port. Inline-tested: 7/7 cases pass — including
+    localhost-from-LAN (rewrites), localhost-from-localhost (no-op), production
+    gateway (no-op), relative-path (no-op).
+
+  repos/gui/src/components/NoetlPrompt.tsx
+    Added watchExecutionForRender(executionId, label). Polls every second up to
+    60 seconds; when the execution reaches TERMINAL_STATUSES with a
+    render payload (via extractAgentRender), appends a fresh prompt entry
+    carrying the rendered widget. Wired into the `run` verb — the started
+    message now also gets `report` + `open` action buttons, and the watcher
+    fires fire-and-forget. The user no longer needs to type `report <id>`
+    after `run` to see widgets.
+
+Already verified locally: `cd repos/gui && npx tsc --noEmit` exits 0. LAN
+rewrite helper inline-tested 7/7. Bundle delta is small (~50 lines across
+2 files).
+
+Codex job (7 phases — see task JSON):
+
+  1. typecheck + build:    cd repos/gui && npm install && npx tsc --noEmit && npm run build
+  2. gui PR:               branch kadyapam/lan-rewrite-and-run-auto-render
+                           PR title: "feat(gui): rewrite localhost API base for LAN access + auto-render widgets after run"
+                           --squash --delete-branch on merge
+                           (semantic-release will likely cut v1.9.0 since this is feat)
+  3. restart podman+kind:  Per AGENTS.md, Podman-only. Recover the local cluster.
+                           If destroyed: cd repos/ops && noetl run
+                           automation/development/noetl.yaml --runtime local --set
+                           action=redeploy --set noetl_repo_dir=../noetl
+  4. redeploy gui:         noetl exec noetl/lifecycle/bump_image --runtime local
+                             --payload '{"deployment":"gui","namespace":"noetl",
+                             "image":"ghcr.io/noetl/gui:<TAG>"}'
+                           Do NOT re-apply the `kubectl set env VITE_API_BASE_URL=...`
+                           workaround. Helm-default localhost stays in place — we
+                           want to verify the auto-rewrite.
+  5. LAN smoke:            From a different LAN machine: open http://<host-LAN-IP>:30081/
+                           DevTools Console: window.__NOETL_ENV__ should still show
+                             VITE_API_BASE_URL=http://localhost:8082
+                           DevTools Network: API requests should go to the LAN IP, not
+                             localhost. `ls` / `playbooks` should work without Network Error.
+                           Screenshots.
+  6. auto-render smoke:    `run tests/gui/widget_all_types` (or any render-emitting playbook)
+                           Expected: started entry with report+open actions appears immediately.
+                           Within ~10s: a NEW entry auto-appears with the rendered widget.
+                           Click button widget → report re-runs (round 2 behavior preserved).
+                           `run` a non-render playbook → no auto-render entry. Screenshots.
+  7. ai-meta pointer bump: cd ai-meta && git submodule update --remote repos/gui
+                           git add repos/gui
+                           git commit: "chore(sync): bump gui for LAN rewrite + run auto-render widget UX"
+                           DO NOT push ai-meta — Kadyapam pushes that himself.
+                           (You noted ai-meta has 7 unpushed commits already; this lands on top.)
+
+Architectural rules:
+  - GUI-only round. No noetl/ops/e2e/docs changes. No helm chart edits.
+  - No re-applying the `kubectl set env` LAN workaround — we want to verify the auto-rewrite.
+  - No Colima/Docker fallback for kind (Podman-only per AGENTS.md).
+  - No tweaking Claude's TypeScript beyond obvious typos.
+  - No noetl release.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand GUI LAN + auto-render UX round to Codex
+       (bridge/inbox/delegated/20260509-030314-gui-lan-rewrite-and-run-auto-render.task.json)
+    2. chore(scripts): codex prompt for LAN + auto-render UX
+       (scripts/gui_lan_rewrite_and_run_auto_render_msg.txt)
+    3. memory(add): GUI LAN auto-rewrite + run auto-render planned
+       (memory/inbox/2026/05/...)
+    4. docs(sync): note round 2.x — LAN access + post-run widget visibility
+       (sync/issues/2026-05-08-noetl-as-ai-os-token-architecture.md)
+
+  Plus the existing 7 unpushed commits from your prior session — push when ready.
+
+Codex commits + pushes:
+  repos/gui (1 PR; semantic-release likely cuts v1.9.0).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/gui after the PR merges.
