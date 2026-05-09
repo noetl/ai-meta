@@ -1,0 +1,96 @@
+{
+  "id": "20260509-060007-travel-amadeus-urllib-amber-to-green",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T06:09:29Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_pydantic_validate": {
+      "travel_validates": true,
+      "mcp_validates": true,
+      "validation_method": "repos/noetl/.venv/bin/python imported Playbook and model_validate() passed for both playbooks"
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/51",
+      "merged_sha": "67cdd67b6c2bcb0fb4fe4ad6ab23f13d60178e35"
+    },
+    "3_re_register": {
+      "travel_catalog_id": "622767261182329538",
+      "travel_version": 4,
+      "mcp_catalog_id": "622767261249438403",
+      "mcp_version": 3
+    },
+    "4_smoke_terminal_all_intents": {
+      "help_execution_id": "622767330396734148",
+      "help_status": "COMPLETED",
+      "flights_execution_id": "622767330723889861",
+      "flights_status": "FAILED",
+      "flights_widget_kind": "friendly_error_produced_but_step_failed",
+      "locations_execution_id": "622767330732278470",
+      "locations_status": "FAILED",
+      "locations_widget_kind": "friendly_error_produced_but_step_failed",
+      "screenshots": [],
+      "evidence": {
+        "help": "completed in 3.092s with render_help app:column",
+        "flights_progress": "amadeus_call_flights returned {ok:false,status_code:500,body.errors[0].code:38189}; render_amadeus_failure produced an app:column friendly-error widget and persist_and_callback/end ran",
+        "locations_progress": "amadeus_call_locations returned {ok:false,status_code:500,body.errors[0].code:38189}; render_amadeus_failure produced an app:column friendly-error widget and persist_and_callback/end ran",
+        "remaining_blocker": "render_amadeus_failure returns context.status='failed', so NoETL marks the command/execution FAILED even though the widget exists"
+      }
+    },
+    "5_smoke_canvas": {
+      "execution_id": null,
+      "widget_visible": false,
+      "button_callback": false,
+      "screenshot": null,
+      "skipped_reason": "Terminal flights/locations still have final status FAILED due render_amadeus_failure result.status/status field; canvas cannot be declared GREEN until the same execution path is completed."
+    },
+    "6_smoke_amadeus_mcp": {
+      "tools_list_execution_id": "622767696358146115",
+      "tools_listed": 5,
+      "get_token_execution_id": "622767697616437316",
+      "get_token_bound": true,
+      "search_locations_execution_id": "622767697616437317",
+      "search_locations_status": "COMPLETED_isError_true_status_500",
+      "search_flights_execution_id": "622767697616437318",
+      "search_flights_status": "COMPLETED_isError_true_status_500",
+      "search_hotels_execution_id": "622767873517158680",
+      "search_hotels_status": "COMPLETED_isError_true_status_500",
+      "search_activities_execution_id": "622767873450049815",
+      "search_activities_status": "COMPLETED_isError_false_status_200_activities_total_72",
+      "screenshots": [],
+      "notes": "MCP side achieved the intended contract: all tools complete at NoETL level; upstream failures are represented with isError=true and status_code in _meta/data."
+    },
+    "7_smoke_openai_provider_baseline": {
+      "execution_id": "622767874649620761",
+      "explicit_flag_works": false,
+      "notes": "Explicit OpenAI flight run classified and reached the friendly-error path, but final execution status is FAILED for the same render_amadeus_failure status-field reason."
+    },
+    "8_bump_ai_meta_pointer": {
+      "ops_sha": "67cdd67b6c2bcb0fb4fe4ad6ab23f13d60178e35",
+      "ai_meta_commit_local": "c7a85d1"
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "render_amadeus_failure returns failed status and still fails the execution",
+      "status": "OPEN",
+      "details": "PR #51 fixed the HTTP-tool abort problem: the urllib wrappers catch Amadeus HTTP 500 and route to render_amadeus_failure. The failure renderer builds the correct app:column widget and persist/end steps run, but its result context contains status='failed'. NoETL interprets that as Tool returned error status, emits command.failed for render_amadeus_failure, and marks the whole execution FAILED. Next focused fix: make render_amadeus_failure return a successful NoETL/tool status such as status='ok' or 'completed' while preserving upstream_status_code=500 and the friendly-error widget."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": [
+    "The one allowed ops PR merged and both playbooks were re-registered.",
+    "MCP is effectively GREEN for this round: all five tools complete at the NoETL level and use isError to represent upstream failures.",
+    "Travel terminal is not GREEN because the friendly-error renderer still marks the command failed, despite producing the intended widget.",
+    "No validation log entry was appended because verdict is AMBER."
+  ],
+  "deferred_followups": [
+    "Focused ops fix: render_amadeus_failure should return NoETL-success status while preserving upstream failure details in fields like upstream_status_code and render alert variant.",
+    "Multi-provider keychain (anthropic/vertex/ollama) re-introduced once baseline is GREEN.",
+    "Phase 2: travel agent uses Amadeus MCP server internally.",
+    "Wire hotels and activities branches in the travel agent (currently fall through to render_help).",
+    "app:form widget for refining filters before re-running.",
+    "Once noetl#88 lands (HTTP tool preserves error response body), consider reverting these urllib wrappers to kind:http or adding an http on_error: envelope mode."
+  ]
+}
