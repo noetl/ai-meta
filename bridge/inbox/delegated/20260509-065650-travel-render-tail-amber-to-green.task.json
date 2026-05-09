@@ -1,0 +1,126 @@
+{
+  "id": "20260509-065650-travel-render-tail-amber-to-green",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-09T06:56:50Z",
+  "title": "Travel agent — render_X is the workflow tail (AMBER round 6 → GREEN)",
+
+  "description": "Round 6 closed AMBER. The previous bubble-render attempt (an `end` python step that read render_* via Jinja inputs) didn't work because NoETL's variable scope from a downstream tail can't reliably reach arbitrary upstream branch outputs after a sibling step (`persist_and_callback`) has run. Codex's diagnosis was correct: stop trying to recover branch output from a final tail. Claude has shipped the cleaner restructure in working tree, NOT committed: dropped `persist_and_callback`, `send_callback`, and `end` entirely. Each render_* step is now the workflow tail for its branch (no `next.arcs`). NoETL takes the last step's result as `execution.result`, so `execution.result.render` is automatically the widget tree that render_* produced. The audit (postgres) and gateway callback (http) drop out of this round; they reappear as **side-effect calls inside each render_* python step** (psycopg / urllib) when they're needed — never as trailing steps that overwrite the result. This is also the lesson worth pinning in `architecture/agent_orchestration.md`. Cap: 1 ops PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 8,
+
+  "files_claude_wrote": {
+    "repos/ops/automation/agents/travel/runtime.yaml": "modified — removed `persist_and_callback`, `send_callback`, and `end` steps entirely. The four render_* steps (render_flights, render_locations, render_help, render_amadeus_failure) now have NO `next` block — each is the workflow tail for its branch. Added a documentation comment before the render_* steps explaining: NoETL takes the last step's result as execution.result, so render_* being the tail is the simplest correct shape; audit/callback should be SIDE EFFECTS inside the render_* python steps, never trailing steps that overwrite the result; the round 6 result file documents why the trailing-tail approach failed."
+  },
+
+  "context_from_amber_round_6": {
+    "what_passed": "Backend GREEN. All three intents reach status=completed. /travel canvas now targets the new playbook (gatewayAuth.ts PLAYBOOK_NAME fix landed in gui#30, GUI v1.10.1 deployed). Helper text updated. Ops PR #53 + amendment PR #54 merged.",
+    "what_failed": "Visibility: execution.result.render is still empty after all the tail-bubble attempts. Codex confirmed render_help.render exists in step variables but the trailing python `end` step couldn't read it via Jinja inputs.",
+    "diagnosis": "NoETL's variable scope from a tail step doesn't see arbitrary upstream branch outputs once a sibling step has overwritten the output chain. The persist_and_callback (kind: postgres) step in particular replaces the chain's `result` with the postgres tool's empty/success output. From `end`, only the immediate previous step's output is visible.",
+    "fix": "Drop the trailing chain entirely. Each render_* step is the workflow tail. NoETL sets execution.result = render_*.result by default. execution.result.render is automatically the widget tree."
+  },
+
+  "phases": {
+    "1_validate": {
+      "objective": "Confirm patched playbook validates.",
+      "spec": ["`noetl validate repos/ops/automation/agents/travel/runtime.yaml`"],
+      "verify": "Validates."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge the tail restructure.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-render-is-tail`.",
+        "Stage automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `fix(travel-agent): drop trailing audit/callback chain; render_* is the workflow tail`. Body cites round 6 result file, points at NoETL's variable scope behavior, notes the design rule (audit/callback as side effects inside render_*).",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_re_register": {
+      "objective": "Re-register the patched travel runtime.",
+      "spec": [
+        "Pull merged ops at HEAD.",
+        "`noetl register repos/ops/automation/agents/travel/runtime.yaml` (now version 8).",
+        "Capture new catalog_id + version."
+      ],
+      "verify": "New version registered."
+    },
+
+    "4_smoke_terminal_widget_visibility": {
+      "objective": "All three intents reach status=completed AND widget visible inline in prompt.",
+      "spec": [
+        "`travel help` — expected: status=completed; help widget appears inline within ~10s.",
+        "`travel flights from SFO to JFK on 2026-07-15 for 2 adults` — expected: status=completed; widget visible (carousel or friendly error).",
+        "`travel locations near Boston` — expected: status=completed; recordtable or friendly error.",
+        "Run `report <execution_id>` for one of them — expected: report shows the textual summary AND the widget below it (no more `result=-`).",
+        "Run `noetl status <execution_id> --json | jq '.result.render'` — expected: a non-null object with `type` and `args`. This is the canonical validation that the tail change worked at the noetl level.",
+        "Capture screenshots of widgets actually inline in the prompt history."
+      ],
+      "verify": "execution.result.render is non-null. Widgets visible in prompt for all three intents. report command shows widget."
+    },
+
+    "5_smoke_canvas": {
+      "objective": "Canvas surfaces the widget below the chat bubble.",
+      "spec": [
+        "Navigate to /travel. Type a flight query.",
+        "Expected: chat bubble + widget below.",
+        "Click rerun in the widget.",
+        "Capture screenshot."
+      ],
+      "verify": "Canvas widget renders."
+    },
+
+    "6_smoke_amadeus_mcp_regression": {
+      "objective": "Confirm Amadeus MCP playbook still works (regression).",
+      "spec": [
+        "`cd /mcp/amadeus`; `tools` (5); `call get_token` (token_bound=true); `call search_locations keyword=Boston`; `call search_flights origin=SFO destination=JFK departureDate=2026-07-15`.",
+        "All complete cleanly."
+      ],
+      "verify": "MCP regression clean."
+    },
+
+    "7_bump_ai_meta_pointer": {
+      "objective": "Bump repos/ops gitlink.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops`.",
+        "`git add repos/ops`.",
+        "Commit: `chore(sync): bump ops for travel render_X-as-tail (flagship GREEN)`.",
+        "Don't push ai-meta."
+      ],
+      "verify": "ai-meta has a fresh local commit on top of existing 29 unpushed commits."
+    }
+  },
+
+  "expected_state": {
+    "description": "render_X steps are workflow tails; no persist_and_callback/send_callback/end steps remain. execution.result.render is non-null after `travel help`. Widgets visible in prompt and canvas.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; OLD_TAIL=$(grep -cE 'step: persist_and_callback|step: send_callback|step: end' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); HAS_TAIL_COMMENT=$(grep -c 'render_\\* step is the FINAL step on its branch' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"old_tail:$OLD_TAIL has_comment:$HAS_TAIL_COMMENT\"; if [ \"$OLD_TAIL\" -le 2 ] && [ \"$HAS_TAIL_COMMENT\" -ge 1 ]; then echo 'GOAL: TRAVEL_RENDER_AS_TAIL_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_RENDER_AS_TAIL_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/docs, repos/e2e",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Switching kind from Podman",
+    "Cutting a noetl release",
+    "Tweaking Claude's playbook beyond obvious typos",
+    "Re-introducing a trailing audit/callback step that overwrites the result",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate / noetl register",
+    "noetl status <execution_id> --json",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260509-065650-travel-render-tail-amber-to-green.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_validate, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_re_register: {catalog_id, version}, 4_smoke_terminal_widget_visibility: {help_status, help_widget_visible, help_result_render_jq: 'app:column', flights_status, flights_widget_visible, locations_status, locations_widget_visible, screenshots: []}, 5_smoke_canvas: {execution_id, widget_visible, screenshot}, 6_smoke_amadeus_mcp_regression: {get_token_bound, search_flights_status, search_locations_status}, 7_bump_ai_meta_pointer: {ops_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Audit table re-add as side effect inside each render_* python step (psycopg) when needed', 'Gateway SSE callback re-add as side effect inside render_* (urllib POST) when gateway-mode round picks up', 'Multi-provider keychain (anthropic/vertex/ollama) once OpenAI baseline closes', 'Phase 2: travel agent uses Amadeus MCP server internally', 'Wire hotels and activities branches', 'app:form widget for refining filters']}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting the travel agent flagship round closed GREEN."
+}

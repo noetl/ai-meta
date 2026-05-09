@@ -1,0 +1,83 @@
+Codex prompt — Travel agent render_X-is-tail (AMBER round 6 → GREEN)
+=====================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260509-065650-travel-render-tail-amber-to-green.task.json
+
+Result goes to:
+  bridge/outbox/20260509-065650-travel-render-tail-amber-to-green.result.json
+
+Prior round (AMBER round 6):
+  bridge/outbox/20260509-063112-travel-bubble-render-and-canvas-amber-to-green.result.json
+
+Context:
+  Backend GREEN, canvas wired correctly, but execution.result.render still null.
+  The previous bubble-render attempt (an `end` python step that read render_*
+  via Jinja inputs) didn't work because NoETL's variable scope from a
+  downstream tail can't reliably reach arbitrary upstream branch outputs after
+  a sibling step (persist_and_callback / send_callback) has overwritten the
+  output chain. Codex's diagnosis: stop trying to recover branch output from
+  a final tail.
+
+Patch Claude shipped (in working tree, NOT committed):
+
+  repos/ops/automation/agents/travel/runtime.yaml
+    - Removed `persist_and_callback`, `send_callback`, and `end` steps.
+    - Each render_* step (render_flights, render_locations, render_help,
+      render_amadeus_failure) is now the workflow tail for its branch (no
+      next.arcs).
+    - NoETL takes the last step's result as execution.result, so
+      execution.result.render is automatically the widget tree.
+    - Added a documentation comment before the render_* steps explaining
+      the design rule: audit/callback should be SIDE EFFECTS inside the
+      render_* python step (psycopg / urllib) when needed — never
+      trailing steps that overwrite the result.
+
+Codex job (7 phases — see task JSON):
+
+  1. validate:                  noetl validate the travel runtime
+  2. ops PR:                    branch kadyapam/travel-render-is-tail
+                                PR title: "fix(travel-agent): drop trailing audit/callback chain; render_* is the workflow tail"
+                                --squash --delete-branch on merge
+  3. re-register:               noetl register travel runtime version 8
+  4. terminal widget visibility: travel help / flights / locations.
+                                Each MUST reach status=completed AND show widget
+                                inline in prompt. Verify via:
+                                  noetl status <id> --json | jq '.result.render'
+                                returns a non-null object with `type` and `args`.
+                                report <id> shows widget. Screenshots.
+  5. canvas smoke:              /travel page; flight query; widget below chat bubble;
+                                rerun resubmits.
+  6. MCP regression:            cd /mcp/amadeus; tools; get_token; search_flights;
+                                search_locations. All complete.
+  7. ai-meta pointer bump:      git submodule update --remote repos/ops
+                                git add repos/ops
+                                git commit: "chore(sync): bump ops for travel render_X-as-tail (flagship GREEN)"
+                                DO NOT push ai-meta. Lands on top of existing 29 unpushed commits.
+
+Architectural rules:
+  - Only repos/ops change.
+  - Podman-only for kind.
+  - No noetl release.
+  - No tweaking Claude's playbook beyond obvious typos.
+  - No re-introducing trailing audit/callback steps.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(sync): patch travel-agent — render_X is the workflow tail
+       (repos/ops: travel/runtime.yaml — removed persist_and_callback/send_callback/end)
+    2. chore(bridge): hand travel-render-tail AMBER → GREEN round to Codex
+       (bridge/inbox/delegated/20260509-065650-travel-render-tail-amber-to-green.task.json)
+    3. chore(scripts): codex prompt for travel-render-tail AMBER → GREEN
+       (scripts/travel_render_tail_amber_to_green_msg.txt)
+    4. memory(add): travel render_X-as-tail designed
+       (memory/inbox/2026/05/...)
+
+  Plus the existing 29 unpushed ai-meta commits. Push when ready.
+
+Codex commits + pushes:
+  repos/ops (1 PR — surgical removal of trailing chain).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops after the PR merges.
