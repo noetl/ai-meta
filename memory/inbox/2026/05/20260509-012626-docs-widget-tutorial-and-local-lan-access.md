@@ -23,3 +23,6 @@ Current local kind context is `kind-noetl`, running under Podman only. `kubectl 
 - docs#44: https://github.com/noetl/docs/pull/44
 - docs#45: https://github.com/noetl/docs/pull/45
 - Cloudflare Pages deploy run for docs#45: https://github.com/noetl/docs/actions/runs/25584544097
+
+## Follow-up: GUI prompt Network Error from another machine
+After opening `http://192.168.1.240:30081/` from another LAN machine, `noetl@kind:/catalog$ ls` returned `Network Error`. Root cause was GUI runtime config still pointing at `VITE_API_BASE_URL=http://localhost:8082`; from another machine, browser `localhost` refers to that other machine, not the Mac hosting Podman/kind. Local cluster health was fine: `curl http://192.168.1.240:8082/api/health` returned `{"status":"ok"}`, CORS preflight from origin `http://192.168.1.240:30081` returned 200, and pods were healthy. Applied local runtime patch: `kubectl -n noetl set env deploy/gui VITE_API_BASE_URL=http://192.168.1.240:8082 VITE_APP_VERSION=v1.8.0`, then waited for rollout. Verified `/env-config.js` now reports `VITE_API_BASE_URL: "http://192.168.1.240:8082"`. Future local LAN GUI redeploys need the API base URL set to the host LAN IP or another LAN-routable hostname, not `localhost`.
