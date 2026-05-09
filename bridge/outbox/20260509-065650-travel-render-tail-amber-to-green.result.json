@@ -1,0 +1,124 @@
+{
+  "id": "20260509-065650-travel-render-tail-amber-to-green",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T07:10:43Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_validate": {
+      "validates": true,
+      "evidence": "PASS repos/ops/automation/agents/travel/runtime.yaml"
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/55",
+      "merged_sha": "cf39d869f01c87e63da22ad8b65756e5922af965",
+      "title": "fix(travel-agent): drop trailing audit/callback chain; render_* is the workflow tail"
+    },
+    "3_re_register": {
+      "catalog_id": "622794882133786871",
+      "version": 8,
+      "path": "automation/agents/travel/runtime"
+    },
+    "4_smoke_terminal_widget_visibility": {
+      "help_status": "completed",
+      "help_execution_id": "622795186866749688",
+      "help_widget_visible": true,
+      "help_result_render_jq": "app:column",
+      "flights_status": "completed",
+      "flights_execution_id": "622795473002168855",
+      "flights_widget_visible": true,
+      "flights_result_render_jq": "app:column",
+      "flights_outcome": "amadeus_failure",
+      "flights_upstream_status_code": 500,
+      "locations_status": "completed",
+      "locations_execution_id": "622795616548029052",
+      "locations_widget_visible": true,
+      "locations_result_render_jq": "app:column",
+      "locations_outcome": "amadeus_failure",
+      "locations_upstream_status_code": 500,
+      "report_command_shows_widget": true,
+      "report_command_note": "The report command rendered the widget, but the one-line summary still printed result=-. That appears to be a formatter issue, not a missing render payload; noetl status shows result.render is non-null.",
+      "screenshots": [
+        "bridge/outbox/travel-tail-help-prompt.png",
+        "bridge/outbox/travel-tail-flights-prompt-v8.png",
+        "bridge/outbox/travel-tail-locations-prompt-v8-late.png",
+        "bridge/outbox/travel-tail-report-flights-v8.png"
+      ],
+      "canonical_status_checks": [
+        {
+          "execution_id": "622795186866749688",
+          "completed": true,
+          "failed": false,
+          "current_step": "render_help",
+          "result_render_type": "app:column",
+          "result_render_has_args": true
+        },
+        {
+          "execution_id": "622795473002168855",
+          "completed": true,
+          "failed": false,
+          "current_step": "render_amadeus_failure",
+          "result_render_type": "app:column",
+          "result_render_has_args": true
+        },
+        {
+          "execution_id": "622795616548029052",
+          "completed": true,
+          "failed": false,
+          "current_step": "render_amadeus_failure",
+          "result_render_type": "app:column",
+          "result_render_has_args": true
+        }
+      ]
+    },
+    "5_smoke_canvas": {
+      "execution_id": null,
+      "widget_visible": false,
+      "header_copy_updated": true,
+      "screenshot": "bridge/outbox/travel-tail-canvas-clean-v8.png",
+      "status": "AMBER",
+      "notes": "The /travel page header is updated and points at automation/agents/travel/runtime, but submitting a query from the canvas navigated back to /catalog and no persisted canvas chat/widget was visible after returning to /travel. No fresh 422 was observed after hard reload; the remaining behavior is a canvas state/navigation issue rather than the old playbook-path 422."
+    },
+    "6_smoke_amadeus_mcp_regression": {
+      "get_token_bound": null,
+      "search_flights_status": "completed",
+      "search_locations_status": "completed",
+      "notes": "Direct distributed executions of automation/agents/mcp/amadeus tools/list, get_token, search_locations, and search_flights all completed at the NoETL level. The prompt /mcp/amadeus flow began correctly, but the result-shape fields are not surfaced through noetl status because that MCP playbook still ends in its own trailing end step."
+    },
+    "7_bump_ai_meta_pointer": {
+      "ops_sha": "cf39d869f01c87e63da22ad8b65756e5922af965",
+      "ai_meta_commit_local": "65eb82c",
+      "status": "committed_locally"
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "/travel canvas submit does not keep/render the chat result",
+      "severity": "HIGH",
+      "details": "After hard reload on GUI v1.10.1, /travel showed the updated agent-runtime copy. Submitting from the canvas led back to /catalog and no widget/chat bubble was visible when returning to /travel. Terminal prompt path is green, so this is isolated to the canvas surface."
+    },
+    {
+      "name": "report command summary still says result=- even while rendering widget",
+      "severity": "LOW",
+      "details": "report 622795473002168855 displayed the widget below the report, but the textual summary line still included result=-. The canonical noetl status check confirms result.render is non-null."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": [
+    "The core structural fix worked: render_* as workflow tail makes execution.result.render non-null.",
+    "The terminal-style prompt acceptance is green for help, flights, and locations, including friendly error widgets for Amadeus 500 responses.",
+    "The canvas acceptance remains amber and likely needs a GUI-focused follow-up. The stale playbook constant is fixed, but the canvas submit/state flow is still not preserving a visible assistant message/widget.",
+    "No GREEN validation log paragraph was appended because /travel canvas did not satisfy the widget-below-chat-bubble criterion."
+  ],
+  "deferred_followups": [
+    "Fix /travel canvas submit/state flow so direct-mode execution stays on /travel and appends the assistant message with result.render.",
+    "Audit table re-add as side effect inside each render_* python step (psycopg) when needed.",
+    "Gateway SSE callback re-add as side effect inside render_* (urllib POST) when gateway-mode round picks up.",
+    "Multi-provider keychain (anthropic/vertex/ollama) once OpenAI baseline closes.",
+    "Phase 2: travel agent uses Amadeus MCP server internally.",
+    "Wire hotels and activities branches.",
+    "app:form widget for refining filters.",
+    "Tighten the report summary formatter so it no longer prints result=- when a render payload exists."
+  ]
+}
