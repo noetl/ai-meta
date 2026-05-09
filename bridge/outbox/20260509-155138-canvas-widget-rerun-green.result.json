@@ -1,0 +1,74 @@
+{
+  "id": "20260509-155138-canvas-widget-rerun-green",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T15:51:38Z",
+  "overall_status": "GREEN",
+  "summary": "Closed the remaining travel canvas widget rerun AMBER. The canvas now keeps widget command reruns in place on /travel, creates a fresh execution, appends a fresh widget, and clears loading.",
+  "changes": {
+    "gui_prs": [
+      {
+        "url": "https://github.com/noetl/gui/pull/32",
+        "merged_sha": "c79ae3001550c966b79c9dc465e01008c2842413",
+        "release_tag": "v1.10.3",
+        "change": "Assistant messages now retain sourcePrompt; canvas command events map rerun <execution_id> back to the original travel query. Widget buttons explicitly render as htmlType=button."
+      },
+      {
+        "url": "https://github.com/noetl/gui/pull/33",
+        "merged_sha": "38c00ae58979d3e62bfb68345eedffd44d8c24d6",
+        "release_tag": "v1.10.4",
+        "change": "AppButton consumes DOM clicks with preventDefault and stopPropagation before emitting widget events so parent routed surfaces cannot treat a widget click as navigation/form activity."
+      }
+    ],
+    "final_gui_sha": "19eaeff4a5e68e4ccc652047d9ffedfff9975bda",
+    "deployed_image": "ghcr.io/noetl/gui:v1.10.4",
+    "ai_meta_pointer_commit": "8572ebe"
+  },
+  "validation": {
+    "local_checks": {
+      "v1.10.3_pr": [
+        "npx tsc --noEmit",
+        "npm run build"
+      ],
+      "v1.10.4_pr": [
+        "npx tsc --noEmit",
+        "npm run build"
+      ]
+    },
+    "ci": {
+      "pr32_validate": "PASS",
+      "pr33_validate": "PASS",
+      "v1.10.3_image_run": "PASS",
+      "v1.10.4_release_image_run_initial": "CANCELLED_AFTER_STALL",
+      "v1.10.4_image_rerun": "PASS: workflow_dispatch 25605033331"
+    },
+    "deployment": {
+      "rollout_status": "PASS",
+      "running_pod": "gui-bc5899b58-qbpwt",
+      "explicit_image_check": "ghcr.io/noetl/gui:v1.10.4",
+      "note": "bump_image verify_images reported the known completed-old-pod sampling mismatch, but explicit rollout status and the running pod image confirmed v1.10.4."
+    },
+    "browser_smoke": {
+      "url": "http://192.168.1.240:30081/travel?final-rerun=v1104-1778341683024",
+      "initial_submit_execution_id": "623059526224184129",
+      "rerun_execution_id": "623060323385213862",
+      "stayed_on_travel_after_rerun": true,
+      "widget_count_after_rerun": 5,
+      "has_original_query_after_rerun": true,
+      "loading_cleared_after_rerun": true,
+      "rendered_widget": "Travel agent · search failed app:column friendly-error widget"
+    }
+  },
+  "regressions_found": [],
+  "verdict": "GREEN",
+  "notes": [
+    "The global click test originally kept failing because older browser tabs and persisted session messages made it easy to hit pre-fix contexts. Final verification used the v1.10.4 deployed image and scoped the click to .gateway-assistant-wrap.",
+    "The v1.10.4 release-image workflow triggered by the release event stalled in Docker build/push and was cancelled after about 25 minutes. The same versioned build was rerun via workflow_dispatch for tag v1.10.4 and completed successfully.",
+    "No product-code changes were made outside repos/gui."
+  ],
+  "deferred_followups": [
+    "Consider adding a lightweight GUI unit/integration test for AppButton command events in GatewayAssistant.",
+    "Document the canvas command-routing rule alongside the render-tail and Input.Search preventDefault rules.",
+    "Feature backlog remains: audit side effects inside render_*, gateway SSE callback side effects, multi-provider keychain, travel via Amadeus MCP internally, hotels/activities branches, and app:form refinement."
+  ]
+}
