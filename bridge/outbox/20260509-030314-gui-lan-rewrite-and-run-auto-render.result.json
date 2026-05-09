@@ -1,0 +1,92 @@
+{
+  "id": "20260509-030314-gui-lan-rewrite-and-run-auto-render",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T03:46:56Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_typecheck_and_build": {
+      "tsc_status": "PASS",
+      "build_status": "PASS",
+      "ts_errors": []
+    },
+    "2_open_and_merge_gui_pr": {
+      "pr_url": "https://github.com/noetl/gui/pull/27",
+      "merged_sha": "55389544185b0f171d648133b8af30693b556355",
+      "gui_release_tag": "v1.9.1",
+      "additional_pr_url": "https://github.com/noetl/gui/pull/28",
+      "additional_pr_reason": "Smoke found prompt-run catalog executions were sent with version='latest', causing HTTP 422 because /api/execute expects an integer catalog version. Fixed in-flight by passing the resolved catalog playbook version."
+    },
+    "3_restart_podman_and_kind": {
+      "podman_status": "Recovered through existing com.noetl.podman-machine LaunchAgent kickstart; podman machine noetl-dev and noetl-control-plane container running.",
+      "kind_context": "kind-noetl",
+      "redeployed_from_scratch": false
+    },
+    "4_redeploy_gui": {
+      "gui_tag_before": "v1.8.0",
+      "gui_tag_after": "v1.9.1",
+      "helm_chart_default_intact": true,
+      "rollout_status": "PASS: deployment/gui image ghcr.io/noetl/gui:v1.9.1 Ready 1/1; VITE_API_BASE_URL remained http://localhost:8082; VITE_APP_VERSION set to v1.9.1."
+    },
+    "5_replay_lan_smoke": {
+      "client_machine_lan_ip": "192.168.1.240",
+      "devtools_runtime_env": {
+        "VITE_API_MODE": "direct",
+        "VITE_API_BASE_URL": "http://localhost:8082",
+        "VITE_ALLOW_SKIP_AUTH": "true",
+        "VITE_APP_VERSION": "v1.9.1"
+      },
+      "devtools_network_target_host": "192.168.1.240:8082",
+      "ls_succeeded": true,
+      "screenshots": [],
+      "console_errors": [],
+      "notes": "LAN page loaded at http://192.168.1.240:30081/catalog. Runtime env still exposed localhost API base, but prompt/catalog API calls succeeded with no Network Error; /env-config.js and LAN /api/health verified. Browser screenshot capture failed twice due in-app browser CDP Page.captureScreenshot timeout."
+    },
+    "6_replay_widget_auto_render_smoke": {
+      "execution_id": "622695138808038281",
+      "auto_render_appeared_within_seconds": 4,
+      "button_callback_works": true,
+      "no_render_playbook_did_not_pollute": true,
+      "screenshots": [],
+      "render_evidence": {
+        "prompt_marker": "tests/gui/widget_all_types :: completed (auto-rendered from execution 622695138808038281)",
+        "widget_marker": "Widget all-types coverage",
+        "persisted_event_path": "events[2].result.context.render.args.children[0].args.text",
+        "persisted_event_value": "Widget all-types coverage",
+        "button_callback_prompt_entry": "echo widget-button-command -> unknown command: echo. type help"
+      },
+      "non_render_evidence": {
+        "execution_id": "622695484049589148",
+        "path": "tmp/pft_runtime_snapshot_probe",
+        "status": "COMPLETED",
+        "auto_render_entry_present": false
+      },
+      "notes": "The render-emitting playbook started from the prompt, produced report/open buttons immediately, then appended the rendered widget entry without typing report. Clicking the app:button emitted the configured command into the prompt. The non-render probe completed without a spurious auto-render entry."
+    },
+    "7_bump_ai_meta_pointer": {
+      "gui_sha": "2659d7b4b9e3b6fbfb3f8ff8c25c8f831f6ad234",
+      "ai_meta_commit_local": "5af1ef7c3f8c922485f38e070d91e3488da486a2"
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "prompt-run catalog version 422",
+      "status": "fixed_in_flight",
+      "details": "The new prompt `run` path resolved catalog playbooks but sent version='latest'. The v2 execute API rejected this with HTTP 422 because version must be an integer. Fixed in gui#28 by carrying the resolved catalog version through executePlaybookWithPayload."
+    }
+  ],
+  "iterations": 2,
+  "verdict": "GREEN",
+  "notes": [
+    "Primary GUI feature PR gui#27 released v1.9.0; smoke found one prompt-run integration bug, fixed by gui#28 and released/deployed as v1.9.1.",
+    "The bump_image playbook initially failed verify_images after rollout because a completed old GUI pod was still present; direct deployment verification showed the running deployment/pod on v1.9.1 Ready 1/1 after Kubernetes cleanup.",
+    "Expected-state command printed GOAL: GUI_LAN_AND_AUTO_RENDER_DEPLOYED."
+  ],
+  "deferred_followups": [
+    "Encode the LAN-routable env behavior into the helm chart so VITE_API_BASE_URL=\"\" is the default (GUI then derives entirely from window.location)",
+    "Round 2.x form-submit semantics — let app:form / app:customform values seed a `run <playbook>` payload",
+    "Round 3: terminal-window unification with token cursor",
+    "Round 4: token-graph related-items",
+    "Round 5+: cross-cluster token addressability"
+  ]
+}
