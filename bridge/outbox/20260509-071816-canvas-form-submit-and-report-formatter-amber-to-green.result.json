@@ -1,0 +1,107 @@
+{
+  "id": "20260509-071816-canvas-form-submit-and-report-formatter-amber-to-green",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-09T07:35:42Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_typecheck_and_build": {
+      "npm_install": "PASS",
+      "tsc_no_emit": "PASS",
+      "build": "PASS",
+      "build_note": "Vite build completed with the existing large chunk warning only."
+    },
+    "2_open_and_merge_gui_pr": {
+      "pr_url": "https://github.com/noetl/gui/pull/31",
+      "merged_sha": "bfa0b90d83ea90498f802ce7c2991296452ee5c4",
+      "release_commit_sha": "4ac127c8aecedbb34b706e791d9621db1e70bed3",
+      "gui_release_tag": "v1.10.2",
+      "image_build_run": "25595264335",
+      "notes": [
+        "PR validation passed before merge.",
+        "Semantic release produced v1.10.2.",
+        "Initial bump_image attempt correctly failed fast because GHCR had not yet exposed the v1.10.2 manifest. The release image workflow then completed and the second lifecycle bump succeeded."
+      ]
+    },
+    "3_redeploy_gui": {
+      "gui_tag": "v1.10.2",
+      "deployment_image": "ghcr.io/noetl/gui:v1.10.2",
+      "rollout_status": "PASS",
+      "pod": "gui-96b8878f6-nmtcm",
+      "notes": "bump_image local lifecycle updated deployment/gui from v1.10.1 to v1.10.2; kubectl rollout status passed and the running pod reports ghcr.io/noetl/gui:v1.10.2. The local-runtime playbook ended after verify_images because summarize is a python step unsupported in local mode, but the deployment mutation and verification had already succeeded."
+    },
+    "4_smoke_canvas_widget_visibility": {
+      "query": "flights from SFO to JFK on 2026-07-15 for 2 adults",
+      "execution_id": "622809044436123891",
+      "url_after_submit": "http://192.168.1.240:30081/travel?after-submit=v8",
+      "chat_visible": true,
+      "widget_visible_below_bubble": true,
+      "refresh_preserves_state": true,
+      "rerun_button_works": false,
+      "screenshot": null,
+      "screenshot_note": "The in-app browser screenshot API and macOS screencapture both failed during capture; DOM evidence confirmed the widget and refresh persistence.",
+      "notes": [
+        "The form-submit fix worked: pressing Enter stayed on /travel instead of navigating to /catalog.",
+        "The assistant bubble rendered the app:column friendly-error widget below the chat entry.",
+        "Hard refresh preserved the original query and widget through sessionStorage.",
+        "Clicking the widget's 'rerun this search' button still navigated to /catalog instead of resubmitting in-place; this keeps the round AMBER."
+      ]
+    },
+    "5_smoke_report_summary": {
+      "render_emitting_execution_id": "622809044436123891",
+      "render_emitting_execution_summary_line": "622809044436123891 | completed | automation/agents/travel/runtime | 100% | 7s events=20 render=app:column",
+      "render_widget_visible": true,
+      "non_render_execution_id": "622797312565183201",
+      "non_render_execution_summary_line": "622797312565183201 | completed | automation/agents/mcp/amadeus | 100% | 1s events=20 result=-",
+      "notes": "The render-emitting path is fixed. The non-render fallback still prints result=- when the projected result is empty; that is compactJson's existing empty-payload behavior."
+    },
+    "6_smoke_terminal_regression": {
+      "help_execution_id": "622811334584828248",
+      "help_status": "completed",
+      "help_widget_visible": true,
+      "flights_execution_id": "622811387315618221",
+      "flights_status": "completed",
+      "flights_widget_visible": true,
+      "locations_execution_id": "622811469029048850",
+      "locations_status": "completed",
+      "locations_widget_visible": true
+    },
+    "7_bump_ai_meta_pointer": {
+      "gui_sha": "4ac127c8aecedbb34b706e791d9621db1e70bed3",
+      "ai_meta_commit_local": "a06749e",
+      "status": "committed_locally"
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "Canvas widget command button still navigates to /catalog",
+      "severity": "HIGH",
+      "details": "After the v1.10.2 deploy, direct canvas submit stayed on /travel and rendered the widget. However, clicking the widget's 'rerun this search' button navigated to /catalog. This is likely a separate widget command-routing issue in the canvas surface, distinct from the AntD form-submit default fixed in this round."
+    },
+    {
+      "name": "Screenshot capture failed in the in-app browser",
+      "severity": "LOW",
+      "details": "DOM validation succeeded, but both tab.playwright.screenshot / tab.cua.get_visible_screenshot and macOS screencapture failed in this desktop session, so no screenshot artifact was captured."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": [
+    "The primary canvas form-submit regression is fixed: Enter stayed on /travel and did not bounce through /catalog.",
+    "Canvas widget visibility and refresh persistence are green.",
+    "Report formatter is fixed for render-emitting executions: summary now shows render=app:column.",
+    "Terminal prompt regression remains green for help, flights, and locations.",
+    "No GREEN validation log paragraph was appended because the canvas widget rerun button still fails the task's button-callback acceptance criterion."
+  ],
+  "deferred_followups": [
+    "Fix canvas widget command routing so app:button event.key=command resubmits in-place from /travel instead of navigating to /catalog.",
+    "Audit table re-add as side effect inside each render_* step.",
+    "Gateway SSE callback re-add as side effect.",
+    "Multi-provider keychain re-introduction.",
+    "Phase 2 travel agent uses Amadeus MCP server internally.",
+    "Wire hotels and activities branches.",
+    "app:form widget for refining filters.",
+    "Pin design rule in architecture/agent_orchestration.md: render-emitting step is the workflow tail; audit/callback are side effects.",
+    "Pin GUI rule: Input.Search / Enter-handling inputs inside routed pages need explicit form preventDefault wrappers."
+  ]
+}
