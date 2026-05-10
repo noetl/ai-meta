@@ -97,7 +97,7 @@
     },
     "5_bump_ai_meta_pointers": {
       "ops_sha": null,
-      "ai_meta_commit_local": null
+      "ai_meta_commit_local": "603eee3"
     }
   },
   "iterations": 1,
