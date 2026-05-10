@@ -1,0 +1,147 @@
+{
+  "id": "20260510-184500-travel-hotels-activities",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-10T18:45:00Z",
+  "title": "Travel agent — wire hotels and activities branches via the Amadeus MCP playbook (close the Phase 1 stub)",
+
+  "description": "The travel runtime's classify_intent already extracts intent='hotels' and intent='activities' but log_classification routes both to render_help (the original Phase 1 stub — see the inline comment at runtime.yaml line 608-609 that says 'Phase 2 wires the real Amadeus calls'). Phase 2 only wired flights and locations. This round closes the stub by adding `amadeus_via_mcp_hotels` and `amadeus_via_mcp_activities` agent → MCP hops (mirroring the Phase 2 pattern) plus matching `render_hotels` and `render_activities` widget renderers. The Amadeus MCP playbook already exposes `search_hotels` (requires cityCode) and `search_activities` (requires latitude/longitude/radius) so no MCP playbook changes are needed. The classifier system prompt gets a small extension to extract IATA city codes for hotels and lat/long coordinates for activities — the LLM has both in its training data for major cities and landmarks. Cap: 1 ops PR + 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 8,
+
+  "design_brief_for_codex": {
+    "current_state_runtime": "repos/ops/automation/agents/travel/runtime.yaml log_classification dispatch (around line 604-611): flights → amadeus_via_mcp_flights, locations → amadeus_via_mcp_locations, ('hotels'|'activities'|'help') → render_help. classify_intent's system prompt asks for `city` (free-text city name) for hotels and `keyword` for locations or activities. The merger result schema includes city, keyword, but no cityCode/latitude/longitude.",
+
+    "current_state_amadeus_mcp": "repos/ops/automation/agents/mcp/amadeus.yaml exposes 5 tools. search_hotels: required `cityCode` (IATA, e.g. NYC, PAR), optional `checkInDate`, `checkOutDate`. Returns `data.items` (list of hotel records) with `_meta.hotels_total`. search_activities: required `latitude`, `longitude`, optional `radius` (default 5). Returns `data.items` with `_meta.activities_total`. The amadeus playbook is the SINGLE source of truth — do NOT modify it.",
+
+    "target_state": "Two new agent → MCP hops (`amadeus_via_mcp_hotels`, `amadeus_via_mcp_activities`) mirroring Phase 2's amadeus_via_mcp_flights / amadeus_via_mcp_locations exactly. Two new render steps (`render_hotels`, `render_activities`) producing widget trees from the MCP envelope, mirroring render_flights / render_locations. log_classification arcs route hotels → amadeus_via_mcp_hotels and activities → amadeus_via_mcp_activities; render_help still handles intent='help'. Existing render_amadeus_failure handles failure paths for both new branches without modification (it already reads envelope.data.error and envelope.data.status_code generically).",
+
+    "classifier_system_prompt_extension": "Update the system_prompt string in classify_via_http_provider's python step (and the `system` argument in classify_via_vertex_mcp's payload — keep them in sync) to add: `cityCode: IATA city code for hotels (e.g. NYC, PAR, LON; or null)` and `latitude: decimal degrees for activities (or null)` and `longitude: decimal degrees for activities (or null)`. Keep the existing `city` field (might be useful for display in render widgets) but mark it as 'human-readable city name'. Same for `keyword` — keep it as 'free-text filter for locations or activities'.",
+
+    "merger_result_schema_extension": "The classify_intent merger output schema gains three new fields: `cityCode` (string or null, used by hotels), `latitude` (float or null, used by activities), `longitude` (float or null, used by activities). Pre-existing fields stay. Both http and vertex branches populate these via parsed.get(...). The merger's coercion logic should `_coerce(parsed.get('cityCode'))` for cityCode (string), and float-or-None for latitude/longitude with try/except guard.",
+
+    "amadeus_via_mcp_hotels_step": "Mirror amadeus_via_mcp_flights exactly. tool: { kind: agent, framework: noetl, entrypoint: automation/agents/mcp/amadeus, payload: { method: tools/call, tool: search_hotels, arguments: { cityCode: \"{{ classify_intent.cityCode | default('NYC') }}\", checkInDate: \"{{ classify_intent.departureDate | default('2026-07-15') }}\", checkOutDate: ... (default to departureDate + 3 days as a string, computed in classify_intent merger or a small helper) } } }. next.arcs route to render_hotels on data.ok=true, render_amadeus_failure otherwise.",
+
+    "checkout_date_handling": "Simplest path: don't compute checkout date in the classifier. Either (a) make checkOutDate the same as checkInDate so Amadeus uses its own default, OR (b) extract a `checkOutDate` field from the LLM (extend system prompt) and let it default to a string the agent computes. Pick (a) for now — let the LLM-extracted departureDate cover both. If Amadeus rejects same-day, default checkOutDate to '' and let the API skip it.",
+
+    "amadeus_via_mcp_activities_step": "Mirror amadeus_via_mcp_flights. payload: { method: tools/call, tool: search_activities, arguments: { latitude: \"{{ classify_intent.latitude | default(40.7128) }}\", longitude: \"{{ classify_intent.longitude | default(-74.0060) }}\", radius: 5 } }. The defaults are NYC center as a fallback when the LLM returns null. next.arcs same as flights/locations.",
+
+    "render_hotels_step": "Mirror render_locations (recordtable widget). Read `envelope.data.items` (the list of hotel records). Render an app:column with: app:title showing 'Travel agent · {n} hotels in {cityCode}', app:text showing the original query, app:row of provider/intent statusbars, app:recordtable with columns [name, chainCode, iataCode, geoCode]. The render step is the workflow tail (no next.arcs). Same render-as-tail pattern as Phase 1 round 6.",
+
+    "render_activities_step": "Mirror render_locations. Read envelope.data.items. Render app:recordtable with columns [name, type, geoCode, price] (price is optional in Amadeus response — handle missing). Title: 'Travel agent · {n} activities near ({lat}, {lng})'. Render-as-tail.",
+
+    "log_classification_arc_update": "Replace the `('hotels', 'activities', 'help')` arc target with three separate arcs: hotels → amadeus_via_mcp_hotels, activities → amadeus_via_mcp_activities, help → render_help. Drop the inline 'Phase 2 wires the real Amadeus calls' comment (it's stale once this round lands).",
+
+    "metadata_capabilities_update": "metadata.capabilities currently lists [mcp:amadeus, ai:openai, ai:anthropic, ai:vertex-ai]. The mcp:amadeus capability already covers all four Amadeus tools — no change needed. Optionally extend tags or description to mention hotels and activities.",
+
+    "tutorial_07_update": "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — extend the workflow-shape paragraph in Step 4 (Widget output) to mention all four intent branches (flights, hotels, locations, activities) instead of just two. Add a row to whatever table or list shows the branches → widget kinds. Add example commands: `travel hotels in Paris on 2026-08-15`, `travel activities near Times Square`. No new sections; this is incremental polish on the existing tutorial."
+  },
+
+  "phases": {
+    "1_validate_design": {
+      "objective": "Apply edits per the design brief; Pydantic-validate.",
+      "spec": [
+        "Reference the proven Phase 2 / Phase 3 shape — amadeus_via_mcp_flights and amadeus_via_mcp_locations are THE precedents.",
+        "Update classify_via_http_provider's system_prompt + classify_via_vertex_mcp's `system` argument to include cityCode/latitude/longitude. Keep them in sync — they're separate strings in two places now (single point of truth lesson is a future round).",
+        "Extend the classify_intent merger to include cityCode/latitude/longitude in the result dict, with proper coercion (string for cityCode, float-or-None for lat/long).",
+        "Add amadeus_via_mcp_hotels and amadeus_via_mcp_activities steps mirroring Phase 2.",
+        "Add render_hotels and render_activities steps mirroring render_locations (recordtable widget tree, render-as-tail).",
+        "Update log_classification arcs to dispatch hotels/activities to the new agent steps.",
+        "Pydantic-validate via `repos/noetl/.venv/bin/python -c 'from noetl.dsl.models.playbook import Playbook; import yaml; Playbook.model_validate(yaml.safe_load(open(\"repos/ops/automation/agents/travel/runtime.yaml\").read()))'`."
+      ],
+      "verify": "Travel runtime validates clean."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-hotels-activities-via-mcp`.",
+        "Stage automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `feat(travel-agent): wire hotels and activities branches via the Amadeus MCP playbook`. Body: cites Phase 2 amadeus_via_mcp pattern; explains the classifier extension for cityCode/lat/long; closes the inline TODO from Phase 1.",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_open_and_merge_docs_pr": {
+      "objective": "Update tutorial 07 to mention all four branches.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/travel-tutorial-hotels-activities`.",
+        "Edit repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — add hotels/activities to the branch list/table, add example commands, mention they share the same agent → MCP hop pattern.",
+        "Verify: `cd repos/docs && npm install && npm run build` clean.",
+        "Commit: `docs(tutorials): note hotels and activities branches in travel agent tutorial`.",
+        "Push, PR, merge."
+      ],
+      "verify": "Docs PR merged."
+    },
+
+    "4_re_register_and_smoke": {
+      "objective": "Re-register travel runtime; smoke all four intents.",
+      "spec": [
+        "Pull merged ops at HEAD; `noetl register` the patched runtime; capture catalog version.",
+        "Smoke `travel help` (regression — still routes to render_help).",
+        "Smoke `travel flights from SFO to JFK on 2026-07-15` (regression).",
+        "Smoke `travel locations near Boston` (regression).",
+        "Smoke `travel hotels in Paris on 2026-08-15` (NEW — expect amadeus_via_mcp_hotels event with tool_kind=agent + sub_execution_id; expect render_hotels widget OR render_amadeus_failure widget; effective_provider intact).",
+        "Smoke `travel activities near Times Square` (NEW — expect amadeus_via_mcp_activities event; render_activities or amadeus_failure widget; latitude/longitude extracted from the LLM and passed through).",
+        "Verify the agent → MCP hop event for both new branches via `noetl status <id> --json | jq '.events[] | select(.step | test(\"amadeus_via_mcp\"))'`.",
+        "Capture screenshots for hotels and activities widgets."
+      ],
+      "verify": "Four intents complete with widgets. Hotels and activities events show tool_kind=agent + sub_execution_id."
+    },
+
+    "5_external_mcp_regression": {
+      "objective": "Confirm direct external MCP callers for search_hotels and search_activities still work.",
+      "spec": [
+        "`cd /mcp/amadeus`; `tools` (5 tools listed); `call search_hotels cityCode=PAR` directly. Should still work — the playbook didn't change.",
+        "`call search_activities latitude=40.7128 longitude=-74.0060 radius=5` directly. Same.",
+        "Note: the Amadeus test API has been returning HTTP 500 on flights/locations recently — same may apply to hotels/activities. Either way, the friendly error envelope is what we expect."
+      ],
+      "verify": "External MCP path still functional for both new tool surfaces."
+    },
+
+    "6_bump_ai_meta_pointers": {
+      "objective": "Bump repos/ops + repos/docs gitlinks in ai-meta. Stage but do not push.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops repos/docs`.",
+        "`git add repos/ops repos/docs`.",
+        "Commit: `chore(sync): bump ops + docs for travel agent hotels/activities branches`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "Travel runtime has four functional intent branches (flights, hotels, locations, activities), each routed through the Amadeus MCP playbook via tool: agent. All four smokes complete with widgets visible. The Phase 1 stub comment is removed.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; HAS_HOTELS=$(grep -c 'amadeus_via_mcp_hotels' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); HAS_ACTIVITIES=$(grep -c 'amadeus_via_mcp_activities' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); HAS_RENDER_HOTELS=$(grep -c 'render_hotels' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); HAS_RENDER_ACTIVITIES=$(grep -c 'render_activities' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); STUB_LEFT=$(grep -c 'stubbed' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"hotels:$HAS_HOTELS activities:$HAS_ACTIVITIES render_hotels:$HAS_RENDER_HOTELS render_activities:$HAS_RENDER_ACTIVITIES stub_comments:$STUB_LEFT\"; if [ \"$HAS_HOTELS\" -ge 1 ] && [ \"$HAS_ACTIVITIES\" -ge 1 ] && [ \"$HAS_RENDER_HOTELS\" -ge 1 ] && [ \"$HAS_RENDER_ACTIVITIES\" -ge 1 ] && [ \"$STUB_LEFT\" -le 0 ]; then echo 'GOAL: TRAVEL_HOTELS_ACTIVITIES_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_HOTELS_ACTIVITIES_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/e2e — ops + docs only round",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Cutting a noetl/gui/e2e release",
+    "Modifying the Amadeus MCP playbook — automation/agents/mcp/amadeus stays as the single source of truth",
+    "Modifying the Vertex AI MCP playbook",
+    "Re-introducing direct urllib calls to Amadeus from the travel runtime",
+    "Adding `when:` predicates to keychain entries",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate (or .venv/bin/python Playbook.model_validate)",
+    "noetl register / noetl status <id> --json",
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot for the prompt smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260510-184500-travel-hotels-activities.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_validate_design: {validates}, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_open_and_merge_docs_pr: {pr_url, merged_sha, docs_build_clean}, 4_re_register_and_smoke: {travel_catalog_id, travel_version, help_status, flights_status, locations_status, hotels_status, activities_status, hotels_lat_long_extracted: bool, agent_step_proven_in_events: bool, screenshots: []}, 5_external_mcp_regression: {hotels_direct_status, activities_direct_status}, 6_bump_ai_meta_pointers: {ops_sha, docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups}. If verdict GREEN, append paragraph to bridge/outbox/codex-spike-green-validation.md."
+}
