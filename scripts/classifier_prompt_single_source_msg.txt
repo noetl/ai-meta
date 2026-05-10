@@ -1,0 +1,122 @@
+Codex prompt — Travel agent: classifier system_prompt single-source-of-truth refactor
+=======================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-035000-classifier-prompt-single-source.task.json
+
+Result goes to:
+  bridge/outbox/20260511-035000-classifier-prompt-single-source.result.json
+
+Reference precedent:
+  Existing workload-field-with-Jinja patterns in repos/ops/automation/agents/travel/runtime.yaml
+  (e.g. how openai_api_key flows from workload through keychain into the
+  classify step's input). Use the same shape for classifier_system_prompt
+  except sourced directly from workload (it's a static literal, not a secret).
+
+Context:
+  After Phase 4 (Ollama provider), the classifier system_prompt is duplicated
+  across THREE places in the travel runtime:
+    1. classify_via_http_provider's Python `system_prompt` constant
+    2. classify_via_vertex_mcp's payload.arguments.system inline string
+    3. classify_via_ollama_mcp's payload.arguments.system inline string
+
+  This was flagged as design debt in the hotels/activities round, then
+  promoted to load-bearing in the Phase 4 close-out memo. Every schema
+  extension since (cityCode, latitude, longitude) has touched all three.
+
+  This round dedupes by lifting the prompt into a single workload field
+  `workload.classifier_system_prompt` (multi-line YAML literal block scalar
+  `|` style), referenced by all three branches via Jinja. Free side benefit:
+  callers can override via workload for prompt A/B testing without forking.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  repos/ops/automation/agents/travel/runtime.yaml
+
+    1. Add workload.classifier_system_prompt as a `|` literal block scalar
+       containing the EXACT current prompt body from
+       classify_via_http_provider's `system_prompt` constant. Byte-for-byte
+       preservation — do not rephrase, reorder, or change indentation.
+
+    2. classify_via_http_provider:
+       - Add `system_prompt: "{{ workload.classifier_system_prompt }}"` to
+         the step's `input` block.
+       - REMOVE the inline `system_prompt = '''...'''` constant from the
+         Python `code` body.
+       - The rest of the Python code that references `system_prompt`
+         continues to work unchanged (input scope provides the variable).
+
+    3. classify_via_vertex_mcp:
+       - Replace `payload.arguments.system: <inline-multiline-string>` with
+         `payload.arguments.system: "{{ workload.classifier_system_prompt }}"`.
+
+    4. classify_via_ollama_mcp:
+       - Same as step 3.
+
+    Verification grep:
+      grep -c 'You are a travel agent classifier' repos/ops/.../runtime.yaml  # → 1
+      grep -c 'workload.classifier_system_prompt' repos/ops/.../runtime.yaml  # → ≥ 3
+
+  repos/docs/docs/tutorials/07-travel-agent-with-widgets.md
+    Step 3 currently shows the classifier code with the prompt inline in
+    Python. Update the snippet to show:
+      (a) the workload field with the prompt
+      (b) three branches each reading "{{ workload.classifier_system_prompt }}"
+    Add a short paragraph noting prompt overrides flow through
+    workload.classifier_system_prompt for callers who want to A/B test or
+    domain-tune the classifier without forking the runtime.
+
+Codex job (5 phases — see task JSON):
+
+  1. apply refactor:           Lift prompt into workload; update three branches.
+                               Pydantic-validate. Grep verifies 1 prompt body
+                               + 3+ Jinja references.
+  2. ops PR:                   branch kadyapam/classifier-prompt-single-source
+                               PR title: "refactor(travel-agent): single source of truth for classifier system_prompt via workload field"
+                               --squash --delete-branch on merge.
+  3. docs PR:                  branch kadyapam/travel-tutorial-classifier-prompt-source
+                               PR title: "docs(tutorials): note classifier prompt single-source-of-truth refactor"
+  4. re-register + regression: smoke `travel hotels in Paris on 2026-08-15`
+                               under all four providers (default openai,
+                               anthropic-fallback, vertex-ai, ollama). Confirm
+                               classify_intent extracts intent='hotels',
+                               cityCode='PAR', departureDate='2026-08-15'
+                               IDENTICALLY across providers. Same for
+                               `travel activities near Times Square` →
+                               intent='activities', latitude (~40.758),
+                               longitude (~-73.985).
+                               If extraction differs from pre-refactor on any
+                               provider, the prompt body drifted — fix and
+                               retry.
+  5. ai-meta pointer bumps:    git submodule update --remote repos/ops repos/docs
+                               git add repos/ops repos/docs
+                               git commit: "chore(sync): bump ops + docs for classifier prompt single-source-of-truth refactor"
+                               DO NOT push.
+
+Architectural rules:
+  - Don't modify the Amadeus, Vertex AI, or Ollama MCP playbooks.
+  - Don't modify the merger or any render_* step.
+  - Don't add new fields to the prompt schema in this round — preserve
+    byte-for-byte exactly. Semantic changes belong in a separate round.
+  - Don't rephrase the prompt body — exact wording, indentation, and list
+    bullet style must match.
+  - No release cuts.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand classifier prompt single-source refactor to Codex
+       (bridge/inbox/delegated/20260511-035000-classifier-prompt-single-source.task.json)
+    2. chore(scripts): codex prompt for classifier prompt single-source refactor
+       (scripts/classifier_prompt_single_source_msg.txt)
+    3. memory(add): handed classifier prompt single-source refactor to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/ops  (1 PR — workload field + three branch updates)
+  repos/docs (1 PR — tutorial 07 Step 3 polish)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/docs after PRs merge.

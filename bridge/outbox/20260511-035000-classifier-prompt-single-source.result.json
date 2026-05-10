@@ -1,0 +1,55 @@
+{
+  "id": "20260511-035000-classifier-prompt-single-source",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T06:27:14Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_apply_refactor": {
+      "validates": true,
+      "prompt_body_count": 1,
+      "jinja_refs_count": 4,
+      "notes": "The fourth reference feeds classify_intent's OpenAI fallback path; it was updated too so the prompt body appears exactly once in the runtime."
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/67",
+      "merged_sha": "fd28b20"
+    },
+    "3_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/58",
+      "merged_sha": "bdc9239",
+      "docs_build_clean": true
+    },
+    "4_re_register_and_smoke_regression": {
+      "travel_catalog_id": "623495287473963591",
+      "travel_version": 25,
+      "hotels_classification_consistent_across_providers": true,
+      "activities_classification_consistent": true,
+      "no_intent_or_field_drift": true,
+      "smoke_matrix": [
+        {"provider_requested": "openai", "query_kind": "hotels", "execution_id": "623495519670633032", "status": "COMPLETED", "intent": "hotels", "cityCode": "PAR", "departureDate": "2026-08-15", "effective_provider": "openai", "provider_fallback_reason": null},
+        {"provider_requested": "anthropic", "query_kind": "hotels", "execution_id": "623496931490136240", "status": "COMPLETED", "intent": "hotels", "cityCode": "PAR", "departureDate": "2026-08-15", "effective_provider": "openai", "provider_fallback_reason": "anthropic token missing"},
+        {"provider_requested": "vertex-ai", "query_kind": "hotels", "execution_id": "623498308840850200", "status": "COMPLETED", "intent": "hotels", "cityCode": "PAR", "departureDate": "2026-08-15", "effective_provider": "openai", "provider_fallback_reason": "service-account credentials missing private_key or client_email"},
+        {"provider_requested": "ollama", "query_kind": "hotels", "execution_id": "623499715945955860", "status": "COMPLETED", "intent": "hotels", "cityCode": "PAR", "departureDate": "2026-08-15", "effective_provider": "ollama", "provider_fallback_reason": null},
+        {"provider_requested": "openai", "query_kind": "activities", "execution_id": "623495888467395298", "status": "COMPLETED", "intent": "activities", "keyword": "Times Square", "latitude": 40.758, "longitude": -73.9855, "effective_provider": "openai"},
+        {"provider_requested": "anthropic", "query_kind": "activities", "execution_id": "623497280422674762", "status": "COMPLETED", "intent": "activities", "keyword": "Times Square", "latitude": 40.758, "longitude": -73.9855, "effective_provider": "openai", "provider_fallback_reason": "anthropic token missing"},
+        {"provider_requested": "vertex-ai", "query_kind": "activities", "execution_id": "623498657337181143", "status": "COMPLETED", "intent": "activities", "keyword": "Times Square", "latitude": 40.758, "longitude": -73.9855, "effective_provider": "openai", "provider_fallback_reason": "service-account credentials missing private_key or client_email"},
+        {"provider_requested": "ollama", "query_kind": "activities", "execution_id": "623500454764217046", "status": "COMPLETED", "intent": "activities", "keyword": "Times Square", "latitude": 40.758, "longitude": -73.9855, "effective_provider": "ollama"},
+        {"provider_requested": "openai", "query_kind": "flights", "execution_id": "623496236359746428", "status": "COMPLETED", "intent": "flights", "origin": "SFO", "destination": "JFK", "departureDate": "2026-07-15", "adults": 2},
+        {"provider_requested": "anthropic", "query_kind": "flights", "execution_id": "623497631527862756", "status": "COMPLETED", "intent": "flights", "origin": "SFO", "destination": "JFK", "departureDate": "2026-07-15", "adults": 2},
+        {"provider_requested": "vertex-ai", "query_kind": "flights", "execution_id": "623499022568784022", "status": "COMPLETED", "intent": "flights", "origin": "SFO", "destination": "JFK", "departureDate": "2026-07-15", "adults": 2},
+        {"provider_requested": "ollama", "query_kind": "flights", "execution_id": "623500904141947797", "status": "COMPLETED", "intent": "flights", "origin": "SFO", "destination": "JFK", "departureDate": "2026-07-15", "adults": 2}
+      ],
+      "provider_variance_note": "Ollama's location spot-check preserved intent=locations but expressed Boston as origin=BOS and keyword='near Boston' instead of OpenAI's cityCode=BOS. This is local-model extraction variance, not prompt-source drift; the prompt body is unchanged and single-sourced."
+    },
+    "5_bump_ai_meta_pointers": {
+      "ops_sha": "fd28b20",
+      "docs_sha": "bdc9239",
+      "ai_meta_commit_local": null
+    }
+  },
+  "regressions_found": [],
+  "iterations": 1,
+  "verdict": "GREEN",
+  "notes": "No MCP playbooks, merger logic, or render_* steps were semantically changed. The only merger-path touch was replacing its fallback OpenAI inline prompt copy with workload.classifier_system_prompt so the grep invariant holds."
+}

@@ -1,0 +1,127 @@
+{
+  "id": "20260511-035000-classifier-prompt-single-source",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T03:50:00Z",
+  "title": "Travel agent — single-source-of-truth refactor for classifier system_prompt (load-bearing debt cleanup)",
+
+  "description": "After Phase 4 (Ollama provider), the travel runtime's classifier system_prompt is duplicated across THREE places: classify_via_http_provider's Python `system_prompt` constant, classify_via_vertex_mcp's payload `system` argument, and classify_via_ollama_mcp's payload `system` argument. The hotels/activities round flagged this; Phase 4 made it load-bearing. Every schema extension since (cityCode, latitude, longitude) has required editing the prompt in three places. This round dedupes by lifting the prompt into a single workload field `workload.classifier_system_prompt` (multi-line YAML literal block scalar `|`), referenced by all three branches via Jinja. Free side benefit: callers can override the prompt via workload for prompt A/B testing or domain-specific tuning without forking the runtime. Cap: 1 ops PR + 1 docs PR (tutorial 07 Step 3 currently shows the prompt inline in Python — needs to mention the workload-field shape after this lands).",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "design_brief_for_codex": {
+    "current_state": "Three duplicated copies of the classifier system_prompt:\n\n  1. `classify_via_http_provider` step (kind: python): the prompt is a multi-line string assigned to a `system_prompt` constant inside the step's `code` block. Used by the openai/anthropic urllib branches.\n\n  2. `classify_via_vertex_mcp` step: the prompt is the value of `payload.arguments.system` — a Jinja string literal in YAML.\n\n  3. `classify_via_ollama_mcp` step: same as vertex — `payload.arguments.system` is a Jinja string literal.\n\nAll three copies must stay byte-for-byte identical for the merger to produce consistent classifications across providers. They've drifted at least once already (hotels/activities round added `cityCode` and `latitude`/`longitude` keys; Phase 4 had to make sure ollama's payload kept the same prompt as vertex).",
+
+    "target_state": "Exactly one place defines the system prompt: a new workload field `workload.classifier_system_prompt` containing a multi-line YAML literal block scalar (`|` style). All three classify_via_* branches reference it via Jinja:\n\n  - classify_via_http_provider's `input` block gets a new field `system_prompt: \"{{ workload.classifier_system_prompt }}\"`. The step's Python code reads it from input scope (already automatic — no new Jinja inside the code body) instead of defining the constant inline. The existing `system_prompt` Python constant is REMOVED.\n\n  - classify_via_vertex_mcp's `payload.arguments.system` becomes `\"{{ workload.classifier_system_prompt }}\"` (already is — but the inline string literal is REMOVED, leaving only the workload reference).\n\n  - classify_via_ollama_mcp's `payload.arguments.system` same.",
+
+    "workload_field_shape": "```yaml\nworkload:\n  # ... existing fields ...\n  classifier_system_prompt: |\n    You are a travel agent classifier. Given a user query, return ONLY\n    a JSON object with these keys:\n    - intent: one of \"flights\", \"hotels\", \"locations\", \"activities\", \"help\"\n    - origin: IATA code (or null)\n    - destination: IATA code (or null)\n    - departureDate: YYYY-MM-DD (convert relative dates; or null)\n    - adults: integer, default 1\n    - city: human-readable city name for hotels (or null)\n    - cityCode: IATA city code for hotels (e.g. NYC, PAR, LON; or null)\n    - keyword: free-text filter for locations or activities (or null)\n    - latitude: decimal degrees for activities (or null)\n    - longitude: decimal degrees for activities (or null)\n    Use null for fields that don't apply.\n```\n\nUse the EXACT current prompt content from classify_via_http_provider — do NOT rephrase or reorder fields. Byte-for-byte preservation is critical because the merger and downstream extraction logic depend on the LLM returning these exact keys.",
+
+    "step_1_lift_prompt_into_workload": "Read the current prompt content from classify_via_http_provider's `system_prompt` constant. Copy it verbatim into a new `workload.classifier_system_prompt: |` block. Preserve indentation, newlines, list bullet style, all exact wording.",
+
+    "step_2_update_classify_via_http_provider": "Add `system_prompt: \"{{ workload.classifier_system_prompt }}\"` to the step's `input` block. Remove the inline `system_prompt = '''...'''` constant from the Python `code` body. The local variable name `system_prompt` is now bound by NoETL's input merging — the rest of the Python code that references `system_prompt` keeps working without further changes.",
+
+    "step_3_update_classify_via_vertex_mcp": "Replace `payload.arguments.system: <inline-multiline-string>` with `payload.arguments.system: \"{{ workload.classifier_system_prompt }}\"`. The classify step doesn't need any code body changes — the substitution is at the YAML/Jinja layer.",
+
+    "step_4_update_classify_via_ollama_mcp": "Same as step 3.",
+
+    "verification_criterion": "After the refactor, grep for any inline-string variant of the prompt body (e.g. `You are a travel agent classifier`) — should appear ONLY ONCE in the runtime, inside the workload block. Three branches should each have `\"{{ workload.classifier_system_prompt }}\"` references.",
+
+    "regression_smoke_after_refactor": "All four real intents (flights/hotels/locations/activities) plus help, smoked under all four providers (openai/anthropic-fallback/vertex-ai-fallback-on-kind/ollama). Classifier output should be identical to pre-refactor — same intent extraction, same field extraction, same fallback behaviour. The simplest smoke: run the same `travel hotels in Paris on 2026-08-15` query under each provider and confirm cityCode='PAR' is extracted in all four cases.",
+
+    "tutorial_07_update": "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — Step 3 'Pluggable AI provider' currently shows the classify_intent code with the system_prompt inline in Python. Update the snippet to show: (a) the workload field with the prompt, and (b) the three branches each reading `\"{{ workload.classifier_system_prompt }}\"`. Add a short paragraph noting that prompt overrides flow through `workload.classifier_system_prompt` for callers who want to A/B test or domain-tune the classifier without forking the runtime.",
+
+    "no_other_changes": "Do NOT modify the merger logic. Do NOT modify any render_* step. Do NOT modify the Amadeus, Vertex AI, or Ollama MCP playbooks. Do NOT add new fields to the prompt schema in this round — preserve byte-for-byte exactly. The refactor is dedupe-only; semantic changes belong in a separate round."
+  },
+
+  "phases": {
+    "1_apply_refactor": {
+      "objective": "Lift prompt into workload; update three branches to reference it; preserve byte-for-byte content.",
+      "spec": [
+        "Read the current `system_prompt` content from classify_via_http_provider's Python code body.",
+        "Add `workload.classifier_system_prompt` field with a `|` literal block scalar containing the exact same content (preserve indentation, newlines, list-bullet style).",
+        "Update classify_via_http_provider: add `system_prompt` to the step's `input` block; remove the inline Python constant. Verify the rest of the Python code body's `system_prompt` references still work (input scope provides the variable).",
+        "Update classify_via_vertex_mcp's `payload.arguments.system` to `\"{{ workload.classifier_system_prompt }}\"`.",
+        "Update classify_via_ollama_mcp's `payload.arguments.system` same.",
+        "Pydantic-validate the patched runtime.",
+        "Grep verification: `grep -c 'You are a travel agent classifier' repos/ops/automation/agents/travel/runtime.yaml` should equal 1 (only the workload field). Three Jinja references `{{ workload.classifier_system_prompt }}` should be present."
+      ],
+      "verify": "Runtime validates clean. Prompt body present exactly once."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/classifier-prompt-single-source`.",
+        "Stage automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `refactor(travel-agent): single source of truth for classifier system_prompt via workload field`. Body cites the three-branch duplication, the load-bearing debt flagged in Phase 4 close-out, the byte-for-byte preservation, and the new prompt-override capability for callers.",
+        "PR title: same.",
+        "Push, PR, merge with `--squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_open_and_merge_docs_pr": {
+      "objective": "Update tutorial 07 Step 3 to show workload field + Jinja references.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/travel-tutorial-classifier-prompt-source`.",
+        "Edit docs/tutorials/07-travel-agent-with-widgets.md Step 3 — replace the inline Python prompt snippet with the workload-field shape and the three-branch Jinja references. Add a short paragraph on prompt overrides via workload.",
+        "Verify: `cd repos/docs && npm install && npm run build` clean.",
+        "Commit: `docs(tutorials): note classifier prompt single-source-of-truth refactor`.",
+        "Push, PR, merge."
+      ],
+      "verify": "Docs PR merged."
+    },
+
+    "4_re_register_and_smoke_regression": {
+      "objective": "Confirm classifier output is identical pre/post refactor across all providers.",
+      "spec": [
+        "Pull merged ops at HEAD; `noetl register` the patched runtime; capture catalog version.",
+        "Smoke `travel hotels in Paris on 2026-08-15` under all four provider settings: default → openai, --provider anthropic (will fall back to openai per the gated secret state), --provider vertex-ai (will fall back to openai on local kind per Phase 3 lesson, will work on GKE), --provider ollama. For each: confirm classify_intent extracts intent='hotels', cityCode='PAR', departureDate='2026-08-15'. Identical extraction means the prompt didn't drift.",
+        "Smoke `travel activities near Times Square` under each provider. Confirm classify_intent extracts intent='activities', latitude (~40.758), longitude (~-73.985).",
+        "Spot-check one flight + one location per provider to round out coverage.",
+        "Verify travel_agent_events rows show consistent classification payload across providers."
+      ],
+      "verify": "Classifier output is identical pre/post across all four providers. No regression in intent or field extraction."
+    },
+
+    "5_bump_ai_meta_pointers": {
+      "objective": "Bump repos/ops + repos/docs gitlinks in ai-meta. Stage but do not push.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops repos/docs`.",
+        "`git add repos/ops repos/docs`.",
+        "Commit: `chore(sync): bump ops + docs for classifier prompt single-source-of-truth refactor`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "The prompt body lives in exactly one place (`workload.classifier_system_prompt`). Three classify branches reference it via Jinja. Classifier behaviour is identical pre/post refactor.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; PROMPT_BODY=$(grep -c 'You are a travel agent classifier' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); JINJA_REFS=$(grep -c 'workload.classifier_system_prompt' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"prompt_body:$PROMPT_BODY jinja_refs:$JINJA_REFS\"; if [ \"$PROMPT_BODY\" -eq 1 ] && [ \"$JINJA_REFS\" -ge 3 ]; then echo 'GOAL: CLASSIFIER_PROMPT_SINGLE_SOURCE_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: CLASSIFIER_PROMPT_SINGLE_SOURCE_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/e2e — ops + docs only round",
+    "Modifying the Amadeus, Vertex AI, or Ollama MCP playbooks",
+    "Modifying classify_intent merger or any render_* step",
+    "Adding new fields to the prompt schema in this round — preserve byte-for-byte exactly",
+    "Rephrasing the prompt body — exact wording, indentation, and list bullet style must match",
+    "Cutting any release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate (or .venv/bin/python Playbook.model_validate)",
+    "noetl register / noetl status <id> --json",
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-035000-classifier-prompt-single-source.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_apply_refactor: {validates, prompt_body_count: 1, jinja_refs_count: int}, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_open_and_merge_docs_pr: {pr_url, merged_sha, docs_build_clean}, 4_re_register_and_smoke_regression: {travel_catalog_id, travel_version, hotels_classification_consistent_across_providers: bool, activities_classification_consistent: bool, no_intent_or_field_drift: bool, screenshots: []}, 5_bump_ai_meta_pointers: {ops_sha, docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes}."
+}
