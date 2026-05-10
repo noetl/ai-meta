@@ -1,0 +1,141 @@
+{
+  "id": "20260510-040000-travel-vertex-ai-resmoke",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T02:34:00Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_verify_vertex_auth_path": {
+      "auth_method_detected": "GKE Workload Identity metadata server",
+      "cluster": "noetl-cluster",
+      "project": "noetl-demo-19700101",
+      "namespace": "noetl",
+      "kubernetes_service_account": "noetl/noetl-worker",
+      "google_service_account": "noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+      "workload_identity_annotation_present": true,
+      "iam_roles_observed": [
+        "roles/aiplatform.user",
+        "roles/container.viewer",
+        "roles/mcp.toolUser"
+      ],
+      "metadata_token_verified_in_worker": true,
+      "direct_mcp_call_status": {
+        "execution_id": "623383029334933695",
+        "completed": true,
+        "failed": false,
+        "status": "ok",
+        "isError": false,
+        "model": "gemini-2.5-flash",
+        "text_preview": "pong",
+        "usage": {
+          "prompt_tokens": 9,
+          "completion_tokens": 1,
+          "total_tokens": 41
+        }
+      },
+      "error_if_blocked": null,
+      "correction_applied": "The auth path was already healthy on GKE. The remaining blocker was that travel runtime defaults pointed vertex_project/gcp_project at noetl-cluster instead of the enabled GCP project noetl-demo-19700101. ops#60 and docs#51 fixed the default, then travel runtime was registered as version 2 on the GKE server."
+    },
+    "2_travel_vertex_smokes": {
+      "help_status": {
+        "execution_id": "623381985775321905",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_help",
+        "render_type": "app:column",
+        "effective_provider": "vertex-ai",
+        "provider_fallback_reason": null,
+        "vertex_sub_execution_id": "623381992318436173",
+        "vertex_child_usage": {
+          "prompt_tokens": 128,
+          "completion_tokens": 60,
+          "total_tokens": 238
+        }
+      },
+      "flights_status": {
+        "execution_id": "623382273336804267",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_amadeus_failure",
+        "render_type": "app:column",
+        "effective_provider": "vertex-ai",
+        "provider_fallback_reason": null,
+        "vertex_sub_execution_id": "623382279309493191",
+        "vertex_child_usage": {
+          "prompt_tokens": 145,
+          "completion_tokens": 74,
+          "total_tokens": 264
+        },
+        "note": "Amadeus still returned HTTP 500, so the expected travel widget is the friendly-error app:column; this is separate from Vertex provider validation."
+      },
+      "locations_status": {
+        "execution_id": "623382578497585205",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_amadeus_failure",
+        "render_type": "app:column",
+        "effective_provider": "vertex-ai",
+        "provider_fallback_reason": null,
+        "vertex_sub_execution_id": "623382583346200657",
+        "vertex_child_usage": {
+          "prompt_tokens": 130,
+          "completion_tokens": 62,
+          "total_tokens": 236
+        },
+        "note": "Amadeus still returned HTTP 500, so the expected travel widget is the friendly-error app:column; this is separate from Vertex provider validation."
+      },
+      "all_effective_provider_vertex": true,
+      "vertex_child_completed": true,
+      "vertex_child_token_usage": {
+        "help_total_tokens": 238,
+        "flights_total_tokens": 264,
+        "locations_total_tokens": 236
+      },
+      "agent_step_proven_in_events": true,
+      "screenshots": []
+    },
+    "3_regression_existing_paths": {
+      "openai_status": {
+        "execution_id": "623383311989080292",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_help",
+        "render_type": "app:column",
+        "effective_provider": "openai",
+        "provider_fallback_reason": null
+      },
+      "anthropic_fallback_status": {
+        "execution_id": "623383358562631993",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_help",
+        "render_type": "app:column",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "anthropic token missing"
+      }
+    },
+    "4_close_out": {
+      "validation_log_appended": true,
+      "ops_pr_url": "https://github.com/noetl/ops/pull/60",
+      "docs_pr_url": "https://github.com/noetl/docs/pull/51",
+      "ops_sha": "243d35fc54ec9f42360508cc7af380f716af8eaf",
+      "docs_sha": "de17e3dfca7429949ceea7777b922778b878fcc3"
+    }
+  },
+  "iterations": 2,
+  "verdict": "GREEN",
+  "notes": [
+    "GKE credentials were obtained with gcloud container clusters get-credentials for noetl-cluster in us-central1, project noetl-demo-19700101.",
+    "Worker pod metadata auth is valid: GOOGLE_APPLICATION_CREDENTIALS is unset, metadata server returns noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com and a bearer access token.",
+    "The previous AMBER was not caused by missing GKE Vertex auth; the travel playbook targeted vertex_project=noetl-cluster. Vertex AI returned HTTP 403 CONSUMER_INVALID for that project string. Fixing the default to noetl-demo-19700101 made the existing Workload Identity path pass.",
+    "The GKE travel runtime is registered as catalog 623381857714832176 version 2 after ops#60.",
+    "Amadeus test API 500s remain a separate upstream issue; the travel runtime correctly renders friendly-error widgets while preserving effective_provider=vertex-ai."
+  ],
+  "deferred_followups": [
+    "Investigate Amadeus test API 500s on flights/locations",
+    "Anthropic re-smoke once the secret is provisioned in project 1014428265962",
+    "Ollama provider — needs in-cluster bridge URL routing design",
+    "Wire hotels and activities branches in the travel agent",
+    "app:form widget for refining Amadeus filters before re-running"
+  ]
+}
