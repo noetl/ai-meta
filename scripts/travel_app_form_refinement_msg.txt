@@ -1,0 +1,123 @@
+Codex prompt — Travel agent: app:form refinement widget for editing Amadeus filters
+=====================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260510-201500-travel-app-form-refinement.task.json
+
+Result goes to:
+  bridge/outbox/20260510-201500-travel-app-form-refinement.result.json
+
+Reference precedents:
+  - repos/gui/src/components/widgets/AppForm.tsx                 (existing widget)
+  - repos/gui/src/components/widgets/AppButton.tsx               (preventDefault/stopPropagation pattern)
+  - repos/gui/src/components/NoetlPrompt.tsx handleWidgetEvent   (key='command' → runCommand)
+  - repos/gui/src/components/GatewayAssistant.tsx onWidgetEvent  (key='command' → commandToCanvasPrompt + onSubmit)
+  - repos/ops/automation/agents/travel/runtime.yaml render_*     (widget tree shape)
+
+Context:
+  Travel render_* widget trees are read-only. Once a user sees flights /
+  hotels / locations / activities / friendly-error widgets, refining the
+  search means typing a new prompt. This round adds an app:form refinement
+  widget appended to each render_* tree. The form's fields are pre-populated
+  from classify_intent values; the submit button emits a `key: "command"`
+  widget event with a templated travel query that gets substituted at click
+  time from the current field values. Both terminal and canvas already
+  handle `key: "command"` events.
+
+  The ONLY missing primitive is template substitution in AppForm.tsx —
+  current click handler emits either button.event.value (static) or the
+  values dict (object). Neither builds a string command from form values.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  repos/gui/src/components/widgets/AppForm.tsx
+    Click handler change. If button.event.value is a string with `{fieldId}`
+    placeholders, substitute each from values dict (empty string if missing).
+    If button.event.value is non-string (object/array) or undefined, preserve
+    existing behaviour.
+
+    Pseudo:
+      const rawValue = button.event?.value;
+      let emittedValue: unknown = rawValue ?? values;
+      if (typeof rawValue === 'string') {
+        emittedValue = rawValue.replace(/\{(\w+)\}/g, (_match, fieldId) => {
+          const fieldValue = values[fieldId];
+          return fieldValue !== undefined && fieldValue !== '' ? String(fieldValue) : '';
+        });
+      }
+      onWidgetEvent({ event: 'onFormSubmit', key: button.event?.key || 'onFormSubmit', value: emittedValue });
+
+    Add unit test for the four shapes: static string, placeholder substitution,
+    missing field, non-string fallback.
+
+  repos/ops/automation/agents/travel/runtime.yaml
+    AFTER the gui PR is merged AND deployed to GKE, append app:form widget
+    to each render_* widget tree's app:column children list. Per-intent
+    field/template shapes are in the design brief.
+
+    render_flights:    origin/destination/departureDate/adults
+    render_hotels:     cityCode/departureDate
+    render_locations:  keyword
+    render_activities: keyword
+    render_amadeus_failure: introspect classify_intent.intent at render time
+
+  repos/docs/docs/tutorials/07-travel-agent-with-widgets.md
+    New 'Refinement forms' subsection under Step 4 (Widget output). Show the
+    template-substitution pattern with one example. Cite the AppForm.tsx
+    {fieldId} convention.
+
+Codex job (6 phases — see task JSON):
+
+  1. gui PR:                    branch kadyapam/appform-template-substitution
+                                PR title: "feat(widgets): app:form button template substitution with {fieldId} placeholders"
+                                --squash --delete-branch on merge.
+                                Semantic-release auto-bumps minor (feat: triggers).
+  2. redeploy gui:              wait for the new release tag; confirm GKE
+                                noetl-gui deployment is rolled to the new image.
+                                IMPORTANT: do NOT open the ops PR until this
+                                is confirmed. Otherwise a click on the form
+                                emits a values dict to runCommand() which
+                                breaks.
+  3. ops PR:                    branch kadyapam/travel-render-refinement-forms
+                                PR title: "feat(travel-agent): refinement form appended to each render_* widget tree"
+                                Append app:form to each render_* tree.
+  4. docs PR:                   branch kadyapam/travel-tutorial-refinement-forms
+                                PR title: "docs(tutorials): document travel agent refinement-form widgets"
+  5. re-register and smoke:     four intents + at least one failure scenario.
+                                Click-test the form on each. Verify a new
+                                execution starts with the substituted command.
+                                Capture screenshots.
+  6. ai-meta pointer bumps:     gui + ops + docs in one commit
+                                "chore(sync): bump gui + ops + docs for travel agent refinement-form widgets"
+                                DO NOT push.
+
+Architectural rules:
+  - Don't modify the Amadeus or Vertex AI MCP playbooks.
+  - Don't modify classify_intent or its system prompt — form just reuses
+    classify_intent's output as defaults.
+  - Don't add new widget kinds — app:form already exists, just adding
+    template substitution to its click handler.
+  - The app:button preventDefault/stopPropagation pattern (round 8) does
+    NOT apply to AppForm.tsx — its buttons are inside an antd Form which
+    handles event propagation differently. Don't blanket-add the pattern.
+  - Sequence matters: gui PR + redeploy MUST happen before ops PR opens.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand travel app:form refinement round to Codex
+       (bridge/inbox/delegated/20260510-201500-travel-app-form-refinement.task.json)
+    2. chore(scripts): codex prompt for travel app:form refinement
+       (scripts/travel_app_form_refinement_msg.txt)
+    3. memory(add): handed travel app:form refinement to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/gui  (1 PR — AppForm template substitution + unit test)
+  repos/ops  (1 PR — render_* widget trees include app:form)
+  repos/docs (1 PR — tutorial 07 mentions refinement forms)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for gui + ops + docs after all PRs merge.
