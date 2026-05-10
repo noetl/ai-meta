@@ -1,0 +1,108 @@
+Codex prompt — Playbook authoring guide: pin the workload-default lesson (12th rule)
+=====================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260510-181500-authoring-guide-workload-defaults.task.json
+
+Result goes to:
+  bridge/outbox/20260510-181500-authoring-guide-workload-defaults.result.json
+
+Reference precedent (style match these — same structure, Good/Bad blocks, evidence pointer):
+  repos/docs/docs/reference/playbook_authoring_guide.md
+    `### Use bare workload references in keychain templates`  (round 2)
+    `### Make the render-emitting step the workflow tail`     (round 6)
+
+Context:
+  Phase 3 vertex-ai re-smoke (closed GREEN earlier today) flipped AMBER → GREEN
+  because of a single workload-default fix in ops#60: `gcp_project` (and the
+  `vertex_project` Jinja chain that referenced it) defaulted to `noetl-cluster`,
+  which is the local kind sandbox name. The deployed environment is GKE project
+  `noetl-demo-19700101`. Every Vertex AI request hit the wrong project until the
+  default was flipped. The auth recipes I designed up front (env-token, SA-JSON,
+  Workload Identity) were all wrong — auth was already wired correctly.
+
+  This is a generalisable design rule and worth pinning in the authoring guide
+  alongside the 11 rules from the 9-round flagship arc. It's the inverse of
+  rule #1 (bare keychain references): keychain Jinja resolves bare workload
+  fields, but defaults-of-defaults in workload Jinja chains are a hidden
+  coupling that silently misroutes production callers.
+
+Patch design (Codex implements; brief in task JSON design_brief_for_codex):
+
+  repos/docs/docs/reference/playbook_authoring_guide.md
+    Insert a new top-level section `## Workload defaults` BETWEEN the existing
+    `## Keychain rules` section (ends at the OAuth2 endpoint rule's evidence
+    pointer) and the existing `## Step semantics` section (starts at the
+    `status: failed` rule).
+
+    The new section contains ONE rule:
+
+      ### Match environment-specific workload defaults to where the playbook runs
+
+      [two-sentence body explaining the trap]
+
+      Good:
+      ```yaml
+      workload:
+        # GKE project — used by every downstream Jinja chain.
+        gcp_project: "noetl-demo-19700101"
+        vertex_project: "{{ workload.gcp_project }}"
+        vertex_region: "us-central1"
+      ```
+
+      Bad:
+      ```yaml
+      workload:
+        # Local kind sandbox name — silently misroutes every GKE caller.
+        gcp_project: "noetl-cluster"
+        vertex_project: "{{ workload.gcp_project }}"
+        vertex_region: "us-central1"
+      ```
+
+      Surfaced in Phase 3 vertex-ai re-smoke. Evidence:
+      `bridge/outbox/20260510-040000-travel-vertex-ai-resmoke.result.json`.
+
+      [closing one-paragraph note tying back to bare-keychain-refs rule:
+       prefer required fields with no default OR default to production;
+       defaulting to local is the trap]
+
+  Match the visual style of the existing 11 rules exactly (heading depths,
+  Good/Bad labels as plain text on their own lines, evidence pointer as the
+  closing paragraph of each rule).
+
+Codex job (3 phases — see task JSON):
+
+  1. apply edit:                Insert the new section. Verify with
+                                `cd repos/docs && npm install && npm run build`.
+  2. docs PR:                   branch kadyapam/authoring-guide-workload-defaults
+                                PR title: "docs(reference): add 12th rule — match environment-specific workload defaults to where the playbook runs"
+                                --squash --delete-branch on merge.
+  3. ai-meta pointer bump:      git submodule update --remote repos/docs
+                                git add repos/docs
+                                git commit: "chore(sync): bump docs for authoring-guide workload-defaults rule"
+                                DO NOT push.
+
+Architectural rules:
+  - Don't modify any of the 11 existing rules.
+  - Don't reorder existing sections — insert the new section between Keychain
+    rules and Step semantics.
+  - Don't touch the front-matter or the 'See also' footer.
+  - No release cuts.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand authoring-guide workload-defaults rule to Codex
+       (bridge/inbox/delegated/20260510-181500-authoring-guide-workload-defaults.task.json)
+    2. chore(scripts): codex prompt for authoring-guide workload-defaults rule
+       (scripts/authoring_guide_workload_defaults_msg.txt)
+    3. memory(add): handed authoring-guide workload-defaults rule to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/docs (1 PR — single-section insertion in the authoring guide)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/docs after PR merges.
