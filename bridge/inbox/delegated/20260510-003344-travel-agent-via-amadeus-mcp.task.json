@@ -1,0 +1,131 @@
+{
+  "id": "20260510-003344-travel-agent-via-amadeus-mcp",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-10T00:33:44Z",
+  "title": "Travel agent — Phase 2: route Amadeus calls through the Amadeus MCP playbook (agent → MCP hop)",
+
+  "description": "Phase 2 of the travel agent flagship. Today the travel runtime calls Amadeus directly via `kind: python` urllib wrappers. The Amadeus MCP server playbook (`automation/agents/mcp/amadeus`, catalog v3) exposes the same capability as MCP tools — but it's only callable by external MCP clients. This round wires the travel runtime's Amadeus calls to go through the MCP playbook via NoETL's `tool: agent framework: noetl` pattern (proven in Spike Gap 1). After this lands, Amadeus is invoked the same way regardless of caller — direct from the travel agent OR from any external MCP client — both go through the same MCP playbook. The 'MCP is just a playbook' thesis becomes load-bearing: changing Amadeus integration in one place updates both surfaces. Cap: 1 ops PR + 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 10,
+
+  "design_brief_for_codex": {
+    "current_state": "repos/ops/automation/agents/travel/runtime.yaml has two steps that call Amadeus directly: `amadeus_call_flights` (kind: python, urllib POST to /v2/shopping/flight-offers) and `amadeus_call_locations` (kind: python, urllib GET to /v1/reference-data/locations). Both wrap in try/except and return `{ok, status_code, body}`.",
+    "target_state": "Both steps are replaced with `tool: agent framework: noetl` invocations of `automation/agents/mcp/amadeus` with `method: tools/call`, `tool: search_flights` (or search_locations), and `arguments: { origin, destination, departureDate }` (or `{ keyword, subType }`). The Amadeus MCP playbook returns an MCP-shaped envelope `{ status, content, isError, _meta, data: { offers/items, offers_total/items_total, status_code, ok, error } }`. The travel runtime's render steps already process Amadeus offers/locations — they just need to read from the new envelope shape (`envelope.data.offers` instead of `envelope.body.data`).",
+    "tool_agent_pattern": "Use the tool spec from the Spike Gap 1 round (`tool: { kind: agent, framework: noetl }`). Pass the playbook path via `agent.path: automation/agents/mcp/amadeus` (or the registered catalog_id). The agent step's result is the sub-execution's `execution.result` — which after the round-7 render-as-tail fix is the LAST step's result of the MCP playbook (the `shape_search_flights` step's MCP envelope). Look at Spike Gap 1's existing usages in repos/ops or repos/e2e for the exact YAML shape.",
+    "step_renames": "amadeus_call_flights → amadeus_via_mcp_flights (new name signals the architectural change). amadeus_call_locations → amadeus_via_mcp_locations. The log_classification routing arcs update accordingly. render_flights / render_locations / render_amadeus_failure inputs change from `amadeus_call_flights` etc. to `amadeus_via_mcp_flights` etc.",
+    "render_step_envelope_translation": "Today render_flights does `body = envelope.get('body')` then `offers = body.get('data')`. After this change, it does `offers = envelope.get('data', {}).get('offers') or []` (the MCP playbook's envelope.data.offers). Same shift for render_locations: `items = envelope.get('data', {}).get('items') or []`. render_amadeus_failure reads `envelope.get('data', {}).get('status_code')` and `envelope.get('data', {}).get('error')`. The MCP envelope's `isError` flag is also useful.",
+    "ok_arc_predicate": "Today log_classification's arcs check `amadeus_call_flights.ok`. New form: `amadeus_via_mcp_flights.data.ok` OR `not amadeus_via_mcp_flights.isError`. The MCP envelope's `data.ok` field was added in the Amadeus MCP playbook's shape steps for exactly this — use it directly.",
+    "tutorial_07_update": "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md 'Same capability via MCP' section currently shows two ways to call Amadeus (agent direct vs MCP from outside). Update to note Phase 2: the agent NOW uses the MCP playbook internally. Both surfaces — `travel <query>` and `cd /mcp/amadeus; call search_flights ...` — share the same Amadeus implementation. Add a 'try it' showing `noetl status <id> --json | jq '.events[] | select(.step | startswith(\"amadeus_via_mcp\"))'` to confirm the agent step type is `agent` not `python` direct."
+  },
+
+  "phases": {
+    "1_validate_design": {
+      "objective": "Confirm `tool: agent framework: noetl` shape against Spike Gap 1 precedent and apply edits to travel runtime.",
+      "spec": [
+        "Find an existing playbook in repos/ops or repos/e2e that uses `tool: { kind: agent, framework: noetl }` to invoke another playbook. Likely candidates: anything that consumes the troubleshoot agent (Gap 4.1), or the Gap 1 fixture itself. Note the exact spec shape (path field, workload pass-through, result handling).",
+        "Apply edits per the design brief: rename + retool `amadeus_call_flights` → `amadeus_via_mcp_flights`, same for locations. Update log_classification arcs. Update render_flights/locations/amadeus_failure to read `envelope.data.X`.",
+        "Run noetl/Pydantic validate via the same path used in prior rounds: `repos/noetl/.venv/bin/python` importing `Playbook.model_validate(...)`."
+      ],
+      "verify": "Travel runtime validates clean."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-agent-via-amadeus-mcp`.",
+        "Stage automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `feat(travel-agent): route Amadeus calls through the Amadeus MCP playbook (agent → MCP hop)`. Body explains: Phase 2 lands; agent now uses MCP playbook internally so Amadeus integration changes in one place; cites Spike Gap 1 for `tool: agent framework: noetl` precedent.",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_open_and_merge_docs_pr": {
+      "objective": "Update tutorial 07 'Same capability via MCP' section.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/travel-tutorial-via-mcp`.",
+        "Update repos/docs/docs/tutorials/07-travel-agent-with-widgets.md per the brief — note Phase 2 lands; agent uses MCP internally; both surfaces share one Amadeus implementation. Add the noetl-status jq snippet showing the agent step type.",
+        "Verify: `cd repos/docs && npm install && npm run build` clean.",
+        "Commit: `docs(tutorials): note Phase 2 — travel agent uses Amadeus MCP playbook internally`.",
+        "Push, PR, merge."
+      ],
+      "verify": "Docs PR merged."
+    },
+
+    "4_re_register_and_redeploy": {
+      "objective": "Re-register travel runtime and confirm the kind cluster picks up the new playbook.",
+      "spec": [
+        "Pull merged ops at HEAD.",
+        "`noetl register repos/ops/automation/agents/travel/runtime.yaml` (catalog version 11 or whatever's next).",
+        "Confirm the Amadeus MCP playbook is still registered (catalog v3 from prior rounds; no change).",
+        "Capture both catalog_ids/versions."
+      ],
+      "verify": "Both playbooks registered and reachable."
+    },
+
+    "5_smoke_terminal_widget_visibility": {
+      "objective": "Replay all three intents, confirm widgets still render via the MCP path.",
+      "spec": [
+        "`travel help` — expected: completed; help widget visible inline. (No Amadeus call — regression check that the MCP rewrite didn't break the help branch.)",
+        "`travel flights from SFO to JFK on 2026-07-15 for 2 adults` — expected: completed; widget = flight carousel (Amadeus 200) or friendly error (Amadeus 5xx). Either way, widget visible.",
+        "`travel locations near Boston` — expected: completed; recordtable widget.",
+        "`noetl status <flights-execution-id> --json | jq '.events[] | select(.step | test(\"amadeus_via_mcp\")) | {step: .step, type: .tool_kind, sub_execution: .sub_execution_id}'` — expected: tool_kind='agent' and sub_execution_id present (proves the agent → MCP hop happened).",
+        "Capture screenshots of widgets inline + jq output proving the MCP hop."
+      ],
+      "verify": "All three intents complete with widgets. Flights/locations executions show the agent step kind in events."
+    },
+
+    "6_smoke_external_mcp_regression": {
+      "objective": "Confirm the Amadeus MCP playbook still works for direct external callers (regression check).",
+      "spec": [
+        "`cd /mcp/amadeus`; `tools` (5 tools listed); `call get_token` (token_bound=true). Regressions.",
+        "`call search_flights origin=SFO destination=JFK departureDate=2026-07-15` directly. Should still work — same playbook, just now also called from the travel agent."
+      ],
+      "verify": "External MCP path still functional."
+    },
+
+    "7_bump_ai_meta_pointers": {
+      "objective": "Bump repos/ops + repos/docs gitlinks in ai-meta.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops repos/docs`.",
+        "`git add repos/ops repos/docs`.",
+        "Commit: `chore(sync): bump ops + docs for travel agent → Amadeus MCP hop (Phase 2)`.",
+        "Don't push ai-meta."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "Travel runtime invokes Amadeus via the MCP playbook (tool: agent). Three intents complete with widgets. External MCP regression clean. Tutorial updated.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; VIA_MCP=$(grep -c 'amadeus_via_mcp' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); URLLIB_LEFT=$(grep -c 'urllib.request.urlopen' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"via_mcp:$VIA_MCP urllib_left:$URLLIB_LEFT\"; if [ \"$VIA_MCP\" -ge 2 ] && [ \"$URLLIB_LEFT\" -le 0 ]; then echo 'GOAL: TRAVEL_AGENT_VIA_MCP_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_AGENT_VIA_MCP_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/e2e — ops + docs only round",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Cutting a noetl/gui/e2e release",
+    "Modifying the Amadeus MCP playbook (it stays as the single source of truth for Amadeus)",
+    "Re-introducing direct urllib calls to Amadeus from the travel runtime (the whole point is to route through the MCP playbook)",
+    "Adding `when:` predicates to keychain entries (proven unreliable in earlier rounds)",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate (or .venv/bin/python Playbook.model_validate)",
+    "noetl register / noetl status <id> --json",
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push (2 topic branches)",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot for the prompt smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260510-003344-travel-agent-via-amadeus-mcp.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_validate_design: {validates, gap1_precedent_used}, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_open_and_merge_docs_pr: {pr_url, merged_sha, docs_build_clean}, 4_re_register_and_redeploy: {travel_catalog_id, travel_version, mcp_playbook_present}, 5_smoke_terminal_widget_visibility: {help_status, flights_status, locations_status, agent_step_proven_in_events: bool, screenshots: []}, 6_smoke_external_mcp_regression: {tools_listed, get_token_bound, search_flights_status}, 7_bump_ai_meta_pointers: {ops_sha, docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Audit table re-add as side effect inside each render_* python step', 'Wire hotels and activities branches in the travel agent', 'app:form widget for refining Amadeus filters before re-running', 'Anthropic re-smoke once the secret is provisioned in project 1014428265962', 'Vertex AI provider — needs gcp_access_token keychain kind', 'Ollama provider — needs in-cluster bridge URL']}. If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting Phase 2 closed."
+}

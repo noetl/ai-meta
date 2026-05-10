@@ -1,0 +1,96 @@
+Codex prompt — Phase 2: travel agent uses Amadeus MCP playbook internally
+==========================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260510-003344-travel-agent-via-amadeus-mcp.task.json
+
+Result goes to:
+  bridge/outbox/20260510-003344-travel-agent-via-amadeus-mcp.result.json
+
+Reference precedent:
+  Spike Gap 1 — `tool: agent framework: noetl` (task #89 completed). Find an
+  existing playbook in repos/ops or repos/e2e that uses this pattern; copy
+  the YAML shape verbatim.
+
+Context:
+  Today's travel runtime calls Amadeus directly via kind:python urllib
+  wrappers. The Amadeus MCP server playbook (automation/agents/mcp/amadeus
+  v3) exposes the same capability as MCP tools — but it's only callable by
+  external MCP clients. This round wires the agent to use the MCP playbook
+  internally so Amadeus integration changes in one place.
+
+Patch design (Codex implements; brief in task JSON design_brief_for_codex):
+
+  repos/ops/automation/agents/travel/runtime.yaml
+    - amadeus_call_flights → amadeus_via_mcp_flights (rename signals the
+      architectural change). tool spec changes from kind:python to
+      kind:agent framework:noetl, invoking automation/agents/mcp/amadeus
+      with method=tools/call, tool=search_flights, arguments={origin,
+      destination, departureDate}.
+    - amadeus_call_locations → amadeus_via_mcp_locations. Same shape with
+      tool=search_locations, arguments={keyword}.
+    - log_classification routing arcs update to the new step names.
+    - render_flights / render_locations / render_amadeus_failure inputs
+      update from `amadeus_call_*` to `amadeus_via_mcp_*`. Envelope shape
+      changes: was `envelope.body.data` (Amadeus raw); now
+      `envelope.data.offers` / `envelope.data.items` (MCP playbook's
+      shape_search_* step output).
+    - `when:` predicate on log_classification arcs: `amadeus_via_mcp_flights.data.ok`
+      (the MCP envelope's data.ok flag — added in the Amadeus MCP playbook
+      for exactly this).
+
+  repos/docs/docs/tutorials/07-travel-agent-with-widgets.md
+    'Same capability via MCP' section: note Phase 2 lands; the agent now
+    uses the MCP playbook internally; both surfaces (travel verb +
+    cd /mcp/amadeus) share one Amadeus implementation. Add a 'try it' jq
+    snippet showing the agent step kind in execution events.
+
+Codex job (7 phases — see task JSON):
+
+  1. validate design:           find Spike Gap 1 precedent; apply edits;
+                                Pydantic validate the patched runtime
+  2. ops PR:                    branch kadyapam/travel-agent-via-amadeus-mcp
+                                PR title: "feat(travel-agent): route Amadeus calls through the Amadeus MCP playbook (agent → MCP hop)"
+                                --squash --delete-branch on merge
+  3. docs PR:                   branch kadyapam/travel-tutorial-via-mcp
+                                PR title: "docs(tutorials): note Phase 2 — travel agent uses Amadeus MCP playbook internally"
+  4. re-register:               noetl register the patched runtime; capture version
+  5. terminal widget visibility: travel help / flights / locations.
+                                All MUST reach status=completed with widgets visible.
+                                Verify the agent → MCP hop happened via:
+                                  noetl status <id> --json |
+                                    jq '.events[] | select(.step | test("amadeus_via_mcp"))
+                                          | {step, type: .tool_kind, sub_execution: .sub_execution_id}'
+                                Expected: tool_kind='agent', sub_execution_id present.
+  6. external MCP regression:   cd /mcp/amadeus; tools; get_token; search_flights ...
+                                directly — should still work (same playbook).
+  7. ai-meta pointer bumps:     git submodule update --remote repos/ops repos/docs
+                                git add repos/ops repos/docs
+                                git commit: "chore(sync): bump ops + docs for travel agent → Amadeus MCP hop (Phase 2)"
+                                DO NOT push.
+
+Architectural rules:
+  - Don't modify the Amadeus MCP playbook (it's the single source of truth now).
+  - Don't re-introduce direct urllib calls to Amadeus from the travel runtime
+    (the whole point is to route through the MCP playbook).
+  - Use the proven Spike Gap 1 `tool: agent framework: noetl` shape.
+  - No keychain `when:` predicates (proven unreliable).
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand travel-via-MCP Phase 2 round to Codex
+       (bridge/inbox/delegated/20260510-003344-travel-agent-via-amadeus-mcp.task.json)
+    2. chore(scripts): codex prompt for travel-via-MCP Phase 2
+       (scripts/travel_agent_via_amadeus_mcp_msg.txt)
+    3. memory(add): handed travel-via-MCP Phase 2 to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/ops (1 PR — step renames + tool change + envelope-read renames)
+  repos/docs (1 PR — tutorial 07 Phase 2 update)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/docs after PRs merge.
