@@ -1,0 +1,158 @@
+Codex prompt — Phase 3: travel agent gets Vertex AI as third provider via the Vertex AI MCP playbook
+=====================================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260510-021500-travel-vertex-ai.task.json
+
+Result goes to:
+  bridge/outbox/20260510-021500-travel-vertex-ai.result.json
+
+Reference precedent (mirror this exactly):
+  Phase 2 — `automation/agents/travel/runtime.yaml` step `amadeus_via_mcp_flights`.
+  Already lives in repos/ops at HEAD; it's the proven `tool: agent framework: noetl`
+  hop into an MCP playbook. The Vertex AI hop in this round mirrors that shape.
+
+Context:
+  Today the travel agent supports two providers (OpenAI default, Anthropic) inside
+  one kind:python `classify_intent` step doing urllib calls to each cloud API.
+  Vertex AI was deferred from the multi-provider round because of GCP auth
+  complexity (Workload Identity / metadata server / GOOGLE_OAUTH_ACCESS_TOKEN /
+  GOOGLE_APPLICATION_CREDENTIALS). MEANWHILE, automation/agents/mcp/vertex-ai
+  already implements ALL of that auth complexity — it just needs to be invoked.
+  Phase 3 wires the travel agent to call the Vertex AI MCP playbook via
+  `tool: agent framework: noetl`, mirroring Phase 2's Amadeus hop. The MCP playbook
+  stays the single source of truth for Vertex AI / Gemini integration.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  repos/ops/automation/agents/travel/runtime.yaml — three-branch refactor of classify_intent:
+
+    1. RENAME current `classify_intent` step → `classify_via_http_provider`
+       (still kind:python, still handles openai+anthropic via urllib — no semantic
+       change to the body).
+
+    2. ADD new step `classify_via_vertex_mcp`:
+         tool:
+           kind: agent
+           framework: noetl
+           entrypoint: automation/agents/mcp/vertex-ai
+           payload:
+             method: tools/call
+             tool: chat_completion
+             arguments:
+               messages: [{role: user, content: "{{ workload.query }}"}]
+               system: <classifier system prompt>
+               temperature: 0
+               vertex_project: "{{ workload.vertex_project | default(workload.gcp_project) }}"
+               vertex_region:  "{{ workload.vertex_region }}"
+               vertex_model:   "{{ workload.vertex_model }}"
+
+    3. ADD a small kind:python merger step named `classify_intent` (downstream
+       Jinja keeps referencing classify_intent.X, so this step keeps the contract).
+       The merger reads `{{ classify_via_http_provider | default({}) }}` and
+       `{{ classify_via_vertex_mcp | default({}) }}`, picks whichever ran:
+         - http branch: pass-through (already canonical)
+         - vertex branch: extract text from envelope.text or envelope.content[0].text
+           or envelope.data._meta.text, strip ```json fences, parse JSON, normalise
+           to canonical (intent, origin, destination, departureDate, adults, city,
+           keyword)
+         - vertex error path (envelope.isError == True OR text empty): snap
+           effective_provider to 'openai' with provider_fallback_reason; call OpenAI
+           via urllib (same shape as classify_via_http_provider's _openai_text)
+       Always emit json_str via json.dumps(result, separators=(',', ':')).
+
+  start.next.arcs uses mode: exclusive and dispatches:
+    - step: classify_via_http_provider
+      when: "{{ workload.ai_provider in ['openai', 'anthropic'] or workload.ai_provider == '' or workload.ai_provider is none }}"
+    - step: classify_via_vertex_mcp
+      when: "{{ workload.ai_provider == 'vertex-ai' }}"
+
+  Both classify_via_* branches arc into classify_intent (the merger). The merger
+  arcs into log_classification (unchanged). Everything downstream of
+  log_classification stays as-is.
+
+  Workload field additions:
+    vertex_project: "{{ workload.gcp_project }}"   # default — reuse existing
+    vertex_region:  "us-central1"
+    vertex_model:   "gemini-2.5-flash"
+  Update ai_provider comment: # openai | anthropic | vertex-ai
+  Update metadata.capabilities to add ai:vertex-ai.
+
+  repos/docs/docs/tutorials/07-travel-agent-with-widgets.md
+    - Prerequisites list: drop Vertex AI from the deferred set; keep Ollama deferred.
+    - Step 3 — extend the provider switch table to include vertex-ai. Add a
+      paragraph noting vertex-ai threads through automation/agents/mcp/vertex-ai
+      via tool: agent framework: noetl, mirroring Phase 2's Amadeus pattern.
+      The travel agent dispatches; the MCP playbook owns GCP auth.
+    - Add the kind:agent step shape as a code snippet.
+    - Add a `try it` jq snippet:
+        noetl status <id> --json |
+          jq '.events[] | select(.step | test("classify_via_vertex_mcp"))
+                | {step, type: .tool_kind, sub_execution: .sub_execution_id}'
+      Expected: tool_kind='agent', sub_execution_id present.
+
+Codex job (8 phases — see task JSON):
+
+  1. validate design:           apply edits; Pydantic validate; confirm
+                                automation/agents/mcp/vertex-ai is registered
+                                in the kind cluster catalog (required — used by
+                                troubleshoot/diagnose_execution.yaml already).
+  2. ops PR:                    branch kadyapam/travel-agent-vertex-ai-via-mcp
+                                PR title: "feat(travel-agent): add Vertex AI as third provider via the Vertex AI MCP playbook (agent → MCP hop)"
+                                --squash --delete-branch on merge.
+  3. docs PR:                   branch kadyapam/travel-tutorial-vertex-ai-via-mcp
+                                PR title: "docs(tutorials): note vertex-ai as third provider via the Vertex AI MCP playbook (Phase 3)"
+  4. re-register:               noetl register the patched travel runtime; capture version.
+  5. terminal widget visibility: travel --provider vertex-ai help / flights / locations.
+                                All MUST reach status=completed with widgets visible AND
+                                effective_provider='vertex-ai' (NOT the openai fallback).
+                                Verify the agent → MCP hop:
+                                  noetl status <id> --json |
+                                    jq '.events[] | select(.step | test("classify_via_vertex_mcp"))
+                                          | {step, type: .tool_kind, sub_execution: .sub_execution_id}'
+                                Expected: tool_kind='agent', sub_execution_id present.
+                                BLOCKER: if the GCP project's service account / Workload
+                                Identity lacks roles/aiplatform.user, the vertex MCP returns
+                                isError → merger falls back to openai. In that case write
+                                AMBER result file and document what's missing for Kadyapam.
+  6. existing-provider regression: travel help (default → openai) and travel --provider anthropic help.
+                                Confirm openai works; anthropic still falls back to openai
+                                (Anthropic secret is still NOT_FOUND per backlog — same state
+                                as before, NOT a regression).
+  7. external MCP regression:    cd /mcp/vertex-ai; tools; call chat_completion. AND
+                                cd /mcp/amadeus; tools; call get_token. Both should still work.
+  8. ai-meta pointer bumps:     git submodule update --remote repos/ops repos/docs
+                                git add repos/ops repos/docs
+                                git commit: "chore(sync): bump ops + docs for travel agent vertex-ai via MCP (Phase 3)"
+                                DO NOT push.
+
+Architectural rules:
+  - Don't modify the Vertex AI MCP playbook (it's the single source of truth for
+    Vertex AI / Gemini auth and request shape).
+  - Don't re-introduce direct urllib calls to Vertex / Gemini APIs from the travel
+    runtime — the whole point is to route through the MCP playbook.
+  - Don't add a `gcp_access_token` keychain kind to the travel runtime. GCP auth
+    complexity stays inside the vertex-ai MCP playbook.
+  - Use the proven Phase 2 `tool: agent framework: noetl` shape from
+    `amadeus_via_mcp_flights`.
+  - No keychain `when:` predicates (proven unreliable).
+  - No GCP secret provisioning — Kadyapam owns secret manager.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand travel vertex-ai Phase 3 round to Codex
+       (bridge/inbox/delegated/20260510-021500-travel-vertex-ai.task.json)
+    2. chore(scripts): codex prompt for travel vertex-ai Phase 3
+       (scripts/travel_vertex_ai_msg.txt)
+    3. memory(add): handed travel vertex-ai Phase 3 to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/ops (1 PR — three-branch classify refactor + workload defaults)
+  repos/docs (1 PR — tutorial 07 Phase 3 update)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/docs after PRs merge.
