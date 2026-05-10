@@ -1,0 +1,110 @@
+{
+  "id": "20260511-000500-travel-anthropic-resmoke-v2",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T17:37:22Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_verify_secret_alignment": {
+      "secret_present_in_demo": true,
+      "secret_present_in_cluster": false,
+      "cluster_project_check": "gcloud denied/invalid for project name noetl-cluster; demo project is the active GKE project.",
+      "workload_secret_path_updated": false,
+      "gke_project_number": "1014428265962",
+      "secret_version": "1",
+      "secret_version_state": "ENABLED",
+      "secret_prefix_checked": "sk-ant-api03-8AQeco4...",
+      "worker_secret_accessor_binding_present": true,
+      "worker_service_account": "noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+      "notes": "The travel runtime already points at projects/1014428265962/secrets/anthropic-api-key/versions/1. That project number is noetl-demo-19700101, so the expected Phase 3 alignment fix was already true at the numeric-project path level."
+    },
+    "2_re_register_if_path_changed": {
+      "pr_url": null,
+      "merged_sha": null,
+      "travel_catalog_id": "623495287473963591",
+      "travel_version": 25,
+      "notes": "No secret-path change was needed, so no ops PR and no re-register were performed for phase 2."
+    },
+    "3_full_anthropic_smoke_matrix": {
+      "help_status": {
+        "execution_id": "623836803509780755",
+        "status": "COMPLETED",
+        "intent": "help",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "anthropic HTTP 404"
+      },
+      "flights_status": {
+        "execution_id": "623836939791106408",
+        "status": "COMPLETED",
+        "intent": "flights",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "anthropic HTTP 404",
+        "departureDate": "2026-07-15"
+      },
+      "locations_status": {
+        "execution_id": "623837340221309442",
+        "status": "COMPLETED",
+        "intent": "locations",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "anthropic HTTP 404",
+        "cityCode": "BOS"
+      },
+      "hotels_status": {
+        "execution_id": "623837699304063644",
+        "status": "COMPLETED",
+        "intent": "hotels",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "anthropic HTTP 404",
+        "cityCode": "PAR",
+        "departureDate": "2026-08-15"
+      },
+      "activities_status": {
+        "execution_id": "623838062019085110",
+        "status": "COMPLETED",
+        "intent": "activities",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "anthropic HTTP 404",
+        "latitude": 40.758,
+        "longitude": -73.9855
+      },
+      "all_five_effective_provider_anthropic": false,
+      "no_provider_fallback_reason_set": false,
+      "openai_default_regression": true,
+      "openai_default_execution_id": "623838436704650192",
+      "vertex_ai_regression": true,
+      "vertex_ai_execution_id": "623838468413587493",
+      "vertex_ai_local_kind_note": "Local kind still falls back to OpenAI with service-account credentials missing private_key or client_email; this is the known non-GKE Workload Identity behavior.",
+      "audit_rows_show_anthropic": false,
+      "audit_rows_summary": "travel_agent_events rows recorded ai_provider=openai and provider_fallback_reason='anthropic HTTP 404' for the five anthropic-requested smokes.",
+      "screenshots": [],
+      "direct_anthropic_api_probe": {
+        "key_prefix_checked": "sk-ant-api03-8AQeco4...",
+        "runtime_model": "claude-3-5-haiku-latest",
+        "runtime_model_status": 404,
+        "runtime_model_error_sanitised": {
+          "type": "not_found_error",
+          "message": "model: claude-3-5-haiku-latest"
+        },
+        "dated_haiku_model_status": 404,
+        "dated_haiku_model": "claude-3-5-haiku-20241022",
+        "sonnet_4_control_status": 200,
+        "sonnet_4_control_model": "claude-sonnet-4-20250514"
+      }
+    },
+    "4_close_out": {
+      "validation_log_appended": false,
+      "reason": "AMBER: secret alignment is fixed, but the Anthropic API key cannot access the runtime's configured Claude Haiku model. Runtime falls back with provider_fallback_reason='anthropic HTTP 404'."
+    },
+    "5_bump_ai_meta_pointers": {
+      "ops_sha": null,
+      "ai_meta_commit_local": null
+    }
+  },
+  "iterations": 1,
+  "verdict": "AMBER",
+  "notes": "The blocker moved from GCP Secret Manager NOT_FOUND to Anthropic model availability. The secret exists, version 1 is enabled, IAM includes the GKE worker service account, and the API key works against claude-sonnet-4-20250514. It returns 404 for claude-3-5-haiku-latest and claude-3-5-haiku-20241022. Per this smoke-only task's constraints, no classifier/model code was changed.",
+  "deferred_followups": [
+    "Open a small ops/docs round to make the Anthropic model configurable via workload, or to switch the runtime default from claude-3-5-haiku-latest to a model enabled for this key such as claude-sonnet-4-20250514.",
+    "After that model-alignment PR lands, rerun the five-intent Anthropic matrix and append GREEN validation if all rows show effective_provider='anthropic'."
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "id": "20260511-000500-travel-anthropic-resmoke-v2",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T00:05:00Z",
+  "title": "Travel agent Anthropic re-smoke v2 (refreshed for current state — gated on user-provisioned GCP secret)",
+
+  "description": "Refresh of the May 9 Anthropic re-smoke task (`bridge/inbox/delegated/20260509-194100-travel-anthropic-resmoke.task.json`) — that task is stale across multiple dimensions: it predates Phase 3 (vertex-ai), the hotels/activities branches, the refinement form, and the audit side-effect. The travel runtime is now at catalog version 22, supports three AI providers (openai/anthropic/vertex-ai), and four real Amadeus tool surfaces. This round is still purely smoke-only and gated on Kadyapam provisioning the GCP Anthropic secret out-of-band — the original blocker hasn't moved. The original GCP project number was `1014428265962` (kind/local). Phase 3 retro confirmed GKE runs in `noetl-demo-19700101`. The Anthropic secret path may need to move to the GKE project — Codex verifies. Once auth lands, run `travel --provider anthropic` against ALL FOUR Amadeus intents (flights/hotels/locations/activities) plus help, and verify effective_provider='anthropic' for each. Also re-run quick regression of openai default + vertex-ai to confirm no provider-switching regressions. Cap: 0 PRs unless the secret_path needs to be updated to point at the GKE project (then 1 small ops PR).",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 3600,
+  "max_iterations": 4,
+
+  "supersedes": "bridge/inbox/delegated/20260509-194100-travel-anthropic-resmoke.task.json",
+
+  "context_from_arc_progress_since_v1": {
+    "phase_3_landed": "Vertex AI is the third provider, threaded through automation/agents/mcp/vertex-ai via tool: agent framework: noetl. ops#59 + ops#60 (project default fix). Retro flagged that GKE runs in noetl-demo-19700101, NOT noetl-cluster.",
+    "hotels_activities_landed": "ops#61 + #62 + #63 added amadeus_via_mcp_hotels and amadeus_via_mcp_activities + render_hotels/render_activities + classifier system prompt extensions for cityCode + latitude/longitude.",
+    "refinement_forms_landed": "gui#34 (v1.11.0) + ops#64 added app:form template substitution and refinement widgets to each render_* tree.",
+    "audit_side_effect_landed": "ops#65 added best-effort travel_agent_events writes inside each render_* python step. Audit rows now land for both classify_intent and render_<intent> events.",
+    "current_travel_catalog_version": "22 (catalog id 623450816443056661 on local kind / 623381857714832176-or-newer on GKE).",
+    "current_anthropic_state": "classify_intent fallback semantics intact: when anthropic token is empty/unreachable, snaps to openai with provider_fallback_reason='anthropic token missing'. Multi-provider round + Phase 3 + hotels/activities + audit rounds all confirmed this fallback works."
+  },
+
+  "design_brief_for_codex": {
+    "step_1_verify_secret_path_alignment": "Two project candidates: `noetl-cluster` (project number 1014428265962, original kind/local naming) and `noetl-demo-19700101` (the actual GKE project per Phase 3 retro). The travel runtime's `anthropic_secret_path` workload field defaults to `projects/1014428265962/secrets/anthropic-api-key/versions/1`. If Kadyapam provisioned the Anthropic secret in noetl-demo-19700101, the secret_path needs to point there instead. Verify with `gcloud secrets describe anthropic-api-key --project=noetl-demo-19700101` AND `--project=noetl-cluster` (whichever exists). If only noetl-demo-19700101 has it, update the workload default in repos/ops/automation/agents/travel/runtime.yaml to use `projects/<demo-project-number>/secrets/anthropic-api-key/versions/<N>` — mirroring the Phase 3 lesson. Look up the project number with `gcloud projects describe noetl-demo-19700101 --format='value(projectNumber)'`.",
+
+    "step_2_secret_smoke": "If only one path needs updating, that's a 1-PR ops change. If both paths exist (sandbox AND production), keep noetl-demo-19700101 as the workload default to align with the Phase 3 workload-default rule.",
+
+    "step_3_full_provider_matrix": "After auth lands, smoke the FULL matrix:\n  - travel --provider anthropic help / flights / locations / hotels / activities — all five must produce effective_provider='anthropic', no fallback reason.\n  - travel help (default → openai) — regression check.\n  - travel --provider vertex-ai help — regression check.\n  Each smoke must complete with status=completed and a widget rendered. Audit rows should show ai_provider='anthropic' for each anthropic smoke.",
+
+    "step_4_no_code_changes_otherwise": "If the secret_path is correct as-is, the round is pure smoke + result file. If the secret_path needs updating to the GKE project, that's the one-line ops PR allowed. Anything else is out of scope."
+  },
+
+  "phases": {
+    "1_verify_secret_alignment": {
+      "objective": "Confirm where the Anthropic secret lives and whether the playbook's path matches.",
+      "spec": [
+        "`gcloud secrets describe anthropic-api-key --project=noetl-demo-19700101` — does the secret exist in the GKE project?",
+        "`gcloud secrets describe anthropic-api-key --project=noetl-cluster` — or does it exist (only) in the kind/local project?",
+        "If NEITHER exists, write AMBER result file documenting that Kadyapam still needs to provision and STOP.",
+        "If ONLY noetl-cluster has it, the workload path is fine for kind smoke but won't work on GKE — note in result file and proceed with kind-local smoke; flag the GKE drift.",
+        "If ONLY noetl-demo-19700101 has it (the expected post-Phase-3 location), look up the GKE project number and update the workload default in repos/ops/automation/agents/travel/runtime.yaml. Open a small ops PR titled `fix(travel-agent): point anthropic_secret_path at noetl-demo-19700101 (Phase 3 alignment)`.",
+        "If BOTH have it, keep the GKE project default to align with the Phase 3 workload-default rule.",
+        "Verify the worker can read the secret: `gcloud secrets versions access <N> --secret=anthropic-api-key --project=<project> | head -c 20 && echo ...` (first 20 chars only — never echo the full key)."
+      ],
+      "verify": "Anthropic secret reachable from the cluster the smokes target."
+    },
+
+    "2_re_register_if_path_changed": {
+      "objective": "If the workload secret_path was updated, re-register the travel runtime.",
+      "spec": [
+        "Pull merged ops at HEAD if a PR was needed.",
+        "`noetl register` the patched runtime.",
+        "Capture catalog version (likely 23 if path was updated, 22 unchanged otherwise)."
+      ],
+      "verify": "Travel runtime registered with current secret_path."
+    },
+
+    "3_full_anthropic_smoke_matrix": {
+      "objective": "Run all five intents through anthropic + spot-check openai default + vertex-ai.",
+      "spec": [
+        "`travel --provider anthropic help` — expected: status=completed, effective_provider='anthropic', no provider_fallback_reason, widget rendered.",
+        "`travel --provider anthropic flights from SFO to JFK on 2026-07-15 for 2 adults` — same expectations; expect render_flights OR render_amadeus_failure widget.",
+        "`travel --provider anthropic locations near Boston` — same.",
+        "`travel --provider anthropic hotels in Paris on 2026-08-15` — same; cityCode=PAR should be extracted by Anthropic's classifier.",
+        "`travel --provider anthropic activities near Times Square` — same; latitude/longitude should be extracted by Anthropic's classifier.",
+        "Quick regression: `travel help` (default → openai) — effective_provider='openai'.",
+        "Quick regression: `travel --provider vertex-ai help` — effective_provider='vertex-ai'.",
+        "Verify `noetl status <id> --json | jq '.result.effective_provider, .result.provider_fallback_reason'` for each anthropic smoke. effective_provider must equal 'anthropic'; provider_fallback_reason must be null/absent.",
+        "Verify travel_agent_events audit rows show ai_provider='anthropic' for the anthropic smokes."
+      ],
+      "verify": "All five anthropic intents produce effective_provider='anthropic'. Other providers regress clean. Audit table reflects the actual provider used."
+    },
+
+    "4_close_out": {
+      "objective": "Write result file. If GREEN, append to validation log.",
+      "spec": [
+        "Write bridge/outbox/20260511-000500-travel-anthropic-resmoke-v2.result.json.",
+        "If verdict GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting the Anthropic provider closes GREEN.",
+        "If still blocked, document precisely what's missing for Kadyapam (secret in wrong project, version mismatch, IAM not granted, etc.)."
+      ],
+      "verify": "Result file present; validation log appended on GREEN."
+    }
+  },
+
+  "expected_state": {
+    "description": "All five anthropic smokes (help/flights/locations/hotels/activities) complete with effective_provider='anthropic' and no fallback reason. Audit table reflects 'anthropic' as ai_provider. OpenAI default and vertex-ai regressions clean.",
+    "verify_pattern": "Result file's 3_full_anthropic_smoke_matrix shows all_five_effective_provider_anthropic=true and no_provider_fallback_reason_set=true."
+  },
+
+  "denied_tools": [
+    "Provisioning GCP secrets, IAM bindings, or service accounts — Kadyapam owns this",
+    "Modifying any travel runtime field other than anthropic_secret_path (and only if the project alignment requires it)",
+    "Modifying the Amadeus or Vertex AI MCP playbooks",
+    "Modifying classify_intent / classify_via_* / log_classification / render_* / merger steps",
+    "Cutting any release",
+    "Echoing the full Anthropic API key value in result file or screenshots — first 20 chars max for verification",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "gcloud secrets describe / gcloud secrets versions access (read-only verification)",
+    "gcloud projects describe --format='value(projectNumber)'",
+    "noetl register / noetl status <id> --json | jq",
+    "psql (or kubectl exec to pgbouncer) for audit-table SELECTs",
+    "git apply / git commit -F - / git push (only if secret_path needs the small ops PR)",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot for at least one anthropic-pilled widget"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-000500-travel-anthropic-resmoke-v2.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_verify_secret_alignment: {secret_present_in_demo: bool, secret_present_in_cluster: bool, workload_secret_path_updated: bool, gke_project_number}, 2_re_register_if_path_changed: {pr_url, merged_sha, travel_catalog_id, travel_version}, 3_full_anthropic_smoke_matrix: {help_status, flights_status, locations_status, hotels_status, activities_status, all_five_effective_provider_anthropic: bool, no_provider_fallback_reason_set: bool, openai_default_regression: bool, vertex_ai_regression: bool, audit_rows_show_anthropic: bool, screenshots: []}, 4_close_out: {validation_log_appended: bool}}, iterations, verdict, notes, deferred_followups}. If still AMBER, document precisely which auth artifact is missing and which project."
+}
