@@ -1,0 +1,97 @@
+{
+  "task": "20260510-201500-travel-app-form-refinement",
+  "verdict": "GREEN",
+  "completed_at": "2026-05-10T04:24:00-07:00",
+  "summary": "Travel app:form refinement shipped across GUI, ops, and docs. GUI v1.11.0 adds string template substitution for button event values, the travel runtime appends intent-specific refinement forms to render outputs, and tutorial 07 documents the contract. Local kind was redeployed to the new public GUI image before the ops runtime was registered, preserving the required sequencing.",
+  "pull_requests": {
+    "gui": {
+      "url": "https://github.com/noetl/gui/pull/34",
+      "title": "feat(widgets): app:form button template substitution with {fieldId} placeholders",
+      "merge_commit": "74f97f9a8dfd0ff3a9003a01718452027ab069f3",
+      "release": "v1.11.0",
+      "image": "ghcr.io/noetl/gui:v1.11.0"
+    },
+    "ops": {
+      "url": "https://github.com/noetl/ops/pull/64",
+      "title": "feat(travel-agent): refinement form appended to each render_* widget tree",
+      "merge_commit": "1c9adf775b347d1d264c48d6c69b13d34c4c61c3"
+    },
+    "docs": {
+      "url": "https://github.com/noetl/docs/pull/54",
+      "title": "docs(tutorials): document travel agent refinement-form widgets",
+      "merge_commit": "8719b124bd0cc57bd2e7141b8482a9a4bd2b060c"
+    }
+  },
+  "validation": {
+    "gui": {
+      "unit_tests": "npm test -- AppForm",
+      "typecheck": "npm run type-check",
+      "build": "npm run build",
+      "release_image": "ghcr.io/noetl/gui:v1.11.0",
+      "local_kind_rollout": "kubectl --context kind-noetl -n noetl set image deploy/gui nginx=ghcr.io/noetl/gui:v1.11.0 && rollout status",
+      "deployed_image_check": "ghcr.io/noetl/gui:v1.11.0",
+      "note": "The release-triggered image build stalled in Docker build/push and was cancelled; workflow_dispatch for the same v1.11.0 tag succeeded and produced the public GHCR image."
+    },
+    "ops": {
+      "playbook_validation": "Playbook.model_validate(yaml.safe_load(runtime.yaml))",
+      "registered_catalog_id": "623435726075462094",
+      "registered_version": 21
+    },
+    "docs": {
+      "build": "npm run build"
+    },
+    "api_smokes": [
+      {
+        "intent": "flights",
+        "execution_id": "623436218763575929",
+        "status": "COMPLETED",
+        "tail": "render_amadeus_failure",
+        "render_type": "app:column",
+        "form_fields": ["origin", "destination", "departureDate", "adults"],
+        "form_event_value": "travel flights from {origin} to {destination} on {departureDate} for {adults} adults"
+      },
+      {
+        "intent": "hotels",
+        "execution_id": "623436736844006163",
+        "status": "COMPLETED",
+        "tail": "render_amadeus_failure",
+        "render_type": "app:column",
+        "form_fields": ["cityCode", "departureDate"],
+        "form_event_value": "travel hotels in {cityCode} on {departureDate}"
+      },
+      {
+        "intent": "locations",
+        "execution_id": "623436742724420376",
+        "status": "COMPLETED",
+        "tail": "render_amadeus_failure",
+        "render_type": "app:column",
+        "form_fields": ["keyword"],
+        "form_event_value": "travel locations near {keyword}"
+      },
+      {
+        "intent": "activities",
+        "execution_id": "623436748269290292",
+        "status": "COMPLETED",
+        "tail": "render_amadeus_failure",
+        "render_type": "app:column",
+        "form_fields": ["keyword"],
+        "form_event_value": "travel activities near {keyword}"
+      }
+    ],
+    "browser_click_smoke": {
+      "surface": "local kind GUI at http://192.168.1.240:30081/travel",
+      "source_execution_id": "623438715775353057",
+      "action": "Changed the rendered flights form destination from JFK to LAX and clicked 'Try again with new values'.",
+      "observed_command": "flights from SFO to LAX on 2026-07-15 for 2 adults",
+      "result_execution_id": "623439294278926715",
+      "result_status": "COMPLETED",
+      "result_render_type": "app:column",
+      "note": "The accessibility tree showed the substituted command in the travel canvas before the new execution was submitted; the resulting execution completed with the substituted query in the render payload."
+    }
+  },
+  "deferred_followups": [
+    "Re-add audit table writes as side effects inside each render_* python step.",
+    "Investigate Amadeus test API HTTP 500 behavior separately from the widget/refinement contract.",
+    "Anthropic secret provisioning remains optional for real Anthropic provider smokes."
+  ]
+}
