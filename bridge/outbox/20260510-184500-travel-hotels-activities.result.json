@@ -1,0 +1,180 @@
+{
+  "id": "20260510-184500-travel-hotels-activities",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T03:30:14Z",
+  "overall_status": "GREEN_WITH_CAPACITY_NOTE",
+  "summary": "Travel hotels and activities branches are wired through the existing Amadeus MCP playbook, documented, registered on GKE, and smoke-tested. All five travel intents completed with render widgets; hotels and activities both exercised tool:agent hops into automation/agents/mcp/amadeus. The Amadeus test API continued returning upstream failures for several searches, so the validated widget path is the friendly-error app:column, matching the task's accepted fallback.",
+  "pull_requests": {
+    "ops_primary": {
+      "url": "https://github.com/noetl/ops/pull/61",
+      "title": "feat(travel-agent): wire hotels and activities branches via the Amadeus MCP playbook",
+      "merged_sha": "48a06b569ec1e1cf457e52f282f9261c8a8a50a9"
+    },
+    "ops_fix_forward_helper_scope": {
+      "url": "https://github.com/noetl/ops/pull/62",
+      "title": "fix(travel-agent): expose classifier coercion helpers to exec globals",
+      "merged_sha": "6cd8865060595d82842209ec577b871ceaed0896"
+    },
+    "ops_fix_forward_activity_coordinates": {
+      "url": "https://github.com/noetl/ops/pull/63",
+      "title": "fix(travel-agent): default activity coordinates when classifier omits lat/lon",
+      "merged_sha": "431d522a2e90cc5078a975425ba26166f3641b96"
+    },
+    "docs": {
+      "url": "https://github.com/noetl/docs/pull/53",
+      "title": "docs(tutorials): note hotels and activities branches in travel agent tutorial",
+      "merged_sha": "22ca185792405370107202bd1e524bb0c8879a86"
+    }
+  },
+  "phases": {
+    "1_validate_design": {
+      "status": "passed",
+      "notes": [
+        "Extended the travel classifier schema across the HTTP classifier, Vertex MCP prompt, and classifier merger with cityCode, latitude, and longitude.",
+        "Added amadeus_via_mcp_hotels, render_hotels, amadeus_via_mcp_activities, and render_activities to automation/agents/travel/runtime.yaml.",
+        "Updated log_classification routing so hotels and activities no longer fall through to render_help.",
+        "Pydantic validation passed using the current checkout's model import: noetl.core.dsl.engine.models.executor.Playbook."
+      ]
+    },
+    "2_open_and_merge_ops_pr": {
+      "status": "passed_with_fix_forwards",
+      "notes": [
+        "Primary ops PR #61 merged.",
+        "Validation exposed the same Python helper visibility issue seen in the earlier Vertex merger; ops PR #62 added globals().update for the helper functions.",
+        "Validation then exposed missing activity lat/lon from the classifier on a Times Square query; ops PR #63 added deterministic coordinate fallback for common cities/landmarks and a NYC default."
+      ]
+    },
+    "3_open_and_merge_docs_pr": {
+      "status": "passed",
+      "notes": [
+        "Docs PR #53 merged.",
+        "Tutorial 07 now lists flights, hotels, locations, and activities branches, the shared agent-to-MCP hop pattern, and the new classifier fields.",
+        "repos/docs npm install && npm run build completed cleanly before merge."
+      ]
+    },
+    "4_re_register_and_smoke": {
+      "status": "passed",
+      "environment": "GKE noetl-cluster, project noetl-demo-19700101, port-forwarded locally on localhost:18082",
+      "registered_catalog": {
+        "travel_runtime_version": 3,
+        "travel_runtime_catalog_id": "623408256555155854",
+        "amadeus_mcp_version": 1,
+        "amadeus_mcp_catalog_id": "623409121177371209"
+      },
+      "worker_capacity_note": "Initial parallel branch smokes saturated the two-worker pool with parent tool:agent executions, leaving child MCP executions unable to drain promptly. For validation, noetl-worker was temporarily scaled to 6 replicas, fresh smokes were run, and all completed. This is an operational capacity finding for nested agent-heavy flows, not a travel runtime code failure.",
+      "smokes": [
+        {
+          "name": "help",
+          "execution_id": "623411758169850786",
+          "completed": true,
+          "failed": false,
+          "tail_step": "render_help",
+          "render_event_path": "events[].result.context.render.type",
+          "render_type": "app:column",
+          "intent": "help",
+          "effective_provider": "openai"
+        },
+        {
+          "name": "flights",
+          "execution_id": "623411841292566615",
+          "completed": true,
+          "failed": false,
+          "tail_step": "render_amadeus_failure",
+          "render_event_path": "events[].result.context.render.type",
+          "render_type": "app:column",
+          "intent": "flights",
+          "effective_provider": "openai",
+          "note": "Friendly-error widget rendered because the Amadeus test API returned an upstream failure."
+        },
+        {
+          "name": "locations",
+          "execution_id": "623411841326121048",
+          "completed": true,
+          "failed": false,
+          "tail_step": "render_amadeus_failure",
+          "render_event_path": "events[].result.context.render.type",
+          "render_type": "app:column",
+          "intent": "locations",
+          "city": "Boston",
+          "cityCode": "BOS",
+          "effective_provider": "openai",
+          "note": "Friendly-error widget rendered because the Amadeus test API returned an upstream failure."
+        },
+        {
+          "name": "hotels",
+          "execution_id": "623411841686831193",
+          "completed": true,
+          "failed": false,
+          "tail_step": "render_amadeus_failure",
+          "render_event_path": "events[].result.context.render.type",
+          "render_type": "app:column",
+          "intent": "hotels",
+          "city": "Paris",
+          "cityCode": "PAR",
+          "effective_provider": "openai",
+          "agent_hop": "amadeus_via_mcp_hotels",
+          "note": "New branch exercised the Amadeus MCP hop and rendered the accepted friendly-error widget."
+        },
+        {
+          "name": "activities",
+          "execution_id": "623411841695219802",
+          "completed": true,
+          "failed": false,
+          "tail_step": "render_amadeus_failure",
+          "render_event_path": "events[].result.context.render.type",
+          "render_type": "app:column",
+          "intent": "activities",
+          "city": "New York",
+          "cityCode": "NYC",
+          "latitude": 40.758,
+          "longitude": -73.9855,
+          "effective_provider": "openai",
+          "agent_hop": "amadeus_via_mcp_activities",
+          "note": "New branch exercised the Amadeus MCP hop; classifier/fallback supplied Times Square coordinates."
+        }
+      ],
+      "screenshot_note": "Browser screenshots were not captured in this smoke-only handoff; canonical widget evidence is the persisted render event path for each execution."
+    },
+    "5_external_mcp_regression": {
+      "status": "passed",
+      "smokes": [
+        {
+          "tool": "search_hotels",
+          "execution_id": "623412483281126268",
+          "completed": true,
+          "failed": false,
+          "mcp_node": "amadeus_search_hotels",
+          "mcp_isError": true,
+          "upstream_status_code": 500,
+          "note": "NoETL-level execution completed; upstream Amadeus 500 surfaced as an MCP error envelope."
+        },
+        {
+          "tool": "search_activities",
+          "execution_id": "623412483281126269",
+          "completed": true,
+          "failed": false,
+          "mcp_node": "amadeus_search_activities",
+          "note": "NoETL-level execution completed; projection exposes flattened data_* fields for the activity response."
+        }
+      ]
+    },
+    "6_bump_ai_meta_pointers": {
+      "status": "passed",
+      "ops_sha": "431d522a2e90cc5078a975425ba26166f3641b96",
+      "docs_sha": "22ca185792405370107202bd1e524bb0c8879a86",
+      "ai_meta_commit": "73a8839"
+    }
+  },
+  "lessons": [
+    "Nested tool:agent fan-out needs spare worker capacity. With two workers, parallel parent agent calls can occupy the pool while child MCP executions wait; validation passed after scaling workers to six and rerunning fresh smokes.",
+    "Python helpers referenced by code executed through NoETL's exec-style runner must be exported through globals().update when downstream helper functions need to resolve them.",
+    "Classifier schemas that add geo fields need deterministic fallbacks for common natural-language activity locations so downstream MCP calls receive numeric coordinates."
+  ],
+  "deferred_followups": [
+    "Extract the duplicated classifier system prompt into a single workload/default field shared by HTTP and Vertex branches.",
+    "Investigate Amadeus test API 500s separately from travel runtime wiring.",
+    "Capacity/autoscaling follow-up for nested tool:agent heavy playbooks so parent and child executions cannot starve each other.",
+    "Item #3: app:form widget for refining Amadeus filters before rerunning."
+  ]
+}
