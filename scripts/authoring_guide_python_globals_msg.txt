@@ -1,0 +1,125 @@
+Codex prompt — Playbook authoring guide: 13th rule on Python globals/locals idiom
+====================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-030000-authoring-guide-python-globals.task.json
+
+Result goes to:
+  bridge/outbox/20260511-030000-authoring-guide-python-globals.result.json
+
+Reference precedent (style match these exactly):
+  repos/docs/docs/reference/playbook_authoring_guide.md
+    - All 12 existing rules use the same Heading / two-paragraph body / Good
+      code block / Bad code block / evidence pointer shape.
+    - The most recent additions (workload-defaults, refinement-form notes)
+      are in `docs#52` and `docs#54`.
+  repos/ops/automation/agents/mcp/vertex-ai.yaml
+    - Lines 224-239 — the existing `globals().update({...})` republish block
+      that mcp/vertex-ai needs to make its helper functions visible to each
+      other inside one kind:python step. This is the canonical example to
+      cite.
+
+Context:
+  NoETL executes `kind: python` step code with separate globals and locals
+  dicts. Helper functions defined at the top of a step's code body are
+  visible to top-level statements but NOT to OTHER helper functions via
+  closure, unless explicitly republished via `globals().update({...})`.
+
+  This footgun has bitten three rounds in the travel arc:
+    - Phase 3 vertex-ai merger
+    - hotels/activities classifier extension (ops#62 helper-scope fix)
+    - Phase 4 ollama playbook (handled cleanly because prior rounds taught us)
+
+  The pattern is also baked into the existing mcp/vertex-ai.yaml playbook.
+  Pin it as the 13th rule so future authors don't rediscover it.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  repos/docs/docs/reference/playbook_authoring_guide.md
+    Insert a new top-level section `## Python step authoring` BETWEEN the
+    existing `## External HTTP calls` section (ends at the urllib wrapper
+    rule's evidence pointer) and the existing `## YAML and SQL quoting`
+    section.
+
+    The new section contains ONE rule:
+
+      ### Republish helpers through globals before calling them from other helpers
+
+      [two-paragraph body: NoETL's separate globals/locals model;
+       republish through globals().update({...}) after defining all helpers]
+
+      Good:
+      ```python
+      def _helper_one():
+          return _helper_two() + 1
+
+      def _helper_two():
+          return 42
+
+      globals().update({
+          '_helper_one': _helper_one,
+          '_helper_two': _helper_two,
+      })
+
+      result = {'value': _helper_one()}
+      ```
+
+      Bad:
+      ```python
+      def _helper_one():
+          # NameError at runtime: _helper_two is not visible inside _helper_one
+          # because NoETL evaluates this snippet with separate globals and
+          # locals.
+          return _helper_two() + 1
+
+      def _helper_two():
+          return 42
+
+      result = {'value': _helper_one()}
+      ```
+
+      Surfaced in the Phase 3 vertex-ai round and again in the
+      hotels/activities round. Evidence:
+      `bridge/outbox/20260510-184500-travel-hotels-activities.result.json`.
+
+      [closing 'why this happens' paragraph: exec(code, globals_dict, locals_dict)
+       semantics; imports auto-publish to globals but user functions don't]
+
+    Match the visual style of the existing 12 rules exactly.
+
+Codex job (3 phases — see task JSON):
+
+  1. apply edit:                Insert the new section. Verify with
+                                `cd repos/docs && npm install && npm run build`.
+  2. docs PR:                   branch kadyapam/authoring-guide-python-globals
+                                PR title: "docs(reference): add 13th rule — republish helpers through globals before calling them from other helpers"
+                                --squash --delete-branch on merge.
+  3. ai-meta pointer bump:      git submodule update --remote repos/docs
+                                git add repos/docs
+                                git commit: "chore(sync): bump docs for authoring-guide python-globals rule"
+                                DO NOT push.
+
+Architectural rules:
+  - Don't modify any of the 12 existing rules.
+  - Don't reorder existing sections — insert between External HTTP calls and
+    YAML and SQL quoting.
+  - Don't touch the front-matter or 'See also' footer.
+  - No release cuts.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand authoring-guide python-globals rule to Codex
+       (bridge/inbox/delegated/20260511-030000-authoring-guide-python-globals.task.json)
+    2. chore(scripts): codex prompt for authoring-guide python-globals rule
+       (scripts/authoring_guide_python_globals_msg.txt)
+    3. memory(add): handed authoring-guide python-globals rule to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/docs (1 PR — single-section insertion)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/docs after PR merges.

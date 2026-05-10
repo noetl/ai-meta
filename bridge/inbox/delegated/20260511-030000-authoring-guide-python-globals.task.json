@@ -1,0 +1,91 @@
+{
+  "id": "20260511-030000-authoring-guide-python-globals",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T03:00:00Z",
+  "title": "Playbook authoring guide — pin the NoETL Python globals/locals idiom (13th rule)",
+
+  "description": "The NoETL worker executes `kind: python` step code with separate globals/locals dicts. Helper functions defined at the top of a step's code are visible to top-level statements but NOT to OTHER helpers via closure unless explicitly republished via `globals().update({...})`. This footgun has bitten three rounds in the travel arc: Phase 3 vertex-ai merger (helper-scope fix in ops#62 — actually that was hotels/activities; vertex was the original fix), the hotels/activities classifier extension (ops#62 helper-scope fix), and Phase 4 ollama playbook (handled cleanly because the prior rounds taught us). It's also visible inside the existing automation/agents/mcp/vertex-ai.yaml playbook which uses the same workaround. Worth pinning as a 13th rule in `repos/docs/docs/reference/playbook_authoring_guide.md` so future authors don't rediscover it. Same docs-only shape as item #1 (the workload-defaults rule). Cap: 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 1800,
+  "max_iterations": 5,
+
+  "design_brief_for_codex": {
+    "current_state": "playbook_authoring_guide.md has 12 rules in 6 sections: Keychain rules (2), Workload defaults (1, just added in docs#52), Step semantics (2), External HTTP calls (1), YAML and SQL quoting (2), GUI integration (4). The new rule is about kind:python step authoring — doesn't fit cleanly under any existing section.",
+
+    "target_state": "13th rule lives in a new 'Python step authoring' section inserted between 'External HTTP calls' and 'YAML and SQL quoting' (loosely grouped: HTTP and YAML are both about what you write at the YAML layer; the new section is about what you write inside a python step's code body, which sits between HTTP-as-tool and YAML-quoting concerns). Section heading: `## Python step authoring`. Rule heading: `### Republish helpers through globals before calling them from other helpers`.",
+
+    "rule_body": "Two-paragraph explanation: (1) NoETL executes `kind: python` step code with separate globals and locals dicts. Helper functions defined at the top of the code body are visible to the top-level statements but not to OTHER helper functions via lexical closure. The default behaviour of nested function calls between helpers breaks at runtime with NameError. (2) Republish each helper through `globals().update({'_helper_name': _helper_name, ...})` after defining all helpers, before any function actually calls another. This is the same pattern used inside the existing automation/agents/mcp/vertex-ai.yaml playbook and was rediscovered three times during the travel arc.",
+
+    "good_block": "```python\ndef _helper_one():\n    return _helper_two() + 1\n\ndef _helper_two():\n    return 42\n\n# Republish helpers so each function can resolve sibling helpers\n# through globals at call time.\nglobals().update({\n    '_helper_one': _helper_one,\n    '_helper_two': _helper_two,\n})\n\nresult = {'value': _helper_one()}\n```",
+
+    "bad_block": "```python\ndef _helper_one():\n    # NameError at runtime: _helper_two is not visible inside _helper_one\n    # because NoETL evaluates this snippet with separate globals and locals.\n    return _helper_two() + 1\n\ndef _helper_two():\n    return 42\n\nresult = {'value': _helper_one()}\n```",
+
+    "evidence_pointer": "Surfaced in the Phase 3 vertex-ai round (the merger's helper-scope fix in ops's classify_intent merger) and again in the hotels/activities round (ops#62 helper-scope fix). Also baked into automation/agents/mcp/vertex-ai.yaml's body. Evidence: `bridge/outbox/20260510-184500-travel-hotels-activities.result.json` regressions_found.",
+
+    "additional_paragraph_after_good_bad": "After the Good/Bad blocks, add a one-paragraph note: 'Why this happens: NoETL passes the user's `code` string to a runner that calls `exec(code, globals_dict, locals_dict)` with two separate maps. Top-level statements write to locals (which is the step's input scope merged with output declarations), but function definitions resolve their free variables against globals at call time, not against the locals map where the helpers were defined. Republishing through `globals().update(...)` makes the helpers reachable by name from inside other helpers. The `import` statements inside a step body work without this trick because Python automatically writes imports into globals; user-defined functions do not.'",
+
+    "no_other_changes": "Do not modify any of the existing 12 rules, do not reorder sections beyond inserting the new one, do not touch the front-matter or 'See also' footer."
+  },
+
+  "phases": {
+    "1_apply_edit": {
+      "objective": "Insert the new section between 'External HTTP calls' (ends at the urllib wrapper rule) and 'YAML and SQL quoting'.",
+      "spec": [
+        "Open repos/docs/docs/reference/playbook_authoring_guide.md.",
+        "Locate the boundary between '## External HTTP calls' (which ends with the 'Surfaced in round 3' evidence pointer for the urllib-wrapper rule) and '## YAML and SQL quoting'.",
+        "Insert the new `## Python step authoring` section with the rule heading, two-paragraph body, Good code block, Bad code block, evidence pointer paragraph, and the additional 'why this happens' note.",
+        "Verify: `cd repos/docs && npm install && npm run build` clean."
+      ],
+      "verify": "Docs build clean; new section renders correctly."
+    },
+
+    "2_open_and_merge_docs_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/authoring-guide-python-globals`.",
+        "Stage docs/reference/playbook_authoring_guide.md.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `docs(reference): add 13th rule — republish helpers through globals before calling them from other helpers`. Body cites the Phase 3 + hotels/activities rediscovery and the existing pattern inside mcp/vertex-ai.yaml.",
+        "PR title: same.",
+        "Push, PR, merge with `--squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_bump_ai_meta_pointer": {
+      "objective": "Bump repos/docs gitlink in ai-meta. Stage but do not push.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/docs`.",
+        "`git add repos/docs`.",
+        "Commit: `chore(sync): bump docs for authoring-guide python-globals rule`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "playbook_authoring_guide.md has 13 rules across 7 sections. The new 'Python step authoring' section sits between 'External HTTP calls' and 'YAML and SQL quoting'.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; HAS_SECTION=$(grep -c '^## Python step authoring' repos/docs/docs/reference/playbook_authoring_guide.md 2>/dev/null || echo 0); HAS_RULE=$(grep -c 'Republish helpers through globals' repos/docs/docs/reference/playbook_authoring_guide.md 2>/dev/null || echo 0); HAS_EVIDENCE=$(grep -c '20260510-184500-travel-hotels-activities' repos/docs/docs/reference/playbook_authoring_guide.md 2>/dev/null || echo 0); echo \"section:$HAS_SECTION rule:$HAS_RULE evidence:$HAS_EVIDENCE\"; if [ \"$HAS_SECTION\" -ge 1 ] && [ \"$HAS_RULE\" -ge 1 ] && [ \"$HAS_EVIDENCE\" -ge 1 ]; then echo 'GOAL: AUTHORING_GUIDE_PYTHON_GLOBALS_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: AUTHORING_GUIDE_PYTHON_GLOBALS_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/ops, repos/gui, repos/e2e — docs only round",
+    "Modifying any of the 12 existing rules in the guide",
+    "Reordering existing sections",
+    "Touching the front-matter or 'See also' footer",
+    "Cutting any release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-030000-authoring-guide-python-globals.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_apply_edit: {section_inserted: bool, docs_build_clean: bool}, 2_open_and_merge_docs_pr: {pr_url, merged_sha}, 3_bump_ai_meta_pointer: {docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes}."
+}
