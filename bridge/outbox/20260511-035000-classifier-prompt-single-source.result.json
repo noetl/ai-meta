@@ -45,7 +45,7 @@
     "5_bump_ai_meta_pointers": {
       "ops_sha": "fd28b20",
       "docs_sha": "bdc9239",
-      "ai_meta_commit_local": null
+      "ai_meta_commit_local": "8f0abb0"
     }
   },
   "regressions_found": [],
