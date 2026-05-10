@@ -1,0 +1,135 @@
+{
+  "id": "20260510-201500-travel-app-form-refinement",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-10T20:15:00Z",
+  "title": "Travel agent — app:form widget for refining Amadeus filters before re-running",
+
+  "description": "The travel agent's render_* widget trees today are read-only — once the user sees a flight/hotel/location/activity result (or a friendly Amadeus error), the only way to refine the search is to type a new prompt. This round adds an app:form refinement widget appended to each render_* tree. The form's fields are pre-populated with the current intent's parameters; the submit button emits a `key: \"command\"` widget event with a templated natural-language travel query that gets substituted at click time from the current field values. Both terminal (NoetlPrompt) and canvas (GatewayAssistant) already handle command-style widget events. The ONLY missing primitive is template substitution in AppForm.tsx — the current click handler emits either the static button.event.value or the form values dict, neither of which works for 'build a command from current values'. This round adds that, then plumbs the form into each render_* tree. Cap: 1 gui PR + 1 ops PR + 1 docs PR. Sequencing: gui PR must merge AND the cluster must redeploy gui before the ops PR opens.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 8,
+
+  "design_brief_for_codex": {
+    "current_state_gui": "repos/gui/src/components/widgets/AppForm.tsx click handler is `value: button.event?.value ?? values`. Either static string OR form values dict. No template substitution. Both NoetlPrompt.handleWidgetEvent and GatewayAssistant's inline onWidgetEvent handle `key: 'command'` with a string value (terminal calls runCommand(value); canvas calls commandToCanvasPrompt(value, message) + onSubmit). So a string command works in both surfaces; a dict does not.",
+
+    "gui_change_appform_template_substitution": "Extend AppForm.tsx click handler to support `{fieldId}` placeholder substitution in `button.event.value` when value is a string. Pseudo-code: ```ts\nconst rawValue = button.event?.value;\nlet emittedValue: unknown = rawValue ?? values;\nif (typeof rawValue === 'string') {\n  emittedValue = rawValue.replace(/\\{(\\w+)\\}/g, (_match, fieldId) => {\n    const fieldValue = values[fieldId];\n    return fieldValue !== undefined && fieldValue !== '' ? String(fieldValue) : '';\n  });\n}\nonWidgetEvent({ event: 'onFormSubmit', key: button.event?.key || 'onFormSubmit', value: emittedValue });\n```. Behaviour: if button.event.value is a string with `{fieldId}` placeholders, substitute each with the current form value (empty string if missing). If button.event.value is a non-string (object/array) or undefined, preserve existing behaviour exactly.",
+
+    "gui_test_coverage": "Add a unit test (Jest/Testing Library, mirroring existing widget tests in repos/gui/src/components/widgets/__tests__/) covering: (a) static string value emitted as-is when no placeholders; (b) {fieldId} placeholders substituted from values dict; (c) missing field becomes empty string; (d) non-string value (undefined, array, object) preserves existing fall-back behaviour. Aim for the smallest test that exercises all four shapes.",
+
+    "ops_change_render_step_widget_trees": "After the gui change merges and redeploys, update each render_* step in repos/ops/automation/agents/travel/runtime.yaml to append an app:form widget to its widget tree. Append AS the last child of the existing app:column. The form's fields are pre-populated from the current classify_intent values via Jinja, and the submit button emits a templated travel command. Per intent, the field/template is:\n\n  render_flights:\n    fields: [\n      {id: 'origin',         title: 'Origin (IATA)',      default_value: '{{ classify_intent.origin | default(\"SFO\") }}'},\n      {id: 'destination',    title: 'Destination (IATA)', default_value: '{{ classify_intent.destination | default(\"JFK\") }}'},\n      {id: 'departureDate',  title: 'Departure date',     default_value: '{{ classify_intent.departureDate | default(\"2026-07-15\") }}'},\n      {id: 'adults',         title: 'Adults',             default_value: '{{ classify_intent.adults | default(1) }}'}\n    ]\n    button: {text: 'Refine search', colorType: 'primary',\n             event: {key: 'command', value: 'travel flights from {origin} to {destination} on {departureDate} for {adults} adults'}}\n\n  render_hotels:\n    fields: [\n      {id: 'cityCode',       title: 'City (IATA)',        default_value: '{{ classify_intent.cityCode | default(\"NYC\") }}'},\n      {id: 'departureDate',  title: 'Check-in date',      default_value: '{{ classify_intent.departureDate | default(\"2026-08-15\") }}'}\n    ]\n    button: {text: 'Refine search', colorType: 'primary',\n             event: {key: 'command', value: 'travel hotels in {cityCode} on {departureDate}'}}\n\n  render_locations:\n    fields: [\n      {id: 'keyword',        title: 'Keyword',            default_value: '{{ classify_intent.keyword | default(\"Boston\") }}'}\n    ]\n    button: {text: 'Refine search', colorType: 'primary',\n             event: {key: 'command', value: 'travel locations near {keyword}'}}\n\n  render_activities:\n    fields: [\n      {id: 'keyword',        title: 'Place or landmark',  default_value: '{{ classify_intent.keyword | default(\"Times Square\") }}'}\n    ]\n    button: {text: 'Refine search', colorType: 'primary',\n             event: {key: 'command', value: 'travel activities near {keyword}'}}\n\n  render_amadeus_failure:\n    fields: same as the original intent's form (introspect classify_intent.intent and pick the matching field set in the render python step). Button text: 'Try again with new values'.\n\n  render_help: optional — could include a quick-pick form pre-loaded with example queries. Skip for this round to keep diff small.",
+
+    "no_classifier_changes": "Do NOT modify classify_intent or its system prompt — the form just reuses the current classification's fields as form defaults. The classifier already extracts everything we need.",
+
+    "tutorial_07_update": "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — add a new subsection in Step 4 (Widget output) titled 'Refinement forms' that shows the app:form template-substitution pattern. Cite the AppForm.tsx click handler and explain the {fieldId} placeholder convention. One short example per intent (the form widget JSON) is enough."
+  },
+
+  "phases": {
+    "1_gui_appform_template_substitution": {
+      "objective": "Land template substitution in AppForm.tsx with test coverage.",
+      "spec": [
+        "`cd repos/gui && git checkout -b kadyapam/appform-template-substitution`.",
+        "Edit src/components/widgets/AppForm.tsx click handler per the design brief.",
+        "Add a unit test covering the four behaviours.",
+        "Verify: `npm test -- AppForm` (or whatever the project's test invocation is) passes locally.",
+        "Verify: `npm run build` clean.",
+        "Commit: `feat(widgets): app:form button template substitution with {fieldId} placeholders`. Body explains: travel agent refinement forms need string command emission with form values substituted at click time; existing widget event plumbing in NoetlPrompt and GatewayAssistant already handles string command events; this is the missing primitive.",
+        "PR title: same. Push, PR, merge with `--squash --delete-branch`."
+      ],
+      "verify": "GUI PR merged. Semantic-release auto-bumps a minor version (feat: triggers minor). Cluster redeploy of gui happens via the standard BumpAndDeploy pipeline."
+    },
+
+    "2_redeploy_gui": {
+      "objective": "Confirm the new gui release is live in the GKE cluster before opening the ops PR.",
+      "spec": [
+        "Wait for the semantic-release auto-tag (likely v1.x.x with minor bump).",
+        "Confirm the new tag is built and pushed to ghcr.io.",
+        "Bump the gui gitlink in ai-meta locally (will be folded into the final pointer-bump commit).",
+        "Confirm the GKE deployment is rolled to the new image: `kubectl -n noetl get deployment noetl-gui -o jsonpath='{.spec.template.spec.containers[*].image}'`."
+      ],
+      "verify": "GKE noetl-gui image tag matches the new release."
+    },
+
+    "3_ops_render_widget_forms": {
+      "objective": "Append app:form refinement widget to each render_* step in the travel runtime.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-render-refinement-forms`.",
+        "Edit automation/agents/travel/runtime.yaml: add the app:form widget to the children list of each render_*'s app:column. Use the per-intent shapes in the design brief.",
+        "For render_amadeus_failure: introspect classify_intent.intent at render time and emit the matching form field set + command template.",
+        "Pydantic-validate via `repos/noetl/.venv/bin/python -c '...'`.",
+        "Commit: `feat(travel-agent): refinement form appended to each render_* widget tree`. Body cites the gui#XX template-substitution PR and explains the per-intent form shapes.",
+        "PR title: same. Push, PR, merge."
+      ],
+      "verify": "Ops PR merged. Travel runtime registers cleanly in the catalog."
+    },
+
+    "4_open_and_merge_docs_pr": {
+      "objective": "Tutorial 07 mentions the refinement-form feature.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/travel-tutorial-refinement-forms`.",
+        "Edit docs/tutorials/07-travel-agent-with-widgets.md — new subsection 'Refinement forms' under Step 4 (Widget output). Show the app:form template-substitution pattern with one short example. Cite the AppForm.tsx {fieldId} convention.",
+        "Verify: `npm install && npm run build` clean.",
+        "Commit: `docs(tutorials): document travel agent refinement-form widgets`.",
+        "Push, PR, merge."
+      ],
+      "verify": "Docs PR merged."
+    },
+
+    "5_re_register_and_smoke": {
+      "objective": "Re-register travel runtime; smoke all four intents; click-test the refinement form on each.",
+      "spec": [
+        "Pull merged ops at HEAD; `noetl register` the patched runtime; capture catalog version.",
+        "Smoke `travel flights ...` — expect render_flights tree includes app:form. Click 'Refine search' with edited values; expect a new execution with the substituted command.",
+        "Smoke `travel hotels in Paris ...` — same; expect refinement form, click-test, new execution.",
+        "Smoke `travel locations near Boston` — same.",
+        "Smoke `travel activities near Times Square` — same.",
+        "Smoke at least one Amadeus-failure scenario (the test API has been 500ing) — expect render_amadeus_failure tree includes form keyed to the classified intent.",
+        "Capture screenshots of the form rendered inline + the resulting new execution."
+      ],
+      "verify": "Form rendered + clickable in each intent. New execution started on click. Substituted command visible in the resulting prompt entry."
+    },
+
+    "6_bump_ai_meta_pointers": {
+      "objective": "Bump repos/gui + repos/ops + repos/docs gitlinks in ai-meta. Stage but do not push.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/gui repos/ops repos/docs`.",
+        "`git add repos/gui repos/ops repos/docs`.",
+        "Commit: `chore(sync): bump gui + ops + docs for travel agent refinement-form widgets`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit covering all three submodule bumps."
+    }
+  },
+
+  "expected_state": {
+    "description": "Each travel render_* widget tree includes an app:form refinement widget that emits a templated travel command on submit. Both surfaces (terminal + canvas) re-run with the substituted query.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; HAS_FORM=$(grep -c 'app:form' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); HAS_TEMPLATE_SUB=$(grep -c 'replace.*\\\\{.*\\\\w' repos/gui/src/components/widgets/AppForm.tsx 2>/dev/null || echo 0); echo \"app_form_uses:$HAS_FORM template_sub:$HAS_TEMPLATE_SUB\"; if [ \"$HAS_FORM\" -ge 4 ] && [ \"$HAS_TEMPLATE_SUB\" -ge 1 ]; then echo 'GOAL: REFINEMENT_FORMS_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: REFINEMENT_FORMS_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/e2e — gui + ops + docs only round",
+    "Modifying anything in references/chatui",
+    "Editing the helm chart",
+    "Modifying classify_intent or its system prompt",
+    "Modifying the Amadeus or Vertex AI MCP playbooks",
+    "Re-introducing direct urllib calls to Amadeus from the travel runtime",
+    "Adding `when:` predicates to keychain entries",
+    "Opening the ops PR before the gui PR is merged AND deployed",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate (or .venv/bin/python Playbook.model_validate)",
+    "noetl register / noetl status <id> --json",
+    "cd repos/gui && npm test / npm run build",
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot for the form click-tests"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260510-201500-travel-app-form-refinement.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_gui_appform_template_substitution: {pr_url, merged_sha, gui_release_tag, tests_passing}, 2_redeploy_gui: {gke_image_tag}, 3_ops_render_widget_forms: {pr_url, merged_sha, validates}, 4_open_and_merge_docs_pr: {pr_url, merged_sha, docs_build_clean}, 5_re_register_and_smoke: {travel_catalog_id, travel_version, flights_form_visible: bool, hotels_form_visible: bool, locations_form_visible: bool, activities_form_visible: bool, failure_form_visible: bool, refinement_click_starts_new_execution: bool, screenshots: []}, 6_bump_ai_meta_pointers: {gui_sha, ops_sha, docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups}. If verdict GREEN, append paragraph to bridge/outbox/codex-spike-green-validation.md."
+}
