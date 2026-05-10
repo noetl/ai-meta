@@ -1,0 +1,93 @@
+Codex prompt — Amadeus test API 500s: characterise, reproduce, fix or file
+============================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-020500-amadeus-500-investigation.task.json
+
+Result goes to:
+  bridge/outbox/20260511-020500-amadeus-500-investigation.result.json
+
+Sync issue (Codex writes):
+  sync/issues/2026-05-11-amadeus-test-api-500s.md
+
+Reference data:
+  travel_agent_events table (audit side-effect from item #4, ops#65)
+  repos/ops/automation/agents/mcp/amadeus.yaml (the playbook making the calls)
+
+Context:
+  Amadeus test API has been returning HTTP 500 on flights/locations endpoints
+  persistently since the multi-provider round (May 9). Friendly-error widget
+  masks it — graceful degradation works — but we have zero diagnosis. Audit
+  side-effect round just gave us concrete data: every render_amadeus_failure
+  row in travel_agent_events has the originating intent, the
+  envelope_status_code, and the failure envelope. Time to use it.
+
+Investigation strategy:
+
+  1. Characterise the failure pattern via SQL on travel_agent_events.
+     Group render_amadeus_failure rows by intent + status_code over the last
+     7 days. Pull 3-5 full payloads. Note pattern (intent-specific /
+     endpoint-wide / time-clustered / status-code distribution).
+
+  2. Reproduce a representative 500 via direct curl using the EXACT payload
+     shape mcp/amadeus sends. Capture full response body — Amadeus typically
+     includes errors[] with status/code/title/detail. SANITISE tokens
+     throughout (first 6-10 chars max).
+
+     Sanity check: also run curl against a known-good Amadeus example payload
+     from their docs. If that ALSO returns 500, the sandbox is flaky.
+
+  3. Compare our payload against the current Amadeus self-service spec.
+     Diff required vs optional, formats, path/version, headers.
+
+  4. Verdict:
+     (a) Our payload has a fixable bug → small ops PR, re-smoke.
+     (b) Sandbox flake → no PR, document, recommend production endpoint
+         switch as future round.
+     (c) Auth/credential quirk → no PR this round, document, propose
+         token-refresh follow-up.
+     Pick the smallest correct verdict.
+
+  5. Write sync issue (sync/issues/2026-05-11-amadeus-test-api-500s.md)
+     with characterisation, curl reproduction (sanitised), verdict,
+     recommendations. Plus a memory entry.
+
+Codex job (6 phases — see task JSON):
+
+  1. characterise:        SQL travel_agent_events. Run 5-10 fresh smokes if
+                          dataset too thin. Report pattern in result file.
+  2. reproduce with curl: Direct test-api call with our payload. Sanitise.
+                          Also try Amadeus's own example payload as control.
+  3. compare to docs:     Diff our payload against developers.amadeus.com.
+  4. verdict + fix:       (a/b/c). If (a), 1-line ops PR + re-smoke.
+  5. document findings:   sync/issues/2026-05-11-amadeus-test-api-500s.md
+                          plus memory entry.
+  6. ai-meta pointer bump: only if verdict (a).
+
+Architectural rules:
+  - Investigation round. Don't overshoot — pick the smallest correct verdict.
+  - Don't reach for production Amadeus endpoints in this round (the
+    test→production switch is its own follow-up).
+  - Don't modify travel runtime or any non-Amadeus playbook.
+  - Don't modify classify_intent or render_* steps.
+  - Sanitise tokens — first 6-10 chars max anywhere they appear.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand amadeus 500 investigation to Codex
+       (bridge/inbox/delegated/20260511-020500-amadeus-500-investigation.task.json)
+    2. chore(scripts): codex prompt for amadeus 500 investigation
+       (scripts/amadeus_500_investigation_msg.txt)
+    3. memory(add): handed amadeus 500 investigation to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  Optional 1 ops PR if verdict (a) — payload bug fix in mcp/amadeus.yaml.
+  Optional 1 sync issue commit in ai-meta (Codex stages but doesn't push).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops only IF verdict (a).
+  ai-meta sync-issue + memory-entry commits.

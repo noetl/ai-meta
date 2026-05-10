@@ -1,0 +1,101 @@
+{
+  "id": "20260511-020500-amadeus-500-investigation",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T05:44:11Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_characterise_failure_pattern": {
+      "audit_rows_examined": 10,
+      "intents_failing": ["flights", "locations", "hotels"],
+      "status_codes_seen": [500],
+      "non_500_rows": [
+        {
+          "intent": "activities",
+          "rows": 2,
+          "status_code": null,
+          "note": "Not an Amadeus 500. Direct API and child MCP execution returned 200; parent travel render failed because the large child result was stored as a NoETL reference and was not hydrated into the parent."
+        }
+      ],
+      "characterisation_table": [
+        {"intent": "locations", "status_code": 500, "occurrences": 4, "first_seen_utc": "2026-05-10 04:51:57", "last_seen_utc": "2026-05-10 05:25:32"},
+        {"intent": "activities", "status_code": null, "occurrences": 2, "first_seen_utc": "2026-05-10 04:53:24", "last_seen_utc": "2026-05-10 05:27:17"},
+        {"intent": "flights", "status_code": 500, "occurrences": 2, "first_seen_utc": "2026-05-10 04:48:25", "last_seen_utc": "2026-05-10 05:24:42"},
+        {"intent": "hotels", "status_code": 500, "occurrences": 2, "first_seen_utc": "2026-05-10 04:52:40", "last_seen_utc": "2026-05-10 05:26:25"}
+      ],
+      "failure_pattern_summary": "Flights, locations, and hotels consistently return Amadeus test API HTTP 500 / code 38189. Activities is a separate local result-carrier issue, not an upstream 500."
+    },
+    "2_reproduce_with_curl": {
+      "endpoint_reproduced": [
+        "POST /v2/shopping/flight-offers",
+        "GET /v2/shopping/flight-offers",
+        "GET /v1/reference-data/locations",
+        "GET /v1/reference-data/locations/hotels/by-city"
+      ],
+      "response_status": 500,
+      "response_body_sanitised": {
+        "errors": [
+          {
+            "code": 38189,
+            "title": "Internal error",
+            "detail": "An internal error occurred, please contact your administrator",
+            "status": 500
+          }
+        ]
+      },
+      "known_good_payload_also_failed": true,
+      "controls": {
+        "oauth_token_status": 200,
+        "token_prefix_printed_only": "sb1GqDFe...",
+        "activities_times_square_status": 200,
+        "activities_times_square_count": 1799,
+        "activities_docs_madrid_status": 200,
+        "activities_docs_madrid_count": 117
+      }
+    },
+    "3_compare_against_docs": {
+      "deviations": [],
+      "test_api_limitations_relevant": true,
+      "docs_checked": [
+        "https://developers.amadeus.com/self-service/apis-docs/guides/developer-guides/resources/flights/",
+        "https://developers.amadeus.com/self-service/apis-docs/guides/developer-guides/resources/destination-experiences/",
+        "https://admin.developers.amadeus.com/self-service/apis-docs/guides/developer-guides/resources/hotels/"
+      ],
+      "notes": [
+        "Flight docs list the same minimum GET shape that also failed with 38189: originLocationCode, destinationLocationCode, departureDate, adults.",
+        "Airport and City Search requires subType and keyword as query parameters; NoETL sends both.",
+        "Hotel List by city requires cityCode; docs example cityCode=PAR failed with 38189.",
+        "Activities docs example returned 200, confirming credentials and test API are not globally down."
+      ]
+    },
+    "4_verdict_and_fix": {
+      "verdict": "b",
+      "pr_url": null,
+      "merged_sha": null,
+      "re_smoke_result_change": "No ops PR. Direct reproduction confirms Amadeus test API/service-side 38189 for flights, locations, and hotels. Activities follow-up is separate from the 500 verdict."
+    },
+    "5_document_findings": {
+      "sync_issue_path": "sync/issues/2026-05-11-amadeus-test-api-500s.md",
+      "memory_entry_path": "memory/inbox/2026/05/20260511-020500-amadeus-500-investigation-green.md"
+    },
+    "6_bump_ai_meta_pointers": {
+      "ops_sha": null,
+      "ai_meta_commit_local": null
+    }
+  },
+  "regressions_found": [
+    {
+      "name": "activities child result stored by reference",
+      "scope": "follow-up",
+      "details": "search_activities returns 200 and 1799 items, but parent travel renders failure because the large child result is a NoETL reference that the parent-side fetch path does not hydrate."
+    }
+  ],
+  "iterations": 1,
+  "verdict": "b",
+  "notes": "No Amadeus credential values or full access token values were recorded. Temporary local secret files used for curl reproduction were removed.",
+  "deferred_followups": [
+    "Production-Amadeus endpoint/credential switch round when production credentials are ready.",
+    "Activities result compaction or NoETL reference hydration so successful activities searches do not render as friendly failures.",
+    "Optional retry policy for Amadeus 38189 only if production evidence shows transient recovery."
+  ]
+}

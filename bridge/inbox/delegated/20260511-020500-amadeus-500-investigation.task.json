@@ -1,0 +1,121 @@
+{
+  "id": "20260511-020500-amadeus-500-investigation",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T02:05:00Z",
+  "title": "Amadeus test API 500s — characterise the failure pattern, reproduce with curl, fix or file",
+
+  "description": "The Amadeus test API has been returning HTTP 500 on flights/locations endpoints persistently since the multi-provider round (May 9). The travel agent's friendly-error widget masks the upstream failure — graceful degradation works — but we don't actually know whether it's our payload, Amadeus sandbox flake, an auth quirk, or a regional issue. The audit side-effect round (item #4) gives us a concrete dataset: every render_amadeus_failure row in travel_agent_events has the originating intent, the envelope_status_code, and the failure envelope. This round uses that data to characterise the pattern, reproduces a representative failure with a direct curl using the exact payload our MCP playbook sends, compares against Amadeus self-service docs, and either ships a small fix in mcp/amadeus.yaml OR confirms it's sandbox flake and documents next steps. Cap: 1 ops PR (only if there's a fix on our side) + 1 sync-issue memory entry.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "design_brief_for_codex": {
+    "current_state": "render_amadeus_failure has been the dominant tail step in recent travel smokes (Phase 3, hotels/activities, refinement-form, audit, Phase 4 all noted Amadeus 500s). Our friendly-error widget still surfaces, so users see a useful response. But we have zero diagnosis of why the 500s happen. The audit table now captures every failure with payload.envelope_status_code and payload.classified_intent — that's the dataset to use.",
+
+    "endpoints_to_check": "The MCP playbook (`automation/agents/mcp/amadeus.yaml`) makes urllib calls to:\n  - search_flights → POST `https://test.api.amadeus.com/v2/shopping/flight-offers`\n  - search_hotels → GET `https://test.api.amadeus.com/v1/reference-data/locations/hotels/by-city?cityCode=...`\n  - search_locations → GET `https://test.api.amadeus.com/v1/reference-data/locations?keyword=...`\n  - search_activities → GET `https://test.api.amadeus.com/v1/shopping/activities?latitude=...&longitude=...&radius=...`\n  - get_token → standard OAuth2 client_credentials\nThe failure pattern may be specific to one or more of these endpoints, or environment-wide.",
+
+    "phase_1_characterise": "SQL the audit table for the failure pattern:\n```sql\nSELECT\n  payload->>'render_kind' AS intent,\n  (payload->>'envelope_status_code')::int AS status_code,\n  COUNT(*) AS occurrences,\n  MIN(event_time) AS first_seen,\n  MAX(event_time) AS last_seen\nFROM travel_agent_events\nWHERE event_type = 'render_amadeus_failure'\n  AND event_time > NOW() - INTERVAL '7 days'\nGROUP BY 1, 2\nORDER BY occurrences DESC;\n```\nAnswer: which intent(s) hit 500, how often, time-of-day clustering. Also pull a couple of full failure payloads via:\n```sql\nSELECT execution_id, event_time, payload\nFROM travel_agent_events\nWHERE event_type = 'render_amadeus_failure' AND payload->>'envelope_status_code' = '500'\nORDER BY event_time DESC LIMIT 5;\n```\nLook for any error body the MCP playbook captured (envelope.data.error or envelope.text).",
+
+    "phase_2_reproduce_with_curl": "Pick the most-failing endpoint from phase 1. Build a curl using:\n  - The Amadeus token: `curl -X POST https://test.api.amadeus.com/v1/security/oauth2/token -H 'Content-Type: application/x-www-form-urlencoded' -d \"grant_type=client_credentials&client_id=$ID&client_secret=$SECRET\"` then `jq -r .access_token`.\n  - The endpoint with our exact payload (e.g. `POST /v2/shopping/flight-offers` with the exact body we send: originLocationCode, destinationLocationCode, departureDate, adults, currencyCode, max).\nVerify the 500 reproduces and capture the full response body — Amadeus typically includes a JSON `errors[]` array with `status`, `code`, `title`, `detail`. That's the diagnostic gold.",
+
+    "phase_3_compare_against_docs": "Fetch the relevant Amadeus self-service test API spec (`https://developers.amadeus.com/self-service/category/flights/api-doc/flight-offers-search` or the equivalent for the failing endpoint). Compare:\n  - Required vs optional parameters — are we missing one?\n  - Parameter formats — IATA codes uppercase, dates YYYY-MM-DD, currencyCode ISO 4217, adults 1-9?\n  - Path/version — are we calling /v2/shopping/flight-offers or /v1/...? Some endpoints have moved.\n  - Headers — are we sending the right Accept/Content-Type?\n  - Test API quirks — Amadeus test API is known to have less data than production; some valid queries return 500 because the test sandbox has no matching data even when production would.",
+
+    "phase_4_verdict_and_optional_fix": "Three possible verdicts:\n\n  (a) **Our payload has a fixable bug.** Small fix in `automation/agents/mcp/amadeus.yaml` — open a 1-PR ops change. Re-smoke. Verify the audit table shows the failures stop or shift to a different status code.\n\n  (b) **Amadeus test API sandbox flake.** Confirm by reproducing with curl using a known-good payload from Amadeus docs (their example queries). If their own example also returns 500, that's their sandbox. No code change. Document in a sync issue (`sync/issues/2026-05-11-amadeus-test-api-500s.md`) with: characterisation summary, sample curl + response, link to Amadeus status page if any, recommendation (switch to production API for production runs, retry strategy, etc.).\n\n  (c) **Auth or credential quirk.** If the 500 only happens with our token but a fresh token works, may be a token-lifecycle issue. Document and consider adding a token-refresh retry to the MCP playbook (or a stale-token detection heuristic) — that's a follow-up round, not in scope here.\n\n  Pick the smallest correct verdict. Don't ship speculative fixes.",
+
+    "phase_5_document_findings": "Write a sync issue at `sync/issues/2026-05-11-amadeus-test-api-500s.md` capturing:\n  - The characterisation table from phase 1\n  - The curl reproduction from phase 2 (sanitise tokens — never echo the full Amadeus client_secret or access_token)\n  - The verdict from phase 4\n  - Recommendations / follow-up sketch\nIf verdict (a) lands, also commit the ops PR. If (b) or (c), the round is sync-issue + memory-entry only."
+  },
+
+  "phases": {
+    "1_characterise_failure_pattern": {
+      "objective": "SQL the audit table to characterise the 500s.",
+      "spec": [
+        "Query travel_agent_events for render_amadeus_failure rows (last 7 days). Group by intent + status_code. Report frequency.",
+        "Pull 3-5 full failure payloads via the second query in the design brief.",
+        "If the audit table has fewer than 5 failure rows total, run 5-10 fresh travel smokes across all four real intents to populate the dataset, then re-query.",
+        "Note any pattern — single endpoint vs all, time-clustered vs uniform, status code distribution (500 only vs 500/502/503 mix)."
+      ],
+      "verify": "Characterisation table written in result file. Pattern named (intent-specific / endpoint-wide / time-clustered)."
+    },
+
+    "2_reproduce_with_curl": {
+      "objective": "Reproduce a representative 500 via direct curl against the Amadeus test API.",
+      "spec": [
+        "Fetch a fresh Amadeus access token via the OAuth2 client_credentials flow (use the same client_id/client_secret resolved from the keychain — read-only, never echo).",
+        "Build a curl POST to the failing endpoint using the EXACT payload shape our MCP playbook sends (read amadeus.yaml's amadeus_search_<tool> step to see the exact body).",
+        "Capture the full response body. If the response includes an `errors[]` array, capture status/code/title/detail per error.",
+        "Sanity check: also run curl against a known-good Amadeus example payload from their docs (e.g. their `/v2/shopping/flight-offers` Try-It example). If that also fails, the sandbox is flaky."
+      ],
+      "verify": "500 reproduced with curl. Response body captured (sanitised). Known-good payload either fails (sandbox flake) or succeeds (our payload has a bug)."
+    },
+
+    "3_compare_against_docs": {
+      "objective": "Diff our payload against the current Amadeus self-service spec.",
+      "spec": [
+        "Look up the spec for the most-failing endpoint at developers.amadeus.com.",
+        "Diff: required parameters, formats, path/version, headers.",
+        "Note any deviation. Note any test-API-specific limitations Amadeus documents (e.g. 'test API only has data for X cities')."
+      ],
+      "verify": "Diff report in result file."
+    },
+
+    "4_verdict_and_fix": {
+      "objective": "Pick verdict (a/b/c). If (a), ship a small ops PR.",
+      "spec": [
+        "Choose the smallest correct verdict from the design brief.",
+        "(a) Fix on our side: branch `kadyapam/amadeus-mcp-fix-5xx`, open 1-line ops PR with the corrected payload shape. PR title: `fix(amadeus-mcp): correct <field> shape so test API stops returning 500`. Re-smoke after merge.",
+        "(b) Sandbox flake confirmed: no PR. Skip to phase 5.",
+        "(c) Auth/credential quirk: no PR this round. Document in sync issue, propose a follow-up round for token-refresh-on-401."
+      ],
+      "verify": "Verdict named. If (a), PR merged and re-smoke shows the failure stops or changes status."
+    },
+
+    "5_document_findings": {
+      "objective": "Write the sync issue + memory entry.",
+      "spec": [
+        "Write `sync/issues/2026-05-11-amadeus-test-api-500s.md` with: characterisation table, curl reproduction (sanitised), verdict, recommendations.",
+        "Sanitise: never include the full Amadeus client_secret or access_token. First 6-10 chars max for verification.",
+        "Memory entry under `memory/inbox/2026/05/...md` summarising the round outcome."
+      ],
+      "verify": "Sync issue + memory entry committed in ai-meta. Result file written."
+    },
+
+    "6_bump_ai_meta_pointers": {
+      "objective": "If verdict (a), bump repos/ops gitlink. Otherwise no submodule changes.",
+      "spec": [
+        "If ops PR landed: `cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops && git add repos/ops && git commit -m 'chore(sync): bump ops for amadeus mcp 5xx fix'`. Don't push.",
+        "If no PR: skip this phase."
+      ],
+      "verify": "ai-meta has a fresh local commit (only if (a))."
+    }
+  },
+
+  "expected_state": {
+    "description": "The Amadeus 500 pattern is characterised in a sync issue. Either a small ops fix lands (verdict a) OR the failure is confirmed as sandbox flake / auth quirk and follow-up is named (verdicts b/c).",
+    "verify_pattern": "Result file's verdict field is one of {a, b, c} and matches a corresponding sync issue + (optional) ops PR."
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/e2e, repos/docs — investigation + (optionally) ops only round",
+    "Modifying the Vertex AI or Ollama MCP playbooks",
+    "Modifying classify_intent / classify_via_* / log_classification / render_* / merger steps",
+    "Modifying the travel runtime (the ops PR, if any, lives in mcp/amadeus.yaml only)",
+    "Cutting any release",
+    "Echoing the full Amadeus client_id, client_secret, or access_token — first 6-10 chars max",
+    "Reaching for production Amadeus API endpoints (test API only — switch to production is a future round, not this one)",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "psql (or kubectl exec to pgbouncer) for audit-table SQL",
+    "curl for direct API reproduction (sanitise tokens)",
+    "noetl status <id> --json | jq for execution-level inspection",
+    "WebFetch for Amadeus self-service docs",
+    "git apply / git commit -F - / git push (only if verdict a)",
+    "gh pr create / gh pr merge --squash --delete-branch (only if verdict a)"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-020500-amadeus-500-investigation.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_characterise_failure_pattern: {audit_rows_examined: int, intents_failing: [], status_codes_seen: [], failure_pattern_summary}, 2_reproduce_with_curl: {endpoint_reproduced, response_status, response_body_sanitised, known_good_payload_also_failed: bool}, 3_compare_against_docs: {deviations: [], test_api_limitations_relevant: bool}, 4_verdict_and_fix: {verdict: 'a' | 'b' | 'c', pr_url, merged_sha, re_smoke_result_change}, 5_document_findings: {sync_issue_path, memory_entry_path}, 6_bump_ai_meta_pointers: {ops_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups}. Include the full sync issue content inline if convenient."
+}
