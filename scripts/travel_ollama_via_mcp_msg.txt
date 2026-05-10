@@ -1,0 +1,150 @@
+Codex prompt — Travel agent Phase 4: add Ollama as fourth provider via new mcp/ollama MCP playbook
+====================================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-001500-travel-ollama-via-mcp.task.json
+
+Result goes to:
+  bridge/outbox/20260511-001500-travel-ollama-via-mcp.result.json
+
+Reference precedents (mirror these exactly):
+  - repos/ops/automation/agents/mcp/vertex-ai.yaml      (Phase 3 — playbook STRUCTURE)
+  - repos/ops/automation/agents/travel/runtime.yaml      (classify_via_vertex_mcp pattern)
+  - repos/ops/automation/agents/troubleshoot/diagnose_execution.yaml
+       line 240: DEFAULT_OLLAMA_ENDPOINT = "http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc"
+       — confirms the real bridge port (NOT 8080 which the travel workload had stale)
+
+Context:
+  Final missing piece of the multi-provider arc. Today travel supports openai +
+  anthropic (urllib direct) + vertex-ai (via mcp/vertex-ai playbook). Ollama was
+  deferred because there was no NoETL playbook wrapping the in-cluster bridge —
+  only a raw MCP server at `http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc`.
+
+  Phase 4 creates `automation/agents/mcp/ollama` as a NoETL playbook exposing the
+  standard `chat_completion` MCP contract (identical surface to mcp/vertex-ai),
+  then wires the travel runtime to invoke it via `tool: agent framework: noetl`.
+
+  After this round, all four providers route through canonical interfaces:
+    openai/anthropic → urllib direct in classify_via_http_provider (cloud APIs,
+                       trivial auth, no benefit from playbook wrapping)
+    vertex-ai        → mcp/vertex-ai playbook hop (complex GCP auth chain
+                       belongs in playbook)
+    ollama           → mcp/ollama playbook hop (in-cluster bridge wrapped in
+                       canonical MCP playbook)
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  repos/ops/automation/agents/mcp/ollama.yaml          (NEW PLAYBOOK)
+    metadata.name: chat_completion
+    metadata.path: automation/agents/mcp/ollama
+    agent: true, exposes_as_mcp: true, exposed_in_ui: false
+    workload: model='gemma3:4b', messages=[], system='', temperature=0.1,
+              ollama_endpoint='http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc'
+    workflow: one kind:python step that:
+      - builds JSON-RPC envelope: {jsonrpc:'2.0', method:'tools/call',
+        params:{name:'chat_completion', arguments:{model,messages,system,temperature}}, id:<int>}
+      - POSTs via urllib to ollama_endpoint
+      - parses MCP response, extracts text
+      - returns chat_completion envelope shape MATCHING mcp/vertex-ai output:
+        {status, content:[{type:'text',text}], isError, _meta:{backend:'ollama',model,usage,endpoint},
+         usage, data:{_meta, ollama_response}, summary, text}
+      - graceful 5xx via try/except urllib.error.HTTPError (same pattern as Amadeus MCP)
+      - globals().update({...}) for helper visibility (NoETL Python idiom)
+
+  repos/ops/automation/agents/travel/runtime.yaml
+    1. Update workload.ollama_bridge_url from `:8080` to
+       `http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc` (corrects stale port).
+    2. Add workload.ollama_model: 'gemma3:4b'.
+    3. ai_provider comment: `# openai | anthropic | vertex-ai | ollama`.
+    4. metadata.capabilities += ai:ollama.
+    5. Add classify_via_ollama_mcp step mirroring classify_via_vertex_mcp:
+         tool:
+           kind: agent
+           framework: noetl
+           entrypoint: automation/agents/mcp/ollama
+           payload:
+             method: tools/call
+             tool: chat_completion
+             arguments:
+               messages: [{role: user, content: "{{ workload.query }}"}]
+               system: <classifier system prompt — same as the other two branches>
+               temperature: 0
+               model: "{{ workload.ollama_model }}"
+               ollama_endpoint: "{{ workload.ollama_bridge_url }}"
+       next.arcs → classify_intent (the merger).
+    6. Update start.next.arcs:
+         - classify_via_http_provider when openai|anthropic|empty
+         - classify_via_vertex_mcp    when vertex-ai
+         - classify_via_ollama_mcp    when ollama
+    7. Extend classify_intent merger to read `classify_via_ollama_mcp | default({})`
+       as a third upstream. Extract text the same way as the vertex branch.
+       Strip ```json fences, parse JSON, normalise. On Ollama isError or empty
+       text, fall back to OpenAI with `provider_fallback_reason='ollama <error>'`.
+
+    DO NOT modify the existing classify_via_http_provider body or
+    classify_via_vertex_mcp body. DO NOT modify the merger's existing
+    normalisation paths — only ADD the ollama path.
+
+  repos/docs/docs/tutorials/07-travel-agent-with-widgets.md
+    Step 3 (Pluggable AI provider) gains a fourth provider row. Add example
+    commands. Mention the in-cluster bridge URL and the new mcp/ollama
+    MCP playbook. Note Ollama enables cheap-first inference and pairs with
+    the troubleshoot agent's existing mcp/ollama default.
+
+Codex job (6 phases — see task JSON):
+
+  1. create mcp/ollama playbook:  Pydantic-validate. Mirrors vertex-ai shape.
+  2. wire travel runtime:         Pydantic-validate. Four-way dispatch in place.
+  3. ops PR:                      branch kadyapam/travel-ollama-via-mcp
+                                  PR title: "feat(travel-agent): add Ollama as fourth provider via new mcp/ollama MCP playbook (Phase 4)"
+                                  --squash --delete-branch on merge.
+  4. docs PR:                     branch kadyapam/travel-tutorial-ollama-via-mcp
+                                  PR title: "docs(tutorials): note ollama as fourth provider via the mcp/ollama MCP playbook (Phase 4)"
+  5. re-register + smoke:         Five ollama intents + openai default + vertex-ai
+                                  regressions + direct mcp/ollama call.
+                                  Each ollama smoke MUST show effective_provider='ollama'.
+                                  Verify agent → MCP hop event:
+                                    noetl status <id> --json |
+                                      jq '.events[] | select(.step | test("classify_via_ollama_mcp"))
+                                            | {step, type: .tool_kind, sub_execution: .sub_execution_id}'
+                                  Verify ollama child execution itself completes.
+                                  Audit rows should show ai_provider='ollama'.
+  6. ai-meta pointer bumps:       git submodule update --remote repos/ops repos/docs
+                                  git add repos/ops repos/docs
+                                  git commit: "chore(sync): bump ops + docs for travel ollama via mcp playbook (Phase 4)"
+                                  DO NOT push.
+
+Architectural rules:
+  - Don't modify the Amadeus or Vertex AI MCP playbooks.
+  - Don't modify classify_via_http_provider or classify_via_vertex_mcp bodies.
+  - Don't modify the merger's openai/anthropic or vertex normalisation paths.
+  - Don't redeploy or modify the ollama-bridge helm chart.
+  - mcp/ollama playbook output envelope MUST match mcp/vertex-ai's output shape
+    so callers (the merger, plus future agents) don't need provider-specific code.
+  - No git push from ai-meta.
+
+Architectural-purity flag (deferred follow-up — NOT in scope here):
+  After this round the classifier system_prompt is duplicated across THREE
+  branches (http Python const + vertex payload arg + ollama payload arg).
+  This is real coupling debt that compounds as we extend the schema.
+  A future round should extract the prompt into a single workload field
+  (or a tiny preamble step) referenced by all three branches. Document in
+  result file's deferred_followups.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand travel ollama Phase 4 round to Codex
+       (bridge/inbox/delegated/20260511-001500-travel-ollama-via-mcp.task.json)
+    2. chore(scripts): codex prompt for travel ollama Phase 4
+       (scripts/travel_ollama_via_mcp_msg.txt)
+    3. memory(add): handed travel ollama Phase 4 to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/ops  (1 PR — new mcp/ollama playbook + travel runtime hookup)
+  repos/docs (1 PR — tutorial 07 fourth-provider polish)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/docs after PRs merge.

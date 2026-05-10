@@ -1,0 +1,166 @@
+{
+  "id": "20260511-001500-travel-ollama-via-mcp",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T05:29:05Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_create_mcp_ollama_playbook": {
+      "validates": true,
+      "mirrors_vertex_ai_shape": true,
+      "notes": [
+        "Created automation/agents/mcp/ollama.yaml with metadata.name=chat_completion, exposes_as_mcp=true, and exposed_in_ui=false.",
+        "The raw bridge advertises tool name 'chat', so the NoETL playbook exposes chat_completion publicly and translates internally to bridge tools/call name=chat.",
+        "Direct pre-PR wrapper smoke returned text='pong' from gemma3:4b."
+      ]
+    },
+    "2_wire_travel_runtime": {
+      "validates": true,
+      "changes": [
+        "Corrected workload.ollama_bridge_url to http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc.",
+        "Added workload.ollama_model=gemma3:4b, mcp:ollama, and ai:ollama.",
+        "Added classify_via_ollama_mcp and extended classify_intent with an Ollama-only merge path and OpenAI fallback."
+      ]
+    },
+    "3_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/66",
+      "merged_sha": "42d19b7"
+    },
+    "4_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/56",
+      "merged_sha": "027c95f",
+      "docs_build_clean": true,
+      "checks": [
+        "npm install",
+        "npm run build"
+      ]
+    },
+    "5_re_register_and_smoke": {
+      "ollama_catalog_id": "623469830623986139",
+      "ollama_version": 2,
+      "travel_catalog_id": "623469831437681116",
+      "travel_version": 24,
+      "environment": "local kind-noetl via http://localhost:8082",
+      "help_status": {
+        "execution_id": "623470002716279261",
+        "status": "completed",
+        "terminal_step": "render_help",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "ollama_child_execution_id": "623470013638246905"
+      },
+      "flights_status": {
+        "execution_id": "623470130390893143",
+        "status": "completed",
+        "terminal_step": "render_amadeus_failure",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "ollama_child_execution_id": "623470138083246707"
+      },
+      "locations_status": {
+        "execution_id": "623470569576465174",
+        "status": "completed",
+        "terminal_step": "render_amadeus_failure",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "ollama_child_execution_id": "623470577788912434"
+      },
+      "hotels_status": {
+        "execution_id": "623470994308465621",
+        "status": "completed",
+        "terminal_step": "render_amadeus_failure",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "ollama_child_execution_id": "623471001816269809"
+      },
+      "activities_status": {
+        "execution_id": "623471432495792276",
+        "status": "completed",
+        "terminal_step": "render_amadeus_failure",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "ollama_child_execution_id": "623471441463214256"
+      },
+      "all_five_effective_provider_ollama": true,
+      "openai_default_regression": true,
+      "openai_default_execution_id": "623471871782027603",
+      "vertex_ai_regression": true,
+      "vertex_ai_regression_execution_id": "623471930099630504",
+      "vertex_ai_regression_note": "Local kind lacks Vertex credentials, so the vertex-ai regression completed and fell back to OpenAI with provider_fallback_reason='service-account credentials missing private_key or client_email'. GKE Vertex was already proven GREEN in the prior phase; this local smoke confirms the Ollama addition did not break the fallback path.",
+      "agent_step_proven_in_events": true,
+      "agent_step_evidence": [
+        ["623470002716279261", "classify_via_ollama_mcp", "automation/agents/mcp/ollama", "623470013638246905"],
+        ["623470130390893143", "classify_via_ollama_mcp", "automation/agents/mcp/ollama", "623470138083246707"],
+        ["623470569576465174", "classify_via_ollama_mcp", "automation/agents/mcp/ollama", "623470577788912434"],
+        ["623470994308465621", "classify_via_ollama_mcp", "automation/agents/mcp/ollama", "623471001816269809"],
+        ["623471432495792276", "classify_via_ollama_mcp", "automation/agents/mcp/ollama", "623471441463214256"]
+      ],
+      "ollama_child_completed": true,
+      "ollama_child_summary": {
+        "children": {
+          "623470013638246905": {"model": "gemma3:4b", "isError": false, "total_tokens": 283},
+          "623470138083246707": {"model": "gemma3:4b", "isError": false, "total_tokens": 318},
+          "623470577788912434": {"model": "gemma3:4b", "isError": false, "total_tokens": 286},
+          "623471001816269809": {"model": "gemma3:4b", "isError": false, "total_tokens": 310},
+          "623471441463214256": {"model": "gemma3:4b", "isError": false, "total_tokens": 290}
+        },
+        "direct_mcp_child": {
+          "execution_id": "623472079593013794",
+          "text": "pong",
+          "model": "gemma3:4b",
+          "isError": false,
+          "usage": {"prompt_tokens": 13, "completion_tokens": 3, "total_tokens": 16}
+        }
+      },
+      "audit_rows_show_ollama": true,
+      "audit_row_evidence": [
+        ["623470002716279261", "classify_intent", "help", "ollama", null, null],
+        ["623470130390893143", "classify_intent", "flights", "ollama", null, null],
+        ["623470130390893143", "render_amadeus_failure", "flights", "ollama", "flights", "app:column"],
+        ["623470569576465174", "classify_intent", "locations", "ollama", null, null],
+        ["623470569576465174", "render_amadeus_failure", "locations", "ollama", "locations", "app:column"],
+        ["623470994308465621", "classify_intent", "hotels", "ollama", null, null],
+        ["623470994308465621", "render_amadeus_failure", "hotels", "ollama", "hotels", "app:column"],
+        ["623471432495792276", "classify_intent", "activities", "ollama", null, null],
+        ["623471432495792276", "render_amadeus_failure", "activities", "ollama", "activities", "app:column"]
+      ],
+      "direct_external_mcp_smoke": {
+        "tools_list": "chat_completion advertised",
+        "call_chat_completion": "parent MCP result returned child execution 623472079593013794; child ollama_chat_completion returned pong"
+      },
+      "screenshots": [
+        {
+          "path": "bridge/outbox/artifacts/20260511-001500-travel-ollama-help-execution.png",
+          "description": "Authenticated execution-detail capture for ollama help execution 623470002716279261."
+        }
+      ]
+    },
+    "6_bump_ai_meta_pointers": {
+      "ops_sha": "42d19b7",
+      "docs_sha": "027c95f",
+      "ai_meta_commit_local": null
+    }
+  },
+  "regressions_found": [
+    "Local kind's vertex-ai regression completed through the existing OpenAI fallback because local kind does not have the GKE Workload Identity credentials. This is an environment limitation already known from the Phase 3 local/GKE split, not an Ollama regression.",
+    "Amadeus test API remains upstream-failing in local smokes, so travel flights/locations/hotels/activities render the friendly failure widget. Ollama classification succeeded before those Amadeus calls."
+  ],
+  "iterations": 1,
+  "verdict": "GREEN",
+  "notes": [
+    "The new mcp/ollama playbook wraps the existing in-cluster bridge and leaves the bridge deployment/helm chart untouched.",
+    "The raw bridge tool is named chat; the NoETL playbook exposes chat_completion and translates internally.",
+    "No repos/noetl, repos/gui, or repos/e2e changes were made."
+  ],
+  "deferred_followups": [
+    "Single-source-of-truth refactor for classifier system_prompt — now duplicated across THREE branches (http/vertex/ollama).",
+    "NoETL-Python globals/locals idiom into the authoring guide as 13th rule.",
+    "Anthropic re-smoke gated on user provisioning the GCP secret in noetl-demo-19700101.",
+    "Investigate Amadeus test API 500s on flights/locations/hotels/activities."
+  ]
+}

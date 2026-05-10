@@ -1,0 +1,141 @@
+{
+  "id": "20260511-001500-travel-ollama-via-mcp",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T00:15:00Z",
+  "title": "Travel agent — add Ollama as fourth provider via a new mcp/ollama NoETL playbook (Phase 4, mirrors Phase 3)",
+
+  "description": "Final missing piece of the multi-provider travel arc. Today: openai (urllib), anthropic (urllib), vertex-ai (via mcp/vertex-ai playbook). Ollama was deferred because there was no NoETL playbook wrapping the in-cluster bridge — only a raw MCP server at `http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc`. This round creates `automation/agents/mcp/ollama` as a NoETL playbook exposing the standard `chat_completion` MCP contract (same surface as mcp/vertex-ai), then wires the travel runtime to invoke it via `tool: agent framework: noetl`. The travel runtime's stale `ollama_bridge_url: \"...:8080\"` workload field gets corrected to port 8765 (the real bridge port — confirmed in troubleshoot/diagnose_execution.yaml line 240). After this round lands, ALL four AI providers route through canonical interfaces (urllib for cloud APIs without significant auth complexity, MCP playbook hops for in-cluster bridges and complex-auth providers). Cap: 1 ops PR + 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 8,
+
+  "design_brief_for_codex": {
+    "current_state": "Travel runtime supports three providers: openai, anthropic (both via urllib in classify_via_http_provider), vertex-ai (via classify_via_vertex_mcp → automation/agents/mcp/vertex-ai). Workload has stale `ollama_bridge_url: \"http://ollama-bridge.noetl.svc.cluster.local:8080\"` — wrong port. Real bridge runs on 8765 (per troubleshoot/diagnose_execution.yaml DEFAULT_OLLAMA_ENDPOINT line 240). The bridge speaks MCP JSON-RPC directly: `POST /jsonrpc` with `{jsonrpc, method, params: {name, arguments}, id}` envelope. No `automation/agents/mcp/ollama` NoETL playbook exists today.",
+
+    "target_state_part_1_new_playbook": "Create `repos/ops/automation/agents/mcp/ollama.yaml` that mirrors `automation/agents/mcp/vertex-ai.yaml` structurally. Metadata: `name: chat_completion`, `path: automation/agents/mcp/ollama`, `agent: true`, `exposes_as_mcp: true`, `exposed_in_ui: false`. Workload: model (default 'gemma3:4b'), messages, system, temperature, ollama_endpoint (default 'http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc'). Workflow: one Python step that builds the MCP JSON-RPC envelope, POSTs via urllib, parses the response, extracts text, and returns the standard chat_completion envelope: `{status, content, isError, _meta, usage, data, summary, text}` — identical to mcp/vertex-ai's output shape so callers don't have to differentiate. Use the kind:python urllib pattern (same graceful 5xx handling rationale as the Amadeus MCP playbook).",
+
+    "target_state_part_2_travel_runtime": "In repos/ops/automation/agents/travel/runtime.yaml:\n\n  1. Update workload.ollama_bridge_url from `:8080` to `:8765/jsonrpc`.\n  2. Add workload.ollama_model: `gemma3:4b`.\n  3. ai_provider comment: `# openai | anthropic | vertex-ai | ollama`.\n  4. metadata.capabilities += `ai:ollama`.\n  5. Add classify_via_ollama_mcp step (mirrors classify_via_vertex_mcp):\n     ```yaml\n     - step: classify_via_ollama_mcp\n       desc: Classify intent via the Ollama MCP playbook (in-cluster bridge)\n       tool:\n         kind: agent\n         framework: noetl\n         entrypoint: automation/agents/mcp/ollama\n         payload:\n           method: tools/call\n           tool: chat_completion\n           arguments:\n             messages: [{role: user, content: \"{{ workload.query }}\"}]\n             system: <same classifier system prompt as the http and vertex branches>\n             temperature: 0\n             model: \"{{ workload.ollama_model }}\"\n             ollama_endpoint: \"{{ workload.ollama_bridge_url }}\"\n       next:\n         spec: { mode: exclusive }\n         arcs:\n           - step: classify_intent\n     ```\n  6. Update start.next.arcs to dispatch `ollama` to the new step:\n     ```yaml\n     - step: classify_via_http_provider\n       when: \"{{ workload.ai_provider in ['openai', 'anthropic'] or workload.ai_provider == '' or workload.ai_provider is none }}\"\n     - step: classify_via_vertex_mcp\n       when: \"{{ workload.ai_provider == 'vertex-ai' }}\"\n     - step: classify_via_ollama_mcp\n       when: \"{{ workload.ai_provider == 'ollama' }}\"\n     ```\n  7. Extend the classify_intent merger to read `classify_via_ollama_mcp | default({})` as a third possible upstream. Extract text the same way as the vertex branch (envelope.text or envelope.content[0].text or envelope.data._meta.text — whatever the new mcp/ollama playbook produces). Strip ```json fences, parse JSON, normalise. On Ollama isError or empty text, fall back to OpenAI with `provider_fallback_reason='ollama <error>'` — same shape as vertex fallback.\n",
+
+    "classifier_system_prompt_now_lives_in_three_places": "After this round, the classifier system_prompt string is duplicated in:\n  - classify_via_http_provider's Python `system_prompt` constant\n  - classify_via_vertex_mcp's payload `system` argument\n  - classify_via_ollama_mcp's payload `system` argument\nThis is real coupling debt. A future architectural-purity round should extract the prompt into a single workload field (or a tiny preamble step that emits it) referenced by all three. NOT IN SCOPE for this round — but document the coupling clearly in the result file's deferred_followups so the next docs round can pin it.",
+
+    "no_changes_to_existing_branches": "Do NOT modify classify_via_http_provider's body. Do NOT modify classify_via_vertex_mcp's body. Do NOT modify the merger's openai/anthropic or vertex normalisation paths — only ADD the ollama path. The merger's pass-through for the http branch and vertex extraction stay byte-for-byte identical.",
+
+    "tutorial_07_update": "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — update Step 3 ('Pluggable AI provider') to add a fourth provider row to whatever table or list shows the providers. Add example commands: `travel --provider ollama help`, `travel --provider ollama flights ...`. Add a paragraph noting Ollama threads through the new mcp/ollama MCP playbook via `tool: agent framework: noetl`, mirroring the Vertex AI pattern. Cite the in-cluster bridge URL.",
+
+    "no_ollama_provisioning": "The ollama-bridge deployment already exists in the cluster (helm chart values.yaml + templates/ollama-bridge-deployment.yaml). Don't redeploy or modify the bridge — just call its existing endpoint."
+  },
+
+  "phases": {
+    "1_create_mcp_ollama_playbook": {
+      "objective": "Write the new automation/agents/mcp/ollama.yaml playbook.",
+      "spec": [
+        "Reference automation/agents/mcp/vertex-ai.yaml as the structural template.",
+        "Workload: model, messages, system, temperature, ollama_endpoint (defaults: gemma3:4b, [], '', 0.1, http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc).",
+        "Workflow: one Python step (kind:python with urllib) that builds the JSON-RPC envelope `{jsonrpc: '2.0', method: 'tools/call', params: {name: 'chat_completion', arguments: {model, messages, system, temperature}}, id: <int>}`, POSTs to ollama_endpoint, parses the response, extracts the assistant text from the MCP result, and returns the standard chat_completion envelope: `{status, content: [{type:'text', text}], isError, _meta: {backend: 'ollama', model, usage, endpoint}, usage, data: {_meta, ollama_response}, summary, text}`. Match mcp/vertex-ai's success and error envelope shapes byte-for-byte where possible — callers are reading those keys.",
+        "Use the same `globals().update({...})` pattern from Phase 3 / hotels-activities rounds for helper visibility (NoETL's separate globals/locals model).",
+        "Pydantic-validate the new playbook."
+      ],
+      "verify": "automation/agents/mcp/ollama.yaml validates as a Playbook resource. Direct invocation should work (will be smoke-tested in phase 4)."
+    },
+
+    "2_wire_travel_runtime": {
+      "objective": "Add classify_via_ollama_mcp branch + dispatch + merger extension + workload corrections.",
+      "spec": [
+        "Update workload.ollama_bridge_url from `:8080` to `http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc`.",
+        "Add workload.ollama_model: `gemma3:4b`.",
+        "Update ai_provider comment to include ollama.",
+        "metadata.capabilities += ai:ollama.",
+        "Add classify_via_ollama_mcp step mirroring classify_via_vertex_mcp.",
+        "Update start.next.arcs to dispatch on ai_provider == 'ollama'.",
+        "Extend classify_intent merger to handle the ollama branch — read `classify_via_ollama_mcp | default({})`, extract text (same logic as vertex), parse JSON, normalise. On isError/empty: fall back to OpenAI with provider_fallback_reason.",
+        "Pydantic-validate the patched runtime."
+      ],
+      "verify": "Travel runtime validates; four-way dispatch in place."
+    },
+
+    "3_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-ollama-via-mcp`.",
+        "Stage automation/agents/mcp/ollama.yaml AND automation/agents/travel/runtime.yaml.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `feat(travel-agent): add Ollama as fourth provider via new mcp/ollama MCP playbook (Phase 4)`. Body: cites Phase 3 mcp/vertex-ai pattern; explains the new playbook wraps the existing in-cluster bridge; corrects the stale port; notes Ollama enables cheap-first inference and pairs with the troubleshoot agent's existing mcp/ollama default.",
+        "PR title: same. Push, PR, merge with `--squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "4_open_and_merge_docs_pr": {
+      "objective": "Tutorial 07 mentions ollama as fourth provider.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/travel-tutorial-ollama-via-mcp`.",
+        "Edit docs/tutorials/07-travel-agent-with-widgets.md — extend Step 3 with the fourth provider; add example commands; mention the in-cluster bridge URL and the new mcp/ollama MCP playbook.",
+        "Verify: `cd repos/docs && npm install && npm run build` clean.",
+        "Commit: `docs(tutorials): note ollama as fourth provider via the mcp/ollama MCP playbook (Phase 4)`.",
+        "Push, PR, merge."
+      ],
+      "verify": "Docs PR merged."
+    },
+
+    "5_re_register_and_smoke": {
+      "objective": "Register both playbooks; smoke ollama provider; spot-check existing providers.",
+      "spec": [
+        "`noetl register repos/ops/automation/agents/mcp/ollama.yaml` (new playbook — capture catalog version 1).",
+        "`noetl register repos/ops/automation/agents/travel/runtime.yaml` (catalog v23 expected).",
+        "Smoke `travel --provider ollama help` — expect status=completed, effective_provider='ollama', no provider_fallback_reason, widget rendered.",
+        "Smoke `travel --provider ollama flights from SFO to JFK on 2026-07-15 for 2 adults` — same; expect render_flights or render_amadeus_failure widget.",
+        "Smoke `travel --provider ollama locations near Boston`.",
+        "Smoke `travel --provider ollama hotels in Paris on 2026-08-15`.",
+        "Smoke `travel --provider ollama activities near Times Square`.",
+        "Verify the agent → MCP hop event: `noetl status <id> --json | jq '.events[] | select(.step | test(\"classify_via_ollama_mcp\")) | {step, type: .tool_kind, sub_execution: .sub_execution_id}'`. Expected: tool_kind='agent', sub_execution_id present.",
+        "Verify the ollama child execution itself completes: `noetl status <ollama_sub_execution_id> --json | jq '{status, isError: .result.isError, model: .result._meta.model, usage: .result._meta.usage}'`.",
+        "Spot-check regression: `travel help` (default → openai) and `travel --provider vertex-ai help` — both clean.",
+        "Verify travel_agent_events audit row shows ai_provider='ollama' for the ollama smokes.",
+        "Direct external MCP smoke: `cd /mcp/ollama; tools; call chat_completion messages='[{\"role\":\"user\",\"content\":\"ping\"}]' model=gemma3:4b` — returns a clean text response.",
+        "Capture screenshots."
+      ],
+      "verify": "All five ollama intents complete with effective_provider='ollama'. Regressions clean. Direct MCP works."
+    },
+
+    "6_bump_ai_meta_pointers": {
+      "objective": "Bump repos/ops + repos/docs gitlinks in ai-meta. Stage but do not push.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops repos/docs`.",
+        "`git add repos/ops repos/docs`.",
+        "Commit: `chore(sync): bump ops + docs for travel ollama via mcp playbook (Phase 4)`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "automation/agents/mcp/ollama.yaml exists and exposes chat_completion. Travel runtime supports `--provider ollama` for all five intents with effective_provider='ollama'. The mcp/vertex-ai playbook is unchanged. The 'MCP is just a playbook' thesis has a third concrete example (Amadeus + Vertex AI + Ollama).",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; HAS_OLLAMA_PB=$(test -f repos/ops/automation/agents/mcp/ollama.yaml && echo 1 || echo 0); HAS_OLLAMA_BRANCH=$(grep -c 'classify_via_ollama_mcp' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); HAS_OLLAMA_MODEL=$(grep -c 'ollama_model:' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); CORRECTED_PORT=$(grep -c '8765/jsonrpc' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"playbook:$HAS_OLLAMA_PB branch:$HAS_OLLAMA_BRANCH model:$HAS_OLLAMA_MODEL port:$CORRECTED_PORT\"; if [ \"$HAS_OLLAMA_PB\" -ge 1 ] && [ \"$HAS_OLLAMA_BRANCH\" -ge 1 ] && [ \"$HAS_OLLAMA_MODEL\" -ge 1 ] && [ \"$CORRECTED_PORT\" -ge 1 ]; then echo 'GOAL: TRAVEL_OLLAMA_VIA_MCP_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_OLLAMA_VIA_MCP_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/e2e — ops + docs only round",
+    "Modifying the Amadeus or Vertex AI MCP playbooks (single sources of truth hold)",
+    "Modifying classify_via_http_provider or classify_via_vertex_mcp bodies — only ADD ollama branch",
+    "Modifying the merger's openai/anthropic or vertex normalisation paths — only ADD ollama path",
+    "Re-deploying or modifying the ollama-bridge helm chart",
+    "Adding `when:` predicates to keychain entries",
+    "Cutting any release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate (or .venv/bin/python Playbook.model_validate)",
+    "noetl register / noetl status <id> --json",
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "Browser screenshot for the prompt smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-001500-travel-ollama-via-mcp.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_create_mcp_ollama_playbook: {validates, mirrors_vertex_ai_shape: bool}, 2_wire_travel_runtime: {validates}, 3_open_and_merge_ops_pr: {pr_url, merged_sha}, 4_open_and_merge_docs_pr: {pr_url, merged_sha, docs_build_clean}, 5_re_register_and_smoke: {ollama_catalog_id, ollama_version, travel_catalog_id, travel_version, help_status, flights_status, locations_status, hotels_status, activities_status, all_five_effective_provider_ollama: bool, openai_default_regression: bool, vertex_ai_regression: bool, agent_step_proven_in_events: bool, ollama_child_completed: bool, audit_rows_show_ollama: bool, screenshots: []}, 6_bump_ai_meta_pointers: {ops_sha, docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Single-source-of-truth refactor for classifier system_prompt — now duplicated across THREE branches (http/vertex/ollama)', 'NoETL-Python globals/locals idiom into the authoring guide as 13th rule', 'Anthropic re-smoke gated on user provisioning the GCP secret in noetl-demo-19700101', 'Investigate Amadeus test API 500s on flights/locations']}. If verdict GREEN, append paragraph to bridge/outbox/codex-spike-green-validation.md."
+}
