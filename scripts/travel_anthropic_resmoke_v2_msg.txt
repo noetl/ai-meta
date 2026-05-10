@@ -1,0 +1,96 @@
+Codex prompt — Travel agent Anthropic re-smoke v2 (refreshed for current state)
+==================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-000500-travel-anthropic-resmoke-v2.task.json
+
+Result goes to:
+  bridge/outbox/20260511-000500-travel-anthropic-resmoke-v2.result.json
+
+Supersedes (stale, predates Phase 3 + hotels/activities + refinement + audit):
+  bridge/inbox/delegated/20260509-194100-travel-anthropic-resmoke.task.json
+
+Context:
+  Multi-provider round (May 9) shipped the Anthropic code path GREEN — fallback
+  to OpenAI proved clean. Actual Anthropic GREEN was blocked by NOT_FOUND on
+  the GCP secret. The original task targeted project `noetl-cluster` (number
+  1014428265962). Phase 3 (May 10) corrected our world view: GKE actually runs
+  in `noetl-demo-19700101`. The Anthropic secret may have been provisioned
+  there instead — Codex verifies before smoking.
+
+  Since May 9 the runtime has gained:
+    - vertex-ai as third provider (Phase 3)
+    - hotels and activities branches (closes Phase 1 stub)
+    - refinement form widgets in every render_* tree
+    - best-effort audit-row writes inside each render_* step
+
+  So the smoke matrix expands from 3 intents to 5 (help/flights/locations/
+  hotels/activities) PLUS quick regression of openai default + vertex-ai.
+
+Codex job (4 phases — see task JSON):
+
+  1. verify secret alignment:  Check both noetl-demo-19700101 and noetl-cluster
+                               for the anthropic-api-key secret.
+                                 - Neither: AMBER + STOP, document for Kadyapam.
+                                 - Only noetl-cluster: kind smoke OK, GKE drift flagged.
+                                 - Only noetl-demo-19700101 (expected after Phase 3):
+                                   look up project number, update workload's
+                                   anthropic_secret_path to point at the GKE
+                                   project, open small ops PR
+                                   `fix(travel-agent): point anthropic_secret_path at noetl-demo-19700101 (Phase 3 alignment)`.
+                                 - Both: prefer GKE project default per Phase 3
+                                   workload-default rule.
+                                 NEVER echo full key — first 20 chars max.
+
+  2. re-register if path changed: noetl register the patched runtime; capture v23.
+
+  3. full smoke matrix:        Five anthropic intents PLUS openai + vertex regressions.
+                               Each anthropic smoke MUST show effective_provider=
+                               'anthropic' AND no provider_fallback_reason.
+                               Audit table audit row should show ai_provider='anthropic'.
+                               Use:
+                                 noetl status <id> --json |
+                                   jq '.result.effective_provider,
+                                       .result.provider_fallback_reason'
+                               Screenshot at least one anthropic-pilled widget.
+
+  4. close out:                Write result file; append validation log on GREEN.
+
+Architectural rules:
+  - Smoke-only round (or 1 small ops PR for secret_path realignment, max).
+  - Don't provision GCP secrets / IAM / service accounts — Kadyapam owns.
+  - Don't modify the Amadeus or Vertex AI MCP playbooks.
+  - Don't modify classify_intent / classify_via_* / log_classification / render_*.
+  - Never echo the full Anthropic API key — first 20 chars max for verification.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  GCP (one-time, Kadyapam owns):
+    # Create the secret in the GKE project (recommended):
+    echo -n "sk-ant-api03-..." | gcloud secrets create anthropic-api-key \
+      --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-
+    # Or add a new version if it already exists:
+    echo -n "sk-ant-api03-..." | gcloud secrets versions add anthropic-api-key \
+      --project=noetl-demo-19700101 --data-file=-
+    # Grant the worker SA read access:
+    gcloud secrets add-iam-policy-binding anthropic-api-key \
+      --project=noetl-demo-19700101 \
+      --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \
+      --role=roles/secretmanager.secretAccessor
+
+  ai-meta:
+    1. chore(bridge): hand travel anthropic re-smoke v2 to Codex
+       (bridge/inbox/delegated/20260511-000500-travel-anthropic-resmoke-v2.task.json)
+    2. chore(scripts): codex prompt for travel anthropic re-smoke v2
+       (scripts/travel_anthropic_resmoke_v2_msg.txt)
+    3. memory(add): handed travel anthropic re-smoke v2 to Codex
+       (memory/inbox/2026/05/...)
+
+  Push ai-meta when ready. Bridge watcher picks up the task once auth + push
+  are done.
+
+Codex commits + pushes:
+  Optional 1 ops PR if anthropic_secret_path needs project realignment.
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops only IF the secret_path field changed.
