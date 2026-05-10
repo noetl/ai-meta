@@ -1,0 +1,116 @@
+Codex prompt — Travel agent vertex-ai re-smoke (AMBER → GREEN once Vertex auth provisioned)
+============================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260510-040000-travel-vertex-ai-resmoke.task.json
+
+Result goes to:
+  bridge/outbox/20260510-040000-travel-vertex-ai-resmoke.result.json
+
+Prior round (AMBER):
+  bridge/outbox/20260510-021500-travel-vertex-ai.result.json
+
+Context:
+  Phase 3 shipped the code GREEN. Three-branch refactor of classify_intent landed,
+  classify_via_vertex_mcp creates a real NoETL agent sub-execution into the Vertex
+  AI MCP playbook, and the merger's fallback-to-OpenAI semantics are proven. But
+  the kind cluster's worker pod environment doesn't currently configure Vertex
+  auth in any of the three forms automation/agents/mcp/vertex-ai supports
+  (GKE Workload Identity / GOOGLE_OAUTH_ACCESS_TOKEN env / SA JSON via
+  GOOGLE_APPLICATION_CREDENTIALS). Every code path raises:
+    "service-account credentials missing private_key or client_email"
+
+  Kadyapam provisions auth out-of-band (one of the three paths). This round only
+  re-runs the smokes once auth lands. NO CODE CHANGES.
+
+Codex job (4 phases — see task JSON):
+
+  1. verify auth path:    Inspect noetl-worker deployment env via kubectl
+                          (read-only). Check GOOGLE_OAUTH_ACCESS_TOKEN and
+                          GOOGLE_APPLICATION_CREDENTIALS presence/shape. If
+                          GOOGLE_APPLICATION_CREDENTIALS is set, exec into
+                          worker and `cat $GOOGLE_APPLICATION_CREDENTIALS | jq 'keys'`
+                          — confirm it has client_email AND private_key. Then
+                          do a one-shot direct call: `cd /mcp/vertex-ai; call
+                          chat_completion messages='[{"role":"user","content":"ping"}]'
+                          vertex_project=noetl-cluster vertex_region=us-central1
+                          vertex_model=gemini-2.5-flash`. Expected: completed,
+                          text contains a Gemini response. If still errors,
+                          AMBER + STOP + document what's missing.
+
+  2. travel vertex smokes: travel --provider vertex-ai help / flights / locations.
+                          Each MUST produce effective_provider='vertex-ai' (NOT
+                          the openai fallback) AND no provider_fallback_reason.
+                          Verify the agent → MCP hop event:
+                            noetl status <id> --json |
+                              jq '.events[] | select(.step | test("classify_via_vertex_mcp"))
+                                    | {step, type: .tool_kind, sub_execution: .sub_execution_id}'
+                          Expected: tool_kind='agent', sub_execution_id present.
+                          ALSO verify the vertex CHILD execution itself:
+                            noetl status <vertex_sub_execution_id> --json |
+                              jq '{status: .status, isError: .result.isError,
+                                   model: .result._meta.model, usage: .result._meta.usage}'
+                          Expected: status='completed', isError=false, model present,
+                          usage tokens > 0.
+                          Screenshot the help intent's vertex-pilled widget.
+
+  3. regression existing:  travel help (default → openai) and travel --provider
+                          anthropic help. Confirm openai works; anthropic still
+                          falls back to openai (Anthropic secret still pending).
+
+  4. close out:           Write the result file. If GREEN, append to
+                          bridge/outbox/codex-spike-green-validation.md noting
+                          Phase 3 closes GREEN. If still blocked, document
+                          precisely which env-var / IAM binding / SA mount
+                          is still missing.
+
+Architectural rules:
+  - Smoke-only round. NO code changes to runtime.yaml, vertex-ai.yaml, or tutorial 07.
+  - Don't try to provision GCP IAM, secrets, or service-account keys yourself —
+    Kadyapam owns this.
+  - Don't modify the worker deployment to inject env vars yourself — Kadyapam owns this.
+  - Read-only kubectl is fine for env inspection.
+  - Never echo the full SA private key value or token into result file or screenshots.
+  - No git push from ai-meta.
+  - No PRs.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  GCP / cluster (one of three options — see memory entry
+  20260510-040000-travel-vertex-ai-amber-auth-blocker.md for full recipes):
+
+  Option A (fastest, ephemeral): GOOGLE_OAUTH_ACCESS_TOKEN injected into worker pod
+    export TOKEN=$(gcloud auth print-access-token)
+    kubectl -n noetl set env deployment/noetl-worker GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN
+    kubectl -n noetl rollout status deployment/noetl-worker
+
+  Option B (stable, recommended for kind): SA JSON mounted via secret
+    gcloud iam service-accounts create noetl-vertex \
+      --display-name="NoETL Vertex AI client" --project=noetl-cluster
+    gcloud projects add-iam-policy-binding noetl-cluster \
+      --member=serviceAccount:noetl-vertex@noetl-cluster.iam.gserviceaccount.com \
+      --role=roles/aiplatform.user
+    gcloud iam service-accounts keys create /tmp/noetl-vertex.json \
+      --iam-account=noetl-vertex@noetl-cluster.iam.gserviceaccount.com
+    kubectl -n noetl create secret generic vertex-sa-key \
+      --from-file=key.json=/tmp/noetl-vertex.json
+    # patch worker deployment to mount and set GOOGLE_APPLICATION_CREDENTIALS
+    rm /tmp/noetl-vertex.json   # don't keep the key on disk
+
+  Verify (either option):
+    kubectl -n noetl exec deploy/noetl-worker -- env | grep -E '(GOOGLE_OAUTH|GOOGLE_APPLICATION)'
+
+  ai-meta:
+    1. chore(bridge): hand travel vertex-ai re-smoke to Codex
+       (bridge/inbox/delegated/20260510-040000-travel-vertex-ai-resmoke.task.json)
+    2. chore(scripts): codex prompt for travel vertex-ai re-smoke
+       (scripts/travel_vertex_ai_resmoke_msg.txt)
+    3. memory(add): travel vertex-ai Phase 3 amber + auth-blocker recipe
+       (memory/inbox/2026/05/20260510-040000-travel-vertex-ai-amber-auth-blocker.md)
+
+  Push ai-meta when ready. Bridge watcher picks up the task once auth is provisioned.
+
+Codex commits + pushes:
+  None (smoke-only).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  None (no submodule changes expected).

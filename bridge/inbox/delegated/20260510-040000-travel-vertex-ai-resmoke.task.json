@@ -1,0 +1,89 @@
+{
+  "id": "20260510-040000-travel-vertex-ai-resmoke",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-10T04:00:00Z",
+  "title": "Travel agent vertex-ai re-smoke (AMBER → GREEN once Vertex auth provisioned)",
+
+  "description": "Phase 3 of the travel flagship landed AMBER: code path proven correct (agent → MCP hop creates real sub-execution; merger's fallback semantics worked verbatim), but local/kind auth for the Vertex AI MCP playbook is not configured (`service-account credentials missing private_key or client_email`). Kadyapam provisions one of three auth paths out-of-band (Workload Identity / GOOGLE_OAUTH_ACCESS_TOKEN / proper SA JSON via GOOGLE_APPLICATION_CREDENTIALS). This round only re-runs the smokes once auth lands. No code changes.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 3600,
+  "max_iterations": 4,
+
+  "prior_round_result": "bridge/outbox/20260510-021500-travel-vertex-ai.result.json (overall_status=AMBER)",
+
+  "design_brief_for_codex": {
+    "current_state": "Travel runtime catalog v17 supports ai_provider=vertex-ai. classify_via_vertex_mcp creates an agent sub-execution into automation/agents/mcp/vertex-ai (catalog v3). The merger's fallback to OpenAI is wired and proven. The vertex MCP playbook reaches the auth chain but every code path raises 'service-account credentials missing private_key or client_email' — see prior_round_result phase 7 for the full canonical error.",
+    "target_state": "All three vertex-ai smokes (help / flights / locations) reach status=completed with effective_provider='vertex-ai' (NOT the openai fallback) AND provider_fallback_reason is null/empty. The classify_via_vertex_mcp event still shows tool_kind='agent' with sub_execution_id present, AND the Vertex child execution itself reaches status=completed (NOT command.failed) with a real Gemini response in the data envelope.",
+    "verify_first_then_smoke": "Don't smoke until auth is verified. Run a one-shot direct call to the vertex MCP first: `cd /mcp/vertex-ai; call chat_completion messages='[{\"role\":\"user\",\"content\":\"ping\"}]' vertex_project=noetl-cluster vertex_region=us-central1 vertex_model=gemini-2.5-flash`. If THAT returns a clean text response, auth is good — proceed with travel smokes. If it still errors, write AMBER result file documenting which env var / secret / IAM binding is still missing and STOP."
+  },
+
+  "phases": {
+    "1_verify_vertex_auth_path": {
+      "objective": "Confirm Vertex MCP auth is configured before touching the travel agent.",
+      "spec": [
+        "Inspect the noetl worker deployment env: `kubectl -n noetl get deployment noetl-worker -o jsonpath='{.spec.template.spec.containers[*].env}'` — note GOOGLE_OAUTH_ACCESS_TOKEN, GOOGLE_APPLICATION_CREDENTIALS, and any volume-mounted SA key.",
+        "If GOOGLE_APPLICATION_CREDENTIALS is set, exec into the worker and `cat $GOOGLE_APPLICATION_CREDENTIALS | jq 'keys'` — confirm it has `client_email` and `private_key`. If keys are missing or the file is empty/missing, write AMBER result and STOP.",
+        "Direct vertex MCP smoke: `cd /mcp/vertex-ai; call chat_completion messages='[{\"role\":\"user\",\"content\":\"ping\"}]' vertex_project=noetl-cluster vertex_region=us-central1 vertex_model=gemini-2.5-flash`. Expected: completed, text contains a Gemini response. If it errors, capture the new error message and STOP — write AMBER result with the diagnosis."
+      ],
+      "verify": "Direct vertex MCP call returns clean text. If auth still missing, AMBER + STOP."
+    },
+
+    "2_travel_vertex_smokes": {
+      "objective": "Run all three vertex-ai intents through the travel runtime.",
+      "spec": [
+        "`travel --provider vertex-ai help` — expected: completed; widget rendered; effective_provider='vertex-ai'; provider_fallback_reason null/empty.",
+        "`travel --provider vertex-ai flights from SFO to JFK on 2026-07-15 for 2 adults` — expected: completed; widget rendered (carousel or friendly Amadeus error — the Amadeus 500 is a separate issue, fine for this round); effective_provider='vertex-ai'.",
+        "`travel --provider vertex-ai locations near Boston` — expected: completed; recordtable widget; effective_provider='vertex-ai'.",
+        "Verify the agent → MCP hop event: `noetl status <id> --json | jq '.events[] | select(.step | test(\"classify_via_vertex_mcp\")) | {step, type: .tool_kind, sub_execution: .sub_execution_id}'`. Expected: tool_kind='agent', sub_execution_id present.",
+        "ALSO verify the vertex CHILD execution itself reached completed: `noetl status <vertex_sub_execution_id> --json | jq '{status: .status, isError: .result.isError, model: .result._meta.model, usage: .result._meta.usage}'`. Expected: status='completed', isError=false, model present, usage tokens > 0.",
+        "Capture screenshot of at least the help intent's vertex-pilled widget."
+      ],
+      "verify": "All three intents produce effective_provider='vertex-ai'. The vertex sub-execution itself completes clean."
+    },
+
+    "3_regression_existing_paths": {
+      "objective": "Confirm the auth landing did not destabilise OpenAI default or Anthropic fallback paths.",
+      "spec": [
+        "`travel help` (default → openai) — effective_provider='openai'.",
+        "`travel --provider anthropic help` — effective_provider='openai' with provider_fallback_reason='anthropic token missing' (Anthropic secret still pending).",
+        "Both should be completed."
+      ],
+      "verify": "OpenAI default + Anthropic fallback paths intact."
+    },
+
+    "4_close_out": {
+      "objective": "Write result file. If GREEN, append to validation log.",
+      "spec": [
+        "Write bridge/outbox/20260510-040000-travel-vertex-ai-resmoke.result.json. If verdict=GREEN, append a paragraph to bridge/outbox/codex-spike-green-validation.md noting Phase 3 closes GREEN.",
+        "If still blocked, document the specific env-var / IAM / mount that's still missing for Kadyapam."
+      ],
+      "verify": "Result file present."
+    }
+  },
+
+  "expected_state": {
+    "description": "All three vertex-ai travel smokes complete with effective_provider='vertex-ai'. Vertex sub-execution itself reaches status=completed with non-zero token usage.",
+    "verify_pattern": "The result file's 5_smoke section shows all_effective_provider_vertex=true and the vertex child execution reaches status=completed with isError=false."
+  },
+
+  "denied_tools": [
+    "Code changes to repos/ops/automation/agents/travel/runtime.yaml (smoke-only)",
+    "Code changes to repos/ops/automation/agents/mcp/vertex-ai.yaml (smoke-only)",
+    "Code changes to repos/docs/docs/tutorials/07-travel-agent-with-widgets.md (smoke-only)",
+    "Provisioning GCP IAM, secrets, or service-account keys — Kadyapam owns this",
+    "Modifying the worker deployment to inject env vars — Kadyapam owns this",
+    "Echoing the full secret value or SA private key into result file or screenshots",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl status <id> --json | jq",
+    "kubectl -n noetl get/describe (read-only env inspection)",
+    "Browser screenshot for the prompt smokes"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260510-040000-travel-vertex-ai-resmoke.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_verify_vertex_auth_path: {auth_method_detected, direct_mcp_call_status, error_if_blocked}, 2_travel_vertex_smokes: {help_status, flights_status, locations_status, all_effective_provider_vertex: bool, vertex_child_completed: bool, vertex_child_token_usage, agent_step_proven_in_events: bool, screenshots: []}, 3_regression_existing_paths: {openai_status, anthropic_fallback_status}, 4_close_out: {validation_log_appended: bool}}, iterations, verdict, notes, deferred_followups}. If still AMBER, document precisely which auth artifact is missing."
+}
