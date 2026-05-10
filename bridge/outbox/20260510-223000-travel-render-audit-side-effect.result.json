@@ -106,7 +106,7 @@
     "5_bump_ai_meta_pointers": {
       "ops_sha": "c5ca5a1",
       "docs_sha": "6c3214a",
-      "ai_meta_commit_local": "acefccb"
+      "ai_meta_commit_local": "40829a3"
     }
   },
   "regressions_found": [
