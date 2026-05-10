@@ -80,7 +80,7 @@
     },
     "6_bump_ai_meta_pointers": {
       "ops_sha": null,
-      "ai_meta_commit_local": null
+      "ai_meta_commit_local": "558e729"
     }
   },
   "regressions_found": [
