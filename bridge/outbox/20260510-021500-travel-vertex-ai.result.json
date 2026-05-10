@@ -1,0 +1,134 @@
+{
+  "id": "20260510-021500-travel-vertex-ai",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T02:12:00Z",
+  "overall_status": "AMBER",
+  "phases": {
+    "1_validate_design": {
+      "validates": true,
+      "mcp_playbook_registered": true,
+      "phase2_precedent_used": "automation/agents/travel/runtime.yaml amadeus_via_mcp_flights uses tool.kind=agent, framework=noetl, entrypoint=automation/agents/mcp/amadeus; classify_via_vertex_mcp mirrors that shape against automation/agents/mcp/vertex-ai.",
+      "parser_validation": "PYTHONPATH=/Volumes/X10/projects/noetl/ai-meta/repos/noetl python parse_playbook_file(...) succeeded for automation/agents/travel/runtime.yaml after the refactor."
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/59",
+      "merged_sha": "97012403ba56f640a632d8507dc4f9d3542eb6ea"
+    },
+    "3_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/50",
+      "merged_sha": "2206e353064e11dcad0cfa9d9fd3d8d6bc6266b6",
+      "docs_build_clean": true,
+      "validation": "npm run build"
+    },
+    "4_re_register_and_redeploy": {
+      "travel_catalog_id": "623370351522612184",
+      "travel_version": 17,
+      "vertex_mcp_present": true,
+      "vertex_mcp_catalog_id": "623370351069627351",
+      "vertex_mcp_version": 3
+    },
+    "5_smoke_terminal_widget_visibility": {
+      "help_status": {
+        "execution_id": "623370495303353305",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_help",
+        "render_type": "app:column",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "service-account credentials missing private_key or client_email",
+        "vertex_sub_execution_id": "623370503667404898"
+      },
+      "flights_status": {
+        "execution_id": "623370554820526163",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_amadeus_failure",
+        "render_type": "app:column",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "service-account credentials missing private_key or client_email",
+        "vertex_sub_execution_id": "623370563258990999",
+        "amadeus_upstream_status_code": 500
+      },
+      "locations_status": {
+        "execution_id": "623370893762232578",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_amadeus_failure",
+        "render_type": "app:column",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "service-account credentials missing private_key or client_email",
+        "vertex_sub_execution_id": "623370913739309106",
+        "amadeus_upstream_status_code": 500
+      },
+      "all_effective_provider_vertex": false,
+      "agent_step_proven_in_events": true,
+      "screenshots": []
+    },
+    "6_smoke_regression_existing_providers": {
+      "openai_default_status": {
+        "execution_id": "623371248164143569",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_help",
+        "render_type": "app:column",
+        "effective_provider": "openai"
+      },
+      "anthropic_fallback_metadata_intact": true,
+      "anthropic_status": {
+        "execution_id": "623371272835039782",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_help",
+        "render_type": "app:column",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "anthropic token missing"
+      }
+    },
+    "7_smoke_external_mcp_regression": {
+      "vertex_ai_tools_listed": true,
+      "vertex_ai_chat_completion_status": {
+        "execution_id": "623371586401206907",
+        "completed": false,
+        "failed": true,
+        "error": "service-account credentials missing private_key or client_email",
+        "note": "The Vertex AI MCP playbook is reachable and returns a clean error envelope, but local/kind auth is not configured with Workload Identity, GOOGLE_OAUTH_ACCESS_TOKEN, or service-account JSON containing private_key/client_email."
+      },
+      "amadeus_tools_listed": true,
+      "amadeus_get_token_bound": true,
+      "amadeus_get_token_execution_id": "623371785118941856"
+    },
+    "8_bump_ai_meta_pointers": {
+      "ops_sha": "97012403ba56f640a632d8507dc4f9d3542eb6ea",
+      "docs_sha": "2206e353064e11dcad0cfa9d9fd3d8d6bc6266b6",
+      "ai_meta_commit_local": "3abecc8a1fd6248a45ce7df5ceb836673d0d8ddd"
+    }
+  },
+  "regressions_found": [
+    {
+      "summary": "Initial merger helper functions failed under NoETL's separate globals/locals execution model.",
+      "resolution": "Published helper names through globals().update and default-bound query/openai_api_key for the OpenAI fallback helper, matching the pattern already used by automation/agents/mcp/vertex-ai."
+    },
+    {
+      "summary": "The Vertex child execution returned command.failed rather than command.completed when auth failed, so the merger initially lost the detailed MCP error.",
+      "resolution": "The child-event lookup now accepts command.completed, command.failed, and call.error and records the specific provider_fallback_reason."
+    }
+  ],
+  "iterations": 3,
+  "verdict": "AMBER",
+  "notes": [
+    "The code and docs landed: travel accepts ai_provider=vertex-ai, routes classification through automation/agents/mcp/vertex-ai using tool.kind=agent/framework=noetl, and preserves the downstream classify_intent.* contract.",
+    "The local/kind environment does not currently provide Vertex credentials usable by the MCP playbook. The canonical error is: service-account credentials missing private_key or client_email.",
+    "To flip this to GREEN, configure one of the auth paths owned by automation/agents/mcp/vertex-ai: GKE Workload Identity/metadata server for the service account with roles/aiplatform.user on noetl-cluster, GOOGLE_OAUTH_ACCESS_TOKEN, or GOOGLE_APPLICATION_CREDENTIALS pointing at service-account JSON that contains private_key and client_email. Then rerun the three vertex-ai travel smokes and require effective_provider=vertex-ai.",
+    "OpenAI default and Anthropic missing-secret fallback regressions are clean. The Amadeus test API still returns HTTP 500 for flights/locations, and the travel runtime renders that as a friendly widget as expected."
+  ],
+  "deferred_followups": [
+    "GREEN re-smoke for Vertex AI once Workload Identity/ADC credentials are configured for the local/kind or GKE target",
+    "Audit table re-add as side effect inside each render_* python step",
+    "Wire hotels and activities branches in the travel agent",
+    "app:form widget for refining Amadeus filters before re-running",
+    "Anthropic re-smoke once the secret is provisioned in project 1014428265962",
+    "Ollama provider — needs in-cluster bridge URL routing design",
+    "Investigate Amadeus test API 500s on flights/locations"
+  ]
+}
