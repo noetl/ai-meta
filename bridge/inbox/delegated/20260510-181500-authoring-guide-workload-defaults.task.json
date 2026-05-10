@@ -1,0 +1,91 @@
+{
+  "id": "20260510-181500-authoring-guide-workload-defaults",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-10T18:15:00Z",
+  "title": "Playbook authoring guide — pin the workload-default environment-mismatch lesson (12th rule)",
+
+  "description": "Phase 3 vertex-ai re-smoke surfaced a lesson worth pinning in the playbook authoring guide: when a runtime workload defaults to an environment-specific value (project ID, cluster name, region), the default should match the deployed environment, not the developer's local sandbox. The travel runtime defaulted vertex_project via `{{ workload.gcp_project }}` which itself defaulted to `noetl-cluster` (local kind), so on GKE every Vertex AI call hit the wrong project until ops#60 flipped the default to `noetl-demo-19700101`. This was the actual root cause behind the AMBER → GREEN flip, NOT the GCP auth recipes I designed up front. The guide already captures 11 rules from the 9-round flagship arc; this round adds a 12th in a new 'Workload defaults' section between 'Keychain rules' and 'Step semantics'. Cap: 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 1800,
+  "max_iterations": 5,
+
+  "design_brief_for_codex": {
+    "current_state": "repos/docs/docs/reference/playbook_authoring_guide.md has 11 rules in 5 sections: Keychain rules (2), Step semantics (2), External HTTP calls (1), YAML and SQL quoting (2), GUI integration (4). Each rule has Good/Bad code blocks and an evidence pointer to a bridge/outbox result file.",
+
+    "target_state": "12th rule lives in a new 'Workload defaults' section inserted between 'Keychain rules' and 'Step semantics'. Rule title: 'Match environment-specific workload defaults to where the playbook runs'. Section heading is `## Workload defaults`. Rule heading is `### Match environment-specific workload defaults to where the playbook runs`.",
+
+    "rule_body": "Explain the trap in two sentences: workload fields can chain via Jinja (`vertex_project: \"{{ workload.gcp_project }}\"`), and a default-of-a-default is invisible to every caller who doesn't override. When the playbook is registered in a deployed environment (GKE, production), defaults that mention concrete project/cluster/region names must match THAT environment, not the developer's local kind/sandbox.",
+
+    "good_block": "```yaml\nworkload:\n  # GKE project — used by every downstream Jinja chain.\n  gcp_project: \"noetl-demo-19700101\"\n  vertex_project: \"{{ workload.gcp_project }}\"\n  vertex_region: \"us-central1\"\n```",
+
+    "bad_block": "```yaml\nworkload:\n  # Local kind sandbox name — silently misroutes every GKE caller.\n  gcp_project: \"noetl-cluster\"\n  vertex_project: \"{{ workload.gcp_project }}\"\n  vertex_region: \"us-central1\"\n```",
+
+    "evidence_pointer": "Surfaced in Phase 3 vertex-ai re-smoke. Evidence: `bridge/outbox/20260510-040000-travel-vertex-ai-resmoke.result.json` (and ops#60 commit message).",
+
+    "additional_paragraph_after_good_bad": "After the Good/Bad blocks, add a one-paragraph note: 'When a playbook truly serves multiple environments, prefer making the field required (no default) and failing fast at register time, OR set the default to the production environment and require sandbox/local callers to override. The inverse — defaulting to local — silently breaks production. This pairs with the bare-keychain-references rule above: both expose how Jinja template chains in workload binding can hide a misconfiguration that only manifests at request time.'",
+
+    "no_other_changes": "Do not modify any of the existing 11 rules, do not reorder sections beyond inserting the new one, do not touch the front-matter or the 'See also' footer. Single-section insertion only."
+  },
+
+  "phases": {
+    "1_apply_edit": {
+      "objective": "Insert the new section between 'Keychain rules' (ending at the OAuth2 endpoint rule) and 'Step semantics' (starting at the `status: failed` rule).",
+      "spec": [
+        "Open repos/docs/docs/reference/playbook_authoring_guide.md.",
+        "Locate the boundary between '## Keychain rules' (which ends with the 'Surfaced in round 2' evidence pointer for the OAuth2 keychain rule) and '## Step semantics'.",
+        "Insert the new `## Workload defaults` section with the rule heading, two-sentence body, Good code block, Bad code block, evidence pointer paragraph, and the additional one-paragraph note tying back to bare-keychain-references.",
+        "Verify: `cd repos/docs && npm install && npm run build` clean."
+      ],
+      "verify": "Docs build clean; new section renders correctly in the resulting HTML."
+    },
+
+    "2_open_and_merge_docs_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/authoring-guide-workload-defaults`.",
+        "Stage `docs/reference/playbook_authoring_guide.md`.",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `docs(reference): add 12th rule — match environment-specific workload defaults to where the playbook runs`. Body: cites Phase 3 vertex-ai re-smoke as the surfacing round; explains why the travel agent's default vertex_project flowed wrong on GKE; pairs with the bare-keychain-refs rule from round 2.",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_bump_ai_meta_pointer": {
+      "objective": "Bump repos/docs gitlink in ai-meta.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/docs`.",
+        "`git add repos/docs`.",
+        "Commit: `chore(sync): bump docs for authoring-guide workload-defaults rule`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "playbook_authoring_guide.md has 12 rules across 6 sections; the new 'Workload defaults' section sits between 'Keychain rules' and 'Step semantics'.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; HAS_SECTION=$(grep -c '^## Workload defaults' repos/docs/docs/reference/playbook_authoring_guide.md 2>/dev/null || echo 0); HAS_RULE=$(grep -c 'Match environment-specific workload defaults' repos/docs/docs/reference/playbook_authoring_guide.md 2>/dev/null || echo 0); HAS_EVIDENCE=$(grep -c '20260510-040000-travel-vertex-ai-resmoke' repos/docs/docs/reference/playbook_authoring_guide.md 2>/dev/null || echo 0); echo \"section:$HAS_SECTION rule:$HAS_RULE evidence:$HAS_EVIDENCE\"; if [ \"$HAS_SECTION\" -ge 1 ] && [ \"$HAS_RULE\" -ge 1 ] && [ \"$HAS_EVIDENCE\" -ge 1 ]; then echo 'GOAL: AUTHORING_GUIDE_WORKLOAD_DEFAULTS_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: AUTHORING_GUIDE_WORKLOAD_DEFAULTS_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/ops, repos/gui, repos/e2e — docs only round",
+    "Modifying any of the 11 existing rules in the guide",
+    "Reordering existing sections",
+    "Touching the front-matter or 'See also' footer",
+    "Cutting any release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260510-181500-authoring-guide-workload-defaults.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_apply_edit: {section_inserted: bool, docs_build_clean: bool}, 2_open_and_merge_docs_pr: {pr_url, merged_sha}, 3_bump_ai_meta_pointer: {docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes}."
+}
