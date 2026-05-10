@@ -1,0 +1,133 @@
+{
+  "id": "20260510-003344-travel-agent-via-amadeus-mcp",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T01:30:00Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_validate_design": {
+      "validates": true,
+      "gap1_precedent_used": [
+        "repos/ops/automation/agents/ai_os/runtime.yaml uses tool.kind=agent, framework=noetl, entrypoint=<playbook path>, payload=<workload>",
+        "repos/ops/automation/agents/troubleshoot/runtime.yaml uses the same framework=noetl agent dispatch pattern",
+        "repos/e2e/fixtures/playbooks/spike/spike_e2e_test.yaml uses framework=noetl for sub-playbook diagnosis"
+      ],
+      "parser_validation": "PYTHONPATH=/Volumes/X10/projects/noetl/ai-meta/repos/noetl python parse_playbook_file(...) succeeded for automation/agents/travel/runtime.yaml and automation/agents/mcp/amadeus.yaml",
+      "design_adjustment": "Local smoke showed the NoETL agent result projects scalar control metadata but strips the child data field. The travel runtime therefore routes through the agent hop, then the friendly-error renderer reads the child execution's projected Amadeus status metadata from the child events endpoint. No direct Amadeus urllib call remains in the travel runtime's Amadeus branches."
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/58",
+      "merged_sha": "657b2812969a6b3e238e6be422b01de7b88026a7",
+      "branch": "kadyapam/travel-agent-via-amadeus-mcp"
+    },
+    "3_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/49",
+      "merged_sha": "89f8ef046b1c8b55e309b993609c0dbf414e329d",
+      "docs_build_clean": true,
+      "validation": "npm run build"
+    },
+    "4_re_register_and_redeploy": {
+      "travel_catalog_id": "623349468200436085",
+      "travel_version": 13,
+      "mcp_playbook_present": true,
+      "mcp_playbook_confirmation": "Direct executions against automation/agents/mcp/amadeus completed for tools/list, get_token, and search_flights."
+    },
+    "5_smoke_terminal_widget_visibility": {
+      "help_status": {
+        "execution_id": "623349608365687158",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_help",
+        "render_type": "app:column"
+      },
+      "flights_status": {
+        "execution_id": "623349633313407419",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_amadeus_failure",
+        "render_type": "app:column",
+        "intent": "flights",
+        "outcome": "amadeus_failure",
+        "upstream_status_code": 500,
+        "sub_execution_id": "623349652397490679"
+      },
+      "locations_status": {
+        "execution_id": "623349971575636549",
+        "completed": true,
+        "failed": false,
+        "tail_step": "render_amadeus_failure",
+        "render_type": "app:column",
+        "intent": "locations",
+        "outcome": "amadeus_failure",
+        "upstream_status_code": 500,
+        "sub_execution_id": "623349991473414785"
+      },
+      "agent_step_proven_in_events": true,
+      "agent_event_evidence": [
+        {
+          "execution_id": "623349633313407419",
+          "step": "amadeus_via_mcp_flights",
+          "framework": "noetl",
+          "entrypoint": "automation/agents/mcp/amadeus",
+          "sub_execution_id": "623349652397490679"
+        },
+        {
+          "execution_id": "623349971575636549",
+          "step": "amadeus_via_mcp_locations",
+          "framework": "noetl",
+          "entrypoint": "automation/agents/mcp/amadeus",
+          "sub_execution_id": "623349991473414785"
+        }
+      ],
+      "screenshots": []
+    },
+    "6_smoke_external_mcp_regression": {
+      "tools_listed": {
+        "execution_id": "623348600717705430",
+        "tool_count": 5,
+        "status": "ok",
+        "isError": false
+      },
+      "get_token_bound": {
+        "execution_id": "623348715968790795",
+        "status": "ok",
+        "isError": false,
+        "token_bound": true
+      },
+      "search_flights_status": {
+        "execution_id": "623348744708161856",
+        "status": "ok",
+        "isError": true,
+        "status_code": 500,
+        "offers_total": 0,
+        "note": "Amadeus test API currently returns HTTP 500, but the MCP playbook completes at the NoETL level and exposes the upstream error envelope."
+      }
+    },
+    "7_bump_ai_meta_pointers": {
+      "ops_sha": "657b2812969a6b3e238e6be422b01de7b88026a7",
+      "docs_sha": "89f8ef046b1c8b55e309b993609c0dbf414e329d",
+      "ai_meta_commit_local": "a2d2c457fe1289132031279a705e46ca9be59ddd"
+    }
+  },
+  "regressions_found": [
+    {
+      "summary": "Initial agent-hop predicates expected child data at amadeus_via_mcp_*.data.ok, but NoETL's worker projection strips data from agent result envelopes.",
+      "resolution": "The branch now continues to render_amadeus_failure after the agent hop and reads the child execution's projected _meta.status_code from child events. This preserves the Phase 2 architecture without direct Amadeus calls in the travel runtime."
+    }
+  ],
+  "iterations": 2,
+  "verdict": "GREEN",
+  "notes": [
+    "The travel agent now delegates flights and locations to automation/agents/mcp/amadeus through tool.kind=agent/framework=noetl.",
+    "Current Amadeus test API responses for flights and locations are HTTP 500, so the terminal smokes validate the friendly-error widget path rather than happy-path carousel/recordtable data.",
+    "The classifier still uses urllib for OpenAI/Anthropic provider calls; no direct urllib call to Amadeus remains in the travel runtime's Amadeus branches."
+  ],
+  "deferred_followups": [
+    "Audit table re-add as side effect inside each render_* python step",
+    "Wire hotels and activities branches in the travel agent",
+    "app:form widget for refining Amadeus filters before re-running",
+    "Anthropic re-smoke once the secret is provisioned in project 1014428265962",
+    "Vertex AI provider — needs gcp_access_token keychain kind",
+    "Ollama provider — needs in-cluster bridge URL"
+  ]
+}
