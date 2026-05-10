@@ -1,0 +1,36 @@
+{
+  "id": "20260510-181500-authoring-guide-workload-defaults",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T02:54:49Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_apply_edit": {
+      "section_inserted": true,
+      "docs_build_clean": true,
+      "validation_commands": [
+        "cd repos/docs && npm install && npm run build"
+      ],
+      "note": "Inserted a new `## Workload defaults` section between `## Keychain rules` and `## Step semantics` without modifying the existing 11 rules, front matter, or footer."
+    },
+    "2_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/52",
+      "merged_sha": "ccd6a03dd641e560fe4059718ec27707669ee053",
+      "branch": "kadyapam/authoring-guide-workload-defaults",
+      "title": "docs(reference): add 12th rule \u2014 match environment-specific workload defaults to where the playbook runs"
+    },
+    "3_bump_ai_meta_pointer": {
+      "docs_sha": "ccd6a03dd641e560fe4059718ec27707669ee053",
+      "ai_meta_commit_local": "622ba555e62eb831fbe63f9dc64dd11507e5a4ac"
+    }
+  },
+  "regressions_found": [],
+  "iterations": 1,
+  "verdict": "GREEN",
+  "notes": [
+    "The guide now has 12 rules across 6 sections.",
+    "The new rule pins the Phase 3 Vertex AI lesson: environment-specific workload defaults such as project IDs must match the deployed registration target rather than a local sandbox.",
+    "The rule explicitly pairs with the existing bare workload reference/keychain rule because both involve Jinja binding chains that can hide misconfiguration until request time.",
+    "npm install completed with the repository's existing audit warnings; npm run build completed successfully."
+  ]
+}
