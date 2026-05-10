@@ -1,0 +1,126 @@
+Codex prompt — Travel agent: re-add audit table writes as side effects inside render_* steps
+==============================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260510-223000-travel-render-audit-side-effect.task.json
+
+Result goes to:
+  bridge/outbox/20260510-223000-travel-render-audit-side-effect.result.json
+
+Reference precedent (the recipe is already written in the runtime!):
+  repos/ops/automation/agents/travel/runtime.yaml lines 1521-1527:
+
+    > If a dedicated audit table is needed later, add it as a SIDE
+    > EFFECT inside each render_* python step (psycopg) so it doesn't
+    > clobber the result. Don't reintroduce the trailing postgres step.
+
+  This round executes that recipe.
+
+Context:
+  Round 6 of the original flagship arc (render-as-tail) dropped the trailing
+  travel_agent_events postgres write because it was overwriting the render
+  result on the way to `end`. The runtime carries an explicit forward-pointing
+  comment (see above) telling future authors how to bring audit back without
+  breaking the tail. This round implements it.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  repos/ops/automation/agents/travel/runtime.yaml — five render_* steps:
+
+    Each render_* step (render_flights, render_hotels, render_locations,
+    render_activities, render_amadeus_failure) gets a best-effort audit
+    insert at the BOTTOM of its python `code` block, AFTER the result dict
+    is built (so the audit can capture render_type), wrapped in try/except
+    that catches Exception broadly and prints a one-line warning to stdout
+    but never raises.
+
+    INSERT shape:
+      INSERT INTO travel_agent_events (execution_id, event_type, ai_provider, intent, payload)
+      VALUES (%s, %s, %s, %s, %s::jsonb)
+
+    Per-step values:
+      execution_id: from input scope
+      event_type:   'render_flights' / 'render_hotels' / 'render_locations' /
+                    'render_activities' / 'render_amadeus_failure'
+      ai_provider:  classification.effective_provider
+      intent:       classification.intent
+      payload:      JSON dict with render_kind, render_type, envelope_status_code,
+                    envelope_ok, envelope_total, provider_fallback_reason,
+                    classified_intent (the full classify_intent dict)
+
+    Use leading-underscore variable names (_audit_psycopg, _audit_json, _conn,
+    _cur, _audit_exc) to avoid clobbering the step's existing locals. If
+    helper functions are needed, use the globals().update(...) pattern from
+    Phase 3 / hotels-activities rounds.
+
+  Connection-string source — Codex picks based on actual GKE worker env:
+
+    Pattern (a): add a keychain entry exposing the postgres connection string
+                 as a libpq-style string, pass via input.pg_url. Mirrors the
+                 classify_intent pattern of `openai_api_key: "{{ keychain.X }}"`.
+
+    Pattern (b): read from worker pod env vars (NOETL_DB_HOST/PORT/USER/
+                 PASSWORD/NAME or whatever the deployment exposes). Inside the
+                 step: `import os; conn_string = f"host={os.environ[...]}..."`.
+
+    Inspect the noetl-worker deployment in GKE to determine which is cleaner.
+    Document the choice and rationale in the result file.
+
+  repos/ops/automation/agents/travel/runtime.yaml comment cleanup:
+    Remove the lines 1521-1527 forward-pointing comment now that it's executed.
+    Replace with a one-line note like:
+      # Audit trail: each render_* step writes a best-effort audit row to
+      # travel_agent_events as a side effect (see step bodies). NoETL's event
+      # log remains the primary source of truth for execution traceability.
+
+  repos/docs/docs/tutorials/07-travel-agent-with-widgets.md
+    One short paragraph noting audit writes are side effects inside render_*
+    steps. Reference the round 6 comment that anticipated the pattern.
+
+Codex job (5 phases — see task JSON):
+
+  1. validate design:           Inspect noetl-worker env; pick connection-string
+                                pattern. Apply edits to all five render_* steps.
+                                Pydantic-validate. Remove stale forward-pointing comment.
+  2. ops PR:                    branch kadyapam/travel-render-audit-side-effect
+                                PR title: "feat(travel-agent): re-add audit writes as side effects inside each render_* python step"
+                                --squash --delete-branch on merge.
+  3. docs PR:                   branch kadyapam/travel-tutorial-render-audit
+                                PR title: "docs(tutorials): note travel render_* audit side-effect pattern"
+  4. re-register and smoke:     all four real intents + at least one Amadeus-failure
+                                scenario. After each, query travel_agent_events to
+                                confirm a row landed. Sanity check: deliberately
+                                break the audit insert (malformed payload) and
+                                verify the render result still surfaces to the user.
+  5. ai-meta pointer bumps:     git submodule update --remote repos/ops repos/docs
+                                git add repos/ops repos/docs
+                                git commit: "chore(sync): bump ops + docs for travel render audit side-effect"
+                                DO NOT push.
+
+Architectural rules:
+  - Audit MUST be a side effect inside render_* python steps. NEVER a separate
+    trailing kind:postgres step (round 6 documented why this clobbers the tail).
+  - Audit failure MUST NOT block the render. Catch Exception broadly, print, return.
+  - Don't modify classify_intent / classify_via_* / log_classification or any non-render step.
+  - Don't change widget shapes — render result is byte-for-byte identical
+    to current behaviour aside from this side effect.
+  - Don't modify the Amadeus or Vertex AI MCP playbooks.
+  - No git push from ai-meta.
+
+Pre-handoff commits (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand travel render audit side-effect to Codex
+       (bridge/inbox/delegated/20260510-223000-travel-render-audit-side-effect.task.json)
+    2. chore(scripts): codex prompt for travel render audit side-effect
+       (scripts/travel_render_audit_side_effect_msg.txt)
+    3. memory(add): handed travel render audit side-effect to Codex
+       (memory/inbox/2026/05/...)
+
+  Push when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/ops  (1 PR — audit blocks in five render_* steps)
+  repos/docs (1 PR — tutorial 07 paragraph)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/docs after PRs merge.

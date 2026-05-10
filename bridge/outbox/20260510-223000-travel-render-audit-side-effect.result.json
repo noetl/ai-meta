@@ -1,0 +1,127 @@
+{
+  "id": "20260510-223000-travel-render-audit-side-effect",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T05:00:47Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_validate_design": {
+      "validates": true,
+      "connection_string_pattern": "keychain",
+      "rationale": "The GKE worker deployment exposes pool and host metadata but not a complete libpq credential. The existing NoETL credential named pg_k8s already carries db_host, db_port, db_name, db_user, and db_password, so each render_* step receives workload.pg_auth as input and resolves it through noetl.worker.secrets.fetch_credential_by_key. This preserves NoETL's credential boundary and avoids coupling the playbook to partial pod env vars.",
+      "checks": [
+        "Pydantic Playbook.model_validate passed for automation/agents/travel/runtime.yaml",
+        "git diff --check passed",
+        "noetl CLI on this machine does not expose a validate subcommand; model validation was used instead"
+      ]
+    },
+    "2_open_and_merge_ops_pr": {
+      "pr_url": "https://github.com/noetl/ops/pull/65",
+      "merged_sha": "c5ca5a1"
+    },
+    "3_open_and_merge_docs_pr": {
+      "pr_url": "https://github.com/noetl/docs/pull/55",
+      "merged_sha": "6c3214a",
+      "docs_build_clean": true,
+      "checks": [
+        "npm install",
+        "npm run build"
+      ]
+    },
+    "4_re_register_and_smoke": {
+      "travel_catalog_id": "623450816443056661",
+      "travel_version": 22,
+      "environment": "local kind-noetl via http://localhost:8082",
+      "audit_rows_per_intent": {
+        "flights": 1,
+        "hotels": 1,
+        "locations": 2,
+        "activities": 1,
+        "amadeus_failure": 5
+      },
+      "executions": {
+        "flights": {
+          "execution_id": "623451965120315497",
+          "terminal_step": "render_amadeus_failure",
+          "render_type": "app:column",
+          "audit_rows": [
+            ["classify_intent", "flights", "openai", null, null, null, null, null],
+            ["render_amadeus_failure", "flights", "openai", "flights", "app:column", "500", "false", "0"]
+          ]
+        },
+        "locations": {
+          "execution_id": "623453756725657859",
+          "terminal_step": "render_amadeus_failure",
+          "render_type": "app:column",
+          "audit_rows": [
+            ["classify_intent", "locations", "openai", null, null, null, null, null],
+            ["render_amadeus_failure", "locations", "openai", "locations", "app:column", "500", "false", "0"]
+          ]
+        },
+        "hotels": {
+          "execution_id": "623454094836892061",
+          "terminal_step": "render_amadeus_failure",
+          "render_type": "app:column",
+          "audit_rows": [
+            ["classify_intent", "hotels", "openai", null, null, null, null, null],
+            ["render_amadeus_failure", "hotels", "openai", "hotels", "app:column", "500", "false", "0"]
+          ]
+        },
+        "activities": {
+          "execution_id": "623454448072786487",
+          "terminal_step": "render_amadeus_failure",
+          "render_type": "app:column",
+          "audit_rows": [
+            ["classify_intent", "activities", "openai", null, null, null, null, null],
+            ["render_amadeus_failure", "activities", "openai", "activities", "app:column", null, "false", "0"]
+          ]
+        },
+        "canvas_locations": {
+          "execution_id": "623457666848784543",
+          "terminal_step": "render_amadeus_failure",
+          "render_type": "app:column",
+          "audit_rows": [
+            ["classify_intent", "locations", "openai", null, null, null, null, null],
+            ["render_amadeus_failure", "locations", "openai", "locations", "app:column", "500", "false", "0"]
+          ]
+        }
+      },
+      "audit_failure_does_not_break_render": true,
+      "audit_failure_smoke": {
+        "method": "temporary local kind trigger rejecting event_type LIKE 'render_%'",
+        "execution_id": "623455542031156188",
+        "result": "execution completed at render_amadeus_failure with render_type=app:column; only classify_intent was inserted while the forced render audit insert failed and was swallowed by the render step"
+      },
+      "screenshots": [
+        {
+          "path": "bridge/outbox/artifacts/20260510-223000-travel-canvas-widget.png",
+          "description": "Headless Chrome capture of the /travel canvas after the locations smoke execution completed. The GUI currently projects the execution JSON in the canvas transcript; the canonical render/audit proof is the persisted event and travel_agent_events row."
+        },
+        {
+          "path": "bridge/outbox/artifacts/20260510-223000-travel-widget-execution-auth.png",
+          "description": "Headless Chrome authenticated execution-detail capture for execution 623451965120315497."
+        }
+      ]
+    },
+    "5_bump_ai_meta_pointers": {
+      "ops_sha": "c5ca5a1",
+      "docs_sha": "6c3214a",
+      "ai_meta_commit_local": "acefccb"
+    }
+  },
+  "regressions_found": [
+    "The local Amadeus test API path continues to return upstream failures, so all four user-facing branch smokes tailed at render_amadeus_failure. This did not block the round because the friendly-error renderer is one of the five audited render steps and now records render_kind for the originating intent.",
+    "The /travel canvas smoke rendered the execution JSON in the transcript while the persisted playbook.completed event and audit table both contain render_type=app:column. This appears to be an existing GUI projection/display behavior rather than an audit-side-effect regression."
+  ],
+  "iterations": 1,
+  "verdict": "GREEN",
+  "notes": [
+    "The runtime comment from round 6 was replaced with the implemented pattern: audit work lives inside the render tail and cannot clobber execution.result.render.",
+    "No trailing kind:postgres step was reintroduced.",
+    "No repos/noetl, repos/gui, or repos/e2e changes were made."
+  ],
+  "deferred_followups": [
+    "Investigate why the local /travel canvas transcript showed raw execution JSON instead of the widget despite persisted render events.",
+    "Continue tracking the Amadeus test API 500 behavior separately from the audit side-effect pattern."
+  ]
+}

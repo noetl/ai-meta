@@ -1,0 +1,124 @@
+{
+  "id": "20260510-223000-travel-render-audit-side-effect",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-10T22:30:00Z",
+  "title": "Travel agent — re-add audit table writes as side effects inside each render_* python step",
+
+  "description": "Round 6 of the original flagship arc (render-as-tail) dropped the trailing `travel_agent_events` postgres write because it was clobbering the render result. The runtime.yaml already has an explicit forward-pointing comment (lines 1521-1527) saying: 'If a dedicated audit table is needed later, add it as a SIDE EFFECT inside each render_* python step (psycopg) so it doesn't clobber the result. Don't reintroduce the trailing postgres step.' This round executes on that recipe. Each render_* step (render_flights, render_hotels, render_locations, render_activities, render_amadeus_failure) gets a best-effort psycopg INSERT into travel_agent_events at the top of its python code, capturing render outcome. Failures are caught and logged but never propagated — the audit is a side effect, never a blocker. Cap: 1 ops PR + 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "design_brief_for_codex": {
+    "current_state": "travel_agent_events table is created by the `start` step (already exists, idempotent CREATE TABLE IF NOT EXISTS). It currently has rows only from `log_classification` (kind: postgres step that runs after classify_intent). The render_* steps don't write to it today because round 6 documented that any trailing postgres step would clobber render's result.",
+
+    "target_state": "Each render_* python step inserts ONE row into travel_agent_events with event_type='render_<intent>' (e.g. 'render_flights', 'render_amadeus_failure'). The insert is wrapped in try/except that catches Exception broadly and prints a one-line warning to stdout (visible in worker logs) but never raises. The render result returned at the end of the step is unchanged. The audit insert happens AFTER widget building so the captured payload reflects the actual rendered output.",
+
+    "audit_row_shape": "INSERT INTO travel_agent_events (execution_id, event_type, ai_provider, intent, payload) VALUES (%s, %s, %s, %s, %s::jsonb). event_type='render_<intent>'. ai_provider=classification.effective_provider. intent=classification.intent. payload is a JSON dict with keys: render_kind (e.g. 'flights'), render_type (e.g. 'app:column'), envelope_status_code (int from envelope.data.status_code if available, else null), envelope_ok (bool), envelope_total (int — len of items/offers, or 0 if failure), provider_fallback_reason (string or null), classified_intent (the full classify_intent dict for traceability — useful for debugging).",
+
+    "psycopg_connection_choice": "Two viable patterns — Codex picks based on what the GKE worker pod env actually looks like:\n\n  (a) Add a keychain entry to the travel runtime that exposes the postgres connection string as a libpq-style string, then pass it to each render_* python step via `input.pg_url` (or whatever the keychain entry's field name is). The classify_intent step's pattern of passing keychain values via input is the precedent: `openai_api_key: \"{{ keychain.openai_token.api_key | default('') }}\"`. Look for an existing keychain `kind` that produces a libpq connection string (or extend the existing pg_k8s pattern). This is the more declarative / NoETL-native shape.\n\n  (b) Read postgres connection params from worker pod env vars (NOETL_DB_HOST / NOETL_DB_PORT / NOETL_DB_USER / NOETL_DB_PASSWORD / NOETL_DB_NAME — or whatever env vars the worker deployment exposes). Inside the python step: `import os; conn_string = f\"host={os.environ['NOETL_DB_HOST']} port={os.environ['NOETL_DB_PORT']} ...\"`. This avoids any keychain churn but couples to env-var conventions.\n\n  Inspect the noetl-worker deployment in the GKE cluster to see which env vars are set. Pick (a) if the keychain mechanism is straightforward; pick (b) if env vars are already populated and the keychain shape would be a tax. Document the choice in the result file.",
+
+    "render_step_skeleton": "```python\n# Build the render widget tree (existing code).\nrender = { ... }\nresult = {\n    'text': '...',\n    'render': render,\n    # other fields per intent\n}\n\n# AUDIT SIDE EFFECT — best-effort, never raises.\ntry:\n    import json as _audit_json\n    import psycopg as _audit_psycopg\n    _conn = _audit_psycopg.connect(<conn_string>, connect_timeout=5)\n    try:\n        with _conn.cursor() as _cur:\n            _cur.execute(\n                'INSERT INTO travel_agent_events (execution_id, event_type, ai_provider, intent, payload) '\n                'VALUES (%s, %s, %s, %s, %s::jsonb)',\n                (\n                    execution_id,\n                    'render_flights',  # per intent\n                    classification.get('effective_provider'),\n                    classification.get('intent'),\n                    _audit_json.dumps({\n                        'render_kind': 'flights',\n                        'render_type': render.get('type'),\n                        'envelope_status_code': envelope.get('data', {}).get('status_code'),\n                        'envelope_ok': bool(envelope.get('data', {}).get('ok')),\n                        'envelope_total': len(offers or []),\n                        'provider_fallback_reason': classification.get('provider_fallback_reason'),\n                        'classified_intent': classification,\n                    }, separators=(',', ':')),\n                ),\n            )\n            _conn.commit()\n    finally:\n        _conn.close()\nexcept Exception as _audit_exc:\n    # Best-effort: never break the render.\n    print(f'travel_agent_events audit insert failed: {type(_audit_exc).__name__}: {_audit_exc}')\n```\n\nThe leading underscore on _audit_* names avoids any chance of clobbering existing variables in the step's local scope. Use python globals().update() pattern from prior rounds if helper functions are needed.",
+
+    "render_amadeus_failure_special_case": "render_amadeus_failure runs for both flights AND locations AND hotels AND activities upstream failures. Its event_type should be 'render_amadeus_failure' (not per-intent), but the payload's render_kind should reflect the originating intent. classified_intent.intent is the source of truth.",
+
+    "tutorial_07_update": "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — update the existing 'Audit trail' or render-as-tail-related paragraph (if any) to note that audit writes are now a side effect inside each render_* step. Cite the round 6 comment in runtime.yaml that anticipated this exact pattern. One short paragraph; no new section.",
+
+    "no_other_changes": "Do NOT reintroduce the trailing kind:postgres `persist_and_callback` step from round 6. Do NOT modify classify_intent, log_classification, or any non-render step. Do NOT reorder the workflow. The render_* steps are the only diff besides workload/keychain additions to expose the connection string."
+  },
+
+  "phases": {
+    "1_validate_design": {
+      "objective": "Pick the connection-string source; apply edits to all five render_* steps; Pydantic-validate.",
+      "spec": [
+        "Inspect the noetl-worker deployment env (`kubectl -n noetl get deployment noetl-worker -o jsonpath='{.spec.template.spec.containers[*].env}'`) to determine whether postgres connection vars are env-exposed.",
+        "Decide between keychain pattern (a) and env-var pattern (b). Document the rationale in the result file.",
+        "Apply edits to render_flights, render_hotels, render_locations, render_activities, render_amadeus_failure — add the audit side-effect block at the top of each step's `code` (after widget building, before returning result).",
+        "If pattern (a): add the keychain entry and update each render_* step's `input` block.",
+        "If pattern (b): no keychain change; each render_* step reads from os.environ.",
+        "Pydantic-validate the runtime.",
+        "Remove the inline 'If a dedicated audit table is needed later, add it as a SIDE EFFECT inside each render_* python step (psycopg)' guidance comment from runtime.yaml — it's now executed."
+      ],
+      "verify": "Travel runtime validates clean. All five render_* steps have audit blocks."
+    },
+
+    "2_open_and_merge_ops_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-render-audit-side-effect`.",
+        "Stage automation/agents/travel/runtime.yaml (and any keychain config if pattern (a)).",
+        "Commit using `git commit -F -` heredoc. Conventional-commits: `feat(travel-agent): re-add audit writes as side effects inside each render_* python step`. Body cites the round 6 comment, explains the connection-string source choice, notes audit is best-effort and never blocks render.",
+        "PR title: same.",
+        "Push, PR, merge with `gh pr merge --squash --delete-branch`."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_open_and_merge_docs_pr": {
+      "objective": "Update tutorial 07 paragraph on the audit pattern.",
+      "spec": [
+        "`cd repos/docs && git checkout -b kadyapam/travel-tutorial-render-audit`.",
+        "Edit docs/tutorials/07-travel-agent-with-widgets.md — short paragraph noting audit writes are now side effects inside render_* steps. Reference the round 6 comment that anticipated the pattern.",
+        "Verify: `cd repos/docs && npm install && npm run build` clean.",
+        "Commit: `docs(tutorials): note travel render_* audit side-effect pattern`.",
+        "Push, PR, merge."
+      ],
+      "verify": "Docs PR merged."
+    },
+
+    "4_re_register_and_smoke": {
+      "objective": "Re-register travel runtime; smoke each render branch; verify audit rows land.",
+      "spec": [
+        "Pull merged ops at HEAD; `noetl register` the patched runtime; capture catalog version.",
+        "Smoke `travel flights ...`, `travel hotels in Paris on 2026-08-15`, `travel locations near Boston`, `travel activities near Times Square`, plus a query that triggers the failure path (Amadeus 500s on flights have been frequent — use one of those).",
+        "After each smoke, query the audit table:\n  SELECT event_type, intent, ai_provider, payload->>'render_kind' as render_kind, payload->>'envelope_ok' as envelope_ok, payload->>'envelope_total' as envelope_total\n  FROM travel_agent_events WHERE execution_id = '<id>' ORDER BY event_time;\n  Expected: at least two rows per execution — one from log_classification (event_type='classify_intent') and one from the render step (event_type='render_<intent>' or 'render_amadeus_failure').",
+        "Capture screenshots: at least one widget rendering AND the corresponding audit-row jsonb in the database.",
+        "Sanity check: trigger a deliberate audit-insert failure (e.g. send a malformed payload via the python step's local var; rollback before commit) — the render result should still be visible to the user."
+      ],
+      "verify": "Audit rows land for each render branch. Render result still visible when audit fails."
+    },
+
+    "5_bump_ai_meta_pointers": {
+      "objective": "Bump repos/ops + repos/docs gitlinks in ai-meta. Stage but do not push.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops repos/docs`.",
+        "`git add repos/ops repos/docs`.",
+        "Commit: `chore(sync): bump ops + docs for travel render audit side-effect`.",
+        "Don't push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "ai-meta has a fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "Each travel render_* step writes a best-effort audit row to travel_agent_events. Render result is unaffected by audit failures. The round-6 comment in runtime.yaml is removed (replaced by the executed pattern).",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; AUDIT_BLOCKS=$(grep -c 'travel_agent_events' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); ROUND_6_COMMENT=$(grep -c 'If a dedicated audit table is needed later' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"audit_refs:$AUDIT_BLOCKS round_6_comment_left:$ROUND_6_COMMENT\"; if [ \"$AUDIT_BLOCKS\" -ge 6 ] && [ \"$ROUND_6_COMMENT\" -le 0 ]; then echo 'GOAL: TRAVEL_RENDER_AUDIT_LANDED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_RENDER_AUDIT_LANDED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/e2e — ops + docs only round",
+    "Reintroducing the trailing kind:postgres persist_and_callback step from round 6 — audit MUST be a side effect inside the render_* python step, never a separate trailing step",
+    "Modifying classify_intent, classify_via_*, log_classification, or any non-render step",
+    "Reordering the workflow",
+    "Changing widget shapes — render result must be byte-for-byte identical to current behaviour aside from this audit side effect",
+    "Modifying the Amadeus or Vertex AI MCP playbooks",
+    "Provisioning new GCP secrets",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate (or .venv/bin/python Playbook.model_validate)",
+    "noetl register / noetl status <id> --json",
+    "kubectl -n noetl get deployment noetl-worker -o jsonpath (read-only env inspection)",
+    "psql via kubectl exec on noetl-pgbouncer or whatever the in-cluster postgres entrypoint is, for audit-table SELECTs",
+    "cd repos/docs && npm install && npm run build",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260510-223000-travel-render-audit-side-effect.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_validate_design: {validates, connection_string_pattern: 'keychain' | 'env_var', rationale}, 2_open_and_merge_ops_pr: {pr_url, merged_sha}, 3_open_and_merge_docs_pr: {pr_url, merged_sha, docs_build_clean}, 4_re_register_and_smoke: {travel_catalog_id, travel_version, audit_rows_per_intent: {flights: int, hotels: int, locations: int, activities: int, amadeus_failure: int}, audit_failure_does_not_break_render: bool, screenshots: []}, 5_bump_ai_meta_pointers: {ops_sha, docs_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups}. If verdict GREEN, append paragraph to bridge/outbox/codex-spike-green-validation.md."
+}
