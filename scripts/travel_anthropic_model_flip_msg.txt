@@ -1,0 +1,88 @@
+Codex prompt — Travel agent: flip Anthropic model to a current accessible one (AMBER → GREEN)
+================================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-050000-travel-anthropic-model-flip.task.json
+
+Result goes to:
+  bridge/outbox/20260511-050000-travel-anthropic-model-flip.result.json
+
+Prior round (AMBER):
+  bridge/outbox/20260511-000500-travel-anthropic-resmoke-v2.result.json
+
+Context:
+  Anthropic re-smoke v2 closed AMBER with a clean diagnosis: GCP secret +
+  IAM are correct (anthropic-api-key in noetl-demo-19700101, version 1,
+  worker SA has secretmanager.secretAccessor), but the hardcoded model
+  `claude-3-5-haiku-latest` in classify_via_http_provider's _anthropic_text
+  helper returns 404 not_found_error on the user's key. Direct probe in v2
+  confirmed:
+    - claude-3-5-haiku-latest    → 404 not_found_error
+    - claude-3-5-haiku-20241022  → 404 not_found_error
+    - claude-sonnet-4-20250514   → 200
+
+  This round flips the hardcoded model to a current Haiku that the key has
+  access to. Surgical model-name change only.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  Phase 1 — probe candidates in cost order:
+    claude-haiku-4-5-20251001   (latest Haiku, May 2026 lineup, preferred)
+    claude-haiku-4-5            (mutable alias if it exists)
+    claude-3-5-haiku-20241022   (legacy — already known 404)
+    claude-sonnet-4-20250514    (already known 200, fallback if no Haiku
+                                 accessible — note ~12x classification cost)
+
+    First 200 wins. Probe POST https://api.anthropic.com/v1/messages with
+    headers x-api-key + anthropic-version: 2023-06-01 + Content-Type:
+    application/json, body {"model": "<candidate>", "max_tokens": 16,
+    "messages": [{"role": "user", "content": "ping"}]}. SANITISE the key
+    in result file — first 20 chars max.
+
+  Phase 2 — minimum-diff edit:
+    repos/ops/automation/agents/travel/runtime.yaml:
+      Replace `"model": "claude-3-5-haiku-latest"` (inside
+      classify_via_http_provider's _anthropic_text helper) with
+      `"model": "<chosen>"`.
+      Pydantic-validate.
+      No other changes.
+
+  Phase 3 — ops PR:
+    branch kadyapam/travel-anthropic-model-flip
+    PR title: `fix(travel-agent): flip Anthropic model to <chosen>
+              (claude-3-5-haiku-latest returns 404 on current keys)`
+    Body cites v2 AMBER + phase 1 probe.
+    --squash --delete-branch on merge.
+
+  Phase 4 — re-register + smoke:
+    Re-register the patched runtime; capture catalog version.
+    Smoke `travel --provider anthropic` for help/flights/locations/hotels/
+    activities. Each MUST produce effective_provider='anthropic', no
+    provider_fallback_reason. Audit rows show ai_provider='anthropic'.
+    Spot-check `travel help` (default openai) and `travel --provider
+    vertex-ai help`. Append paragraph to validation log if all five GREEN.
+
+  Phase 5 — ai-meta pointer bump:
+    git submodule update --remote repos/ops
+    git add repos/ops
+    git commit: `chore(sync): bump ops for travel anthropic model flip (AMBER → GREEN)`
+    DO NOT push.
+
+Architectural rules:
+  - Surgical model-name change only. Don't lift the model into a workload
+    field this round — that's the deferred Path B follow-up.
+  - Don't modify classify_intent merger, render_* steps, MCP playbooks.
+  - Don't touch the OpenAI model name — separate concern.
+  - Sanitise the API key — first 20 chars max in result file.
+  - Don't provision GCP secrets or IAM bindings.
+  - No git push from ai-meta.
+
+Pre-handoff (already done by Kadyapam):
+  - GCP secret + IAM provisioned in v2 round.
+  - ai-meta pushed with this task on bridge/inbox/delegated/.
+
+Codex commits + pushes:
+  repos/ops (1 PR — single-line model name change)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops after PR merges.

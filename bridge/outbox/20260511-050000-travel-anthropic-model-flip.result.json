@@ -1,0 +1,153 @@
+{
+  "id": "20260511-050000-travel-anthropic-model-flip",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-10T17:59:28Z",
+  "overall_status": "GREEN",
+  "verdict": "GREEN",
+  "iterations": 1,
+  "summary": "Anthropic provider path is GREEN after flipping the travel runtime from the inaccessible claude-3-5-haiku-latest alias to claude-haiku-4-5-20251001. All five anthropic intent smokes completed with effective_provider=anthropic and no provider_fallback_reason; audit rows recorded ai_provider=anthropic.",
+  "phases": {
+    "1_probe_accessible_haiku": {
+      "status": "GREEN",
+      "candidates_tried": [
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "status_code": 200,
+          "result": "selected"
+        }
+      ],
+      "chosen_model": "claude-haiku-4-5-20251001",
+      "secret_verification": {
+        "project": "noetl-demo-19700101",
+        "secret": "anthropic-api-key",
+        "version": "1",
+        "key_prefix": "sk-ant-api03-8AQeco4..."
+      }
+    },
+    "2_apply_model_flip": {
+      "status": "GREEN",
+      "repo": "repos/ops",
+      "file": "automation/agents/travel/runtime.yaml",
+      "old_model": "claude-3-5-haiku-latest",
+      "new_model": "claude-haiku-4-5-20251001",
+      "validation": {
+        "pydantic_playbook_validate": true,
+        "git_diff_check": true,
+        "stale_model_references": 0
+      }
+    },
+    "3_open_and_merge_ops_pr": {
+      "status": "GREEN",
+      "pr_url": "https://github.com/noetl/ops/pull/68",
+      "branch": "kadyapam/travel-anthropic-model-flip",
+      "merged_sha": "b9f65ae8c5ec5a23b3b8c309a94f2bae7515ba52",
+      "merge_method": "squash"
+    },
+    "4_re_register_and_smoke": {
+      "status": "GREEN",
+      "cluster": "local kind",
+      "travel_catalog_id": "623844847958360223",
+      "travel_catalog_version": 26,
+      "smoke_matrix": [
+        {
+          "intent": "help",
+          "command": "travel --provider anthropic help",
+          "execution_id": "623845027961110688",
+          "execution_status": "COMPLETED",
+          "effective_provider": "anthropic",
+          "provider_fallback_reason": null,
+          "render_type": "app:column"
+        },
+        {
+          "intent": "flights",
+          "command": "travel --provider anthropic flights from SFO to JFK on 2026-07-15 for 2 adults",
+          "execution_id": "623845109347385589",
+          "execution_status": "COMPLETED",
+          "effective_provider": "anthropic",
+          "provider_fallback_reason": null,
+          "render_type": "app:column",
+          "render_tail": "render_amadeus_failure",
+          "upstream_status_code": 500
+        },
+        {
+          "intent": "locations",
+          "command": "travel --provider anthropic locations near Boston",
+          "execution_id": "623845500726280591",
+          "execution_status": "COMPLETED",
+          "effective_provider": "anthropic",
+          "provider_fallback_reason": null,
+          "render_type": "app:column",
+          "render_tail": "render_amadeus_failure"
+        },
+        {
+          "intent": "hotels",
+          "command": "travel --provider anthropic hotels in Paris on 2026-08-15",
+          "execution_id": "623845896349811241",
+          "execution_status": "COMPLETED",
+          "effective_provider": "anthropic",
+          "provider_fallback_reason": null,
+          "render_type": "app:column",
+          "render_tail": "render_amadeus_failure",
+          "classifier_city_code": "PAR"
+        },
+        {
+          "intent": "activities",
+          "command": "travel --provider anthropic activities near Times Square",
+          "execution_id": "623846234242941635",
+          "execution_status": "COMPLETED",
+          "effective_provider": "anthropic",
+          "provider_fallback_reason": null,
+          "render_type": "app:column",
+          "render_tail": "render_amadeus_failure",
+          "classifier_coordinates": {
+            "latitude": "40.758",
+            "longitude": "-73.9855"
+          }
+        }
+      ],
+      "assertions": {
+        "all_five_completed": true,
+        "all_five_effective_provider_anthropic": true,
+        "no_provider_fallback_reason": true,
+        "audit_rows_show_ai_provider_anthropic": true,
+        "prompt_report_widget_visible": true
+      },
+      "regressions": {
+        "openai_default_help": {
+          "execution_id": "623846592084181853",
+          "status": "COMPLETED",
+          "effective_provider": "openai",
+          "provider_fallback_reason": null
+        },
+        "vertex_ai_help_local_kind": {
+          "execution_id": "623846640478061490",
+          "status": "COMPLETED",
+          "effective_provider": "openai",
+          "provider_fallback_reason": "service-account credentials missing private_key or client_email",
+          "note": "Expected local-kind fallback; GKE Workload Identity was already validated in the Phase 3 Vertex AI GREEN round."
+        }
+      },
+      "screenshots": [
+        "bridge/outbox/artifacts/20260511-050000-anthropic-flights-widget-selenium.png"
+      ],
+      "validation_log_appended": true
+    },
+    "5_ai_meta_pointer_bump": {
+      "status": "GREEN",
+      "ops_pointer_sha": "b9f65ae8c5ec5a23b3b8c309a94f2bae7515ba52",
+      "ai_meta_push": "not pushed by Codex",
+      "ai_meta_commit": null
+    }
+  },
+  "regressions_found": [],
+  "notes": [
+    "The Amadeus-backed intents rendered friendly failure widgets because the upstream Amadeus test API continued returning failures; this is orthogonal to the Anthropic model-access fix and matches the existing Amadeus investigation backlog.",
+    "The hotels classifier emitted cityCode=PAR; its date field was not material to this model-flip acceptance gate.",
+    "Only the Anthropic model name changed in the travel runtime; classifier merger, render steps, MCP playbooks, and OpenAI model name were untouched."
+  ],
+  "deferred_followups": [
+    "Path B: lift Anthropic/OpenAI model names into workload fields after this surgical access fix is stable.",
+    "Continue the separate Amadeus test API 500 investigation and NoETL-reference hydration bug follow-up."
+  ]
+}
