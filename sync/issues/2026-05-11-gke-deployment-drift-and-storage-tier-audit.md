@@ -142,3 +142,38 @@ Current conclusion:
 - The GKE backend/catalog drift is fixed.
 - The GUI drift is now precisely located: Cloudflare Pages project `noetl-gui`.
 - The next action is a credentialed Cloudflare Pages deploy using the existing playbook. Kadyapam owns provisioning/exporting the scoped Cloudflare token; do not store it in ai-meta.
+
+## Follow-Up: MinIO Elimination And Object-Store Chooser
+
+Date: 2026-05-11
+
+The storage-tier follow-up eliminated MinIO from merged ops/docs product sources and introduced an S3-compatible object-store chooser. The noetl-side wording/static-manifest cleanup is open in `noetl/noetl#430`; CI passed, but review is required, so ai-meta intentionally still points `repos/noetl` at main until that PR lands.
+
+- `objectStore.kind: seaweedfs | rustfs`
+- default backend: `seaweedfs`
+- opt-in backend: `rustfs`
+- canonical Service: `object-store.object-store.svc:9000`
+- abstract runtime tier remains `StoreTier.S3`
+
+PR state:
+
+- `noetl/ops#70` merged. It removes the MinIO playbook/manifests, adds SeaweedFS and RustFS raw manifests, adds Helm templates/values for `objectStore.kind`, and points local NoETL config at the canonical object-store endpoint.
+- `noetl/docs#60` merged. It replaces the MinIO development page with object-store docs and updates storage reference wording.
+- `noetl/noetl#430` is open. CI passed, but branch protection requires review, so ai-meta did not bump the noetl submodule pointer.
+
+Local kind proof:
+
+- SeaweedFS deployed and passed S3 bucket create / object upload / object download through `object-store:9000`.
+- The object survived SeaweedFS pod deletion/restart.
+- RustFS deployed after adding a writable `/logs` volume and an initContainer that fixes UID 10001 permissions on `/data` and `/logs`; it passed the same S3 smoke.
+- The local cluster was returned to default SeaweedFS.
+- NoETL server and worker configmaps were updated locally with `NOETL_S3_ENDPOINT=http://object-store.object-store.svc.cluster.local:9000`, bucket `noetl`, `NOETL_STORAGE_CLOUD_TIER=s3`, and restarted.
+- A worker-pod boto3 put/get survived deletion/restart of all NoETL worker pods, proving the object-store service is durable beyond worker-local disk.
+
+Remaining GKE work:
+
+1. Review and merge `noetl/noetl#430`, then bump the noetl pointer in ai-meta.
+2. Run the GKE smart-adapt phase only after pointers are aligned. If GKE's S3 tier is an in-cluster MinIO service, replace it with the new object-store deployment. If it is a remote AWS bucket or another managed S3-compatible endpoint, do not replace it.
+3. Run a true NoETL large-payload execution that spills through the ResultHandler/DISK async spill path, kill worker pods, and verify report/status rehydrates from object storage.
+
+Round status: AMBER. The local deployment and backend chooser are validated, but the noetl PR is review-blocked and GKE replacement was deferred until merged state is complete.

@@ -1,0 +1,89 @@
+{
+  "task": "20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser",
+  "status": "AMBER",
+  "completed_at": "2026-05-11T19:23:10Z",
+  "summary": "MinIO was eliminated from merged ops/docs product sources and from the noetl cleanup PR branch, SeaweedFS was added as the default object-store backend, RustFS was added as an opt-in backend behind the same canonical object-store Service, and local kind validated both backends plus NoETL worker S3-compatible access. Ops and docs PRs merged. The noetl naming/comment cleanup PR is CI-green but review-blocked, so noetl pointer was not bumped; current ai-meta repos/noetl still points at main and therefore still contains the old wording until #430 merges.",
+  "prs": {
+    "ops": {
+      "url": "https://github.com/noetl/ops/pull/70",
+      "state": "merged",
+      "merge_commit": "8ed7e24dd04d020242b7f6a506ee4c369323c104"
+    },
+    "docs": {
+      "url": "https://github.com/noetl/docs/pull/60",
+      "state": "merged",
+      "merge_commit": "8c712c2709b1a919343506d0b04b3414822bf6c0"
+    },
+    "noetl": {
+      "url": "https://github.com/noetl/noetl/pull/430",
+      "state": "open",
+      "merge_state": "blocked_by_review_required",
+      "checks": "forbid-client-term passed"
+    }
+  },
+  "changes": {
+    "ops": [
+      "Deleted automation/infrastructure/minio.yaml and ci/manifests/minio/*.",
+      "Added automation/infrastructure/object_store.yaml with action=deploy/remove/status/logs/clear-cache and objectstore_kind=seaweedfs|rustfs.",
+      "Added raw ci/manifests/seaweedfs and ci/manifests/rustfs manifests. Both expose Service object-store.object-store.svc:9000.",
+      "Added Helm values objectStore.kind with SeaweedFS default and RustFS opt-in templates.",
+      "Pointed NoETL server/worker configmaps at NOETL_S3_ENDPOINT=http://object-store.object-store.svc.cluster.local:9000 with bucket noetl and noetl-access/noetl-secret credentials.",
+      "Updated kind port/cache paths from MinIO-specific storage to object-store-data."
+    ],
+    "noetl": [
+      "Kept StoreTier.S3 and endpoint-agnostic S3Backend behavior unchanged.",
+      "Updated comments, docstrings, schema descriptions, and static manifests to say S3-compatible storage rather than a backend-specific name."
+    ],
+    "docs": [
+      "Replaced docs/development/minio.md with docs/development/object-store.md.",
+      "Swept storage reference pages to use S3-compatible object-store terminology and StoreTier.S3 examples."
+    ]
+  },
+  "validation": {
+    "static": [
+      "On the PR branches, rg -n -i \"minio|min.io|NOETL_MINIO|MINIO_\" repos/ops repos/noetl repos/docs --glob '!**/node_modules/**' --glob '!**/.docusaurus/**' --glob '!**/build/**' returned no product-source hits.",
+      "After returning repos/noetl to main because #430 is unmerged, the same grep still reports expected noetl main hits; those are the review-blocked #430 cleanup.",
+      "helm lint automation/helm/noetl passed.",
+      "helm template noetl automation/helm/noetl --set objectStore.kind=seaweedfs | kubectl apply --dry-run=client -f - passed.",
+      "helm template noetl automation/helm/noetl --set objectStore.kind=rustfs | kubectl apply --dry-run=client -f - passed.",
+      "kubectl apply --dry-run=client -f ci/manifests/seaweedfs passed.",
+      "kubectl apply --dry-run=client -f ci/manifests/rustfs passed.",
+      "PyYAML parsed automation/infrastructure/object_store.yaml, automation/setup/bootstrap.yaml, and automation/setup/destroy.yaml.",
+      "repos/docs npm run build passed.",
+      "repos/noetl uv run pytest tests/unit/storage/test_disk_cache_backend.py tests/core/test_result_store_cache_tracking.py tests/core/test_result_store_preview.py passed: 19 passed."
+    ],
+    "local_kind": [
+      "SeaweedFS deployed to kind-noetl in namespace object-store and rolled out.",
+      "SeaweedFS S3 API smoke through svc/object-store: create bucket noetl, upload smoke/noetl-object-store-smoke.txt, download same object.",
+      "SeaweedFS object persisted across object-store pod deletion and restart.",
+      "RustFS initially crash-looped due UID 10001 permissions on /logs and hostPath-backed /data. Fixed by adding /logs emptyDir and a root initContainer that chowns/chmods /data and /logs.",
+      "RustFS deployed to kind-noetl and rolled out after the permission fix.",
+      "RustFS S3 API smoke through svc/object-store: create bucket noetl-rustfs-smoke, upload smoke.txt, download same object.",
+      "Local kind was returned to default SeaweedFS after RustFS smoke.",
+      "NoETL server/worker configmaps were updated in kind and deployments restarted.",
+      "Worker env verified: NOETL_S3_ENDPOINT=http://object-store.object-store.svc.cluster.local:9000, NOETL_STORAGE_CLOUD_TIER=s3, bucket noetl.",
+      "In-cluster worker boto3 smoke put/get succeeded via the new object-store service.",
+      "After deleting all worker pods and waiting for rollout, the restarted worker read the same object back from object storage."
+    ],
+    "not_run": [
+      "Full NoETL large-payload execution with automatic DISK async spill was not run; the durable-tier smoke used direct boto3 from the worker image.",
+      "GKE replacement was not applied because ops/docs merged but noetl #430 is still review-blocked, and GKE should consume merged/pointer-aligned state."
+    ],
+    "known_preexisting_test_limits": [
+      "A broad repos/noetl pytest selection through system Python failed due missing dependencies.",
+      "The uv retry resolved dependencies but broad collection still hit unrelated legacy collection errors for missing/renamed modules and a missing fixture file. Targeted storage tests passed."
+    ]
+  },
+  "live_local_state": {
+    "cluster": "kind-noetl",
+    "object_store_backend": "seaweedfs",
+    "object_store_namespace": "object-store",
+    "object_store_service": "object-store:9000",
+    "noetl_worker_s3_endpoint": "http://object-store.object-store.svc.cluster.local:9000"
+  },
+  "next_steps": [
+    "Review/merge noetl/noetl#430, then bump the repos/noetl pointer in ai-meta.",
+    "After all three pointers are merged/aligned, run the GKE smart-adapt phase: distinguish remote S3 bucket from in-cluster object-store, then replace only in-cluster MinIO if present.",
+    "Run a true NoETL large-payload execution that spills through ResultHandler/DISK async cloud spill, kill worker pods, and verify report/status rehydrates from object storage."
+  ]
+}

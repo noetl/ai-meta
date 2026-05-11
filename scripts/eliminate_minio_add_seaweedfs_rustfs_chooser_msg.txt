@@ -1,0 +1,153 @@
+Codex prompt — Eliminate MinIO; add SeaweedFS + RustFS as S3-compatible object-store chooser
+==============================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser.task.json
+
+Result goes to:
+  bridge/outbox/20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser.result.json
+
+Context:
+  MinIO discontinued community-edition support. User wants it eliminated
+  completely and replaced with a chooser between SeaweedFS (mature, default)
+  and RustFS (newer, MinIO-API-compatible drop-in). Both expose S3-compatible
+  APIs so the noetl backend code path doesn't need to change — it already
+  routes to a custom endpoint via NOETL_S3_ENDPOINT. What changes is the
+  deployment topology, the ConfigMap endpoint values, and the docstrings /
+  comments that name MinIO.
+
+Pre-grepped inventory (verify completeness in phase 1):
+
+  repos/ops:
+    automation/helm/noetl/values.yaml
+    automation/setup/bootstrap.yaml
+    automation/setup/destroy.yaml
+    automation/infrastructure/minio.yaml
+    ci/kind/config.yaml
+    ci/manifests/noetl/configmap-worker.yaml
+    ci/manifests/noetl/configmap-server.yaml
+    ci/manifests/minio/{namespace,persistent-volume,deployment,service}.yaml
+
+  repos/noetl:
+    noetl/core/storage/router.py            (comments only — code stays)
+    noetl/core/storage/backends.py          (comments + docstring — code stays)
+    noetl/core/storage/result_store.py
+    noetl/core/storage/models.py
+    noetl/core/storage/__init__.py
+    noetl/core/dsl/engine/models/tools.py
+    noetl/tools/artifact/executor.py
+    noetl/core/config.py
+    noetl/database/ddl/postgres/schema_ddl.sql
+    noetl/core/dsl/playbook.schema.json
+    ci/manifests/noetl/configmap-{worker,server}.yaml
+
+Architecture:
+  Helm + bootstrap playbook accept `objectStore.kind: seaweedfs | rustfs`.
+  Default: seaweedfs (mature, scale-proven).
+  Both backends expose a Service named `object-store` on port 9000 in the
+  configured namespace. Workers + server's NOETL_S3_ENDPOINT resolves to
+  `http://object-store.<ns>.svc.cluster.local:9000` regardless of backend.
+  Bucket convention preserved as `noetl`.
+
+  Image tags:
+    SeaweedFS: chrislusf/seaweedfs:3.x (latest stable)
+    RustFS:    rustfs/rustfs:latest
+
+  The noetl-side S3 client is backend-agnostic (boto3 with custom endpoint),
+  so swapping backends is a deployment concern, not a code concern.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  Phase 1 — Inventory + design pick (verify Claude's grep, finalize service
+            name + port + bucket convention).
+
+  Phase 2 — New manifests:
+    repos/ops/ci/manifests/seaweedfs/  (namespace, pv, deployment, service)
+    repos/ops/ci/manifests/rustfs/     (namespace, pv, deployment, service)
+    DELETE repos/ops/ci/manifests/minio/
+
+  Phase 3 — Infrastructure playbooks:
+    Create automation/infrastructure/object_store.yaml (takes objectstore_kind).
+    DELETE automation/infrastructure/minio.yaml.
+    Update automation/setup/bootstrap.yaml + destroy.yaml.
+
+  Phase 4 — Helm chart chooser:
+    values.yaml: drop minio block, add objectStore block.
+    Templates: conditional based on objectStore.kind.
+    Drop minio-specific templates entirely.
+    helm template clean on both kind=seaweedfs and kind=rustfs.
+
+  Phase 5 — ConfigMap endpoint wiring:
+    NOETL_S3_ENDPOINT → object-store.<ns>.svc.cluster.local:9000
+    Drop MINIO_ROOT_USER / MINIO_ROOT_PASSWORD env vars.
+
+  Phase 6 — noetl code comment sweep:
+    Replace 'S3/MinIO' / 'MinIO' references with
+    'S3-compatible (SeaweedFS, RustFS, AWS S3)'.
+    Keep StoreTier.S3 enum value — the tier is abstract.
+    pytest tests/ -k 'storage or backend or router' — must still pass.
+
+  Phase 7 — Docs sweep: grep repos/docs for minio, fix every hit.
+
+  Phase 8 — Smoke kind:
+    Tear down + bootstrap with seaweedfs (default). Durability test:
+    submit large-payload exec, kill noetl-worker, restart, verify cached
+    result still retrievable from storage tier (worker-local-disk-failure
+    proof).
+    Repeat with rustfs. Confirm chooser works for both.
+
+  Phase 9 — Smoke GKE:
+    Identify current GKE S3 endpoint — in-cluster MinIO? Remote AWS bucket?
+    If MinIO: replace with seaweedfs via chooser.
+    If remote S3: leave alone (different deployment model, not in-cluster
+    object store). Document the distinction.
+
+  Phase 10 — PRs (up to 3): ops (manifests + helm + playbooks), noetl
+    (comment sweep), docs (sweep).
+
+  Phase 11 — Close out: sync issue closure, validation log, memory entry,
+    ai-meta submodule pointer bumps. Don't push ai-meta.
+
+Codex job (11 phases — see task JSON):
+
+  1. inventory + design pick
+  2. new manifests (seaweedfs + rustfs, delete minio)
+  3. infrastructure playbooks (object_store.yaml + bootstrap/destroy updates)
+  4. helm chart chooser
+  5. configmap endpoint wiring
+  6. noetl code comment sweep (functionality unchanged)
+  7. docs sweep
+  8. smoke kind (both backends, durability test)
+  9. smoke GKE (identify + adapt)
+  10. open and merge PRs (ops first, then noetl + docs in parallel)
+  11. close out + ai-meta pointer bumps (stage, don't push)
+
+Architectural rules:
+  - User explicitly wants MinIO eliminated completely. NO fallback to MinIO.
+  - Code path stays as the S3 backend (NOETL_S3_ENDPOINT) — backend-agnostic.
+  - StoreTier.S3 enum value stays (abstract tier name).
+  - Don't modify repos/gui or repos/e2e unless inventory surfaces unexpected
+    MinIO touchpoints there.
+  - Don't cut a release — semantic-release handles versioning.
+  - Don't provision new GCP/AWS buckets (chooser is for in-cluster backends).
+  - No git push from ai-meta.
+
+Pre-handoff (Kadyapam, on the Mac, before Codex):
+  ai-meta:
+    1. chore(bridge): hand minio→seaweedfs/rustfs chooser to Codex
+       (bridge/inbox/delegated/20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser.task.json)
+    2. chore(scripts): codex prompt for minio→seaweedfs/rustfs chooser
+       (scripts/eliminate_minio_add_seaweedfs_rustfs_chooser_msg.txt)
+    3. memory(add): handed minio→seaweedfs/rustfs chooser to Codex
+       (memory/inbox/2026/05/...)
+
+  Push ai-meta when ready. Bridge watcher picks up the task.
+
+Codex commits + pushes:
+  repos/ops   (1 PR — manifests + helm + playbooks + configmaps)
+  repos/noetl (1 PR — comment/docstring sweep, functionality unchanged)
+  repos/docs  (1 PR — docs sweep)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/noetl + repos/docs after all
+  three PRs merge.
