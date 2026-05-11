@@ -1,0 +1,120 @@
+Codex prompt — GKE parity sync: re-register playbooks, bump GUI, audit StorageRouter
+======================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-110000-gke-parity-sync.task.json
+
+Result goes to:
+  bridge/outbox/20260511-110000-gke-parity-sync.result.json
+
+Sync issue (Codex writes):
+  sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md
+
+Context:
+  The 12-round cowork session shipped to local kind systematically. Only the
+  noetl engine fix (item #11, v2.37.8) had explicit GKE deploy phases.
+  Catalog updates from rounds #2-#10 + the GUI v1.11.0 from round #3 stayed
+  on local kind.
+
+  Kadyapam reproduced the drift on GKE through the gateway terminal:
+    - `cd /mcp/amadeus; tools` returned 0 tools (stale catalog).
+    - `travel <query>` returned 'unknown command' (stale GUI).
+
+  Plus a question: what shared-cache tier is actually in use on GKE? GCS?
+  Postgres? NATS? Is it populated or empty?
+
+  This round audits the state, re-registers playbooks, bumps the GUI,
+  smokes the gateway, and documents what's actually in the StorageRouter
+  configuration. Cap: 0 PRs (config + deploy + audit only).
+
+GKE context:
+  Project: noetl-demo-19700101
+  Worker SA: noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com
+  Namespace: noetl
+  Cluster: confirm via `gcloud container clusters list --project=noetl-demo-19700101`
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  Phase 1 — audit state:
+    Build kind-vs-GKE comparison table for noetl-server, noetl-worker,
+    noetl-gui image tags AND catalog versions for the four session-touched
+    playbooks (travel/runtime, mcp/amadeus, mcp/vertex-ai, mcp/ollama).
+    Document gaps.
+
+  Phase 2 — re-register playbooks on GKE:
+    kubectl port-forward to GKE noetl-server (e.g. localhost:18082).
+    NOETL_SERVER_URL=http://localhost:18082/api noetl register for:
+      - automation/agents/travel/runtime
+      - automation/agents/mcp/amadeus
+      - automation/agents/mcp/vertex-ai
+      - automation/agents/mcp/ollama (may not exist on GKE yet)
+    Capture new versions.
+
+  Phase 3 — bump GUI to v1.11.0:
+    kubectl set image deployment/noetl-gui noetl-gui=ghcr.io/noetl/gui:v1.11.0
+    OR helm-managed path if that's the team's convention.
+    Wait for rollout. Confirm new pod healthy.
+
+  Phase 4 — smoke through gateway terminal:
+    Reproduce Kadyapam's failing sequence, confirm it's fixed.
+      1. cd /mcp/amadeus; tools → 5 tools (was 0)
+      2. travel help → completes with widget (was unknown command)
+      3. travel flights ... → completes
+      4. travel --provider {anthropic,vertex-ai,ollama} help → check effective_provider
+      5. travel --provider openai activities near Times Square → render_activities
+         widget with real data (item #11 hydration regression check on GKE).
+    Screenshots.
+
+  Phase 5 — audit storage tier:
+    Read-only inspection of worker + server env vars (NOETL_TEMPSTORE / STORAGE /
+    GCS / NATS / TIER). Introspect the router via python -c inside the pod:
+      from noetl.core.storage.router import default_router
+      from noetl.core.storage.models import StoreTier
+      print('router class:', default_router.__class__.__name__)
+      print('available tiers:', [t.value for t in StoreTier])
+      for attr in ('tiers', 'tier_config', 'backends', 'default_tier'):
+        if hasattr(default_router, attr):
+          print(f'{attr}:', getattr(default_router, attr))
+
+    If postgres-backed: SELECT count(*) FROM noetl.temp_ref WHERE execution_id IN
+      (recent activities exec ids) to confirm spillover happens.
+
+    Answer in result file:
+      (a) which tier large payloads spill to on GKE
+      (b) is the spillover tier being populated
+      (c) is GCS in the tier set at all
+      (d) if GCS expected but not configured — deferred follow-up sync issue
+
+    Note: item #11's fix bypasses the tier for terminal-result hydration (it
+    walks events directly). The tier question is about result CACHING for
+    re-reads, not hydration. Both can coexist.
+
+  Phase 6 — sync issue + result file + memory entry.
+    sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md:
+      - Parity gap that surfaced
+      - Fixes applied
+      - StorageRouter findings
+      - Recommendation: future rounds shipping to kind need explicit GKE phase
+        OR a chained GKE-parity round.
+
+  Phase 7 — ai-meta pointer bumps (unlikely; config-only round). Don't push.
+
+Architectural rules:
+  - No code changes — config + deploy + audit only.
+  - Don't deploy ollama-bridge to GKE (separate infra round if wanted).
+  - Don't modify GCS bucket config or IAM — read-only inspection.
+  - Don't cut any release.
+  - No git push from ai-meta.
+
+Pre-handoff (already done by Kadyapam):
+  - Item #11 noetl v2.37.8 deployed to GKE.
+  - ai-meta has the final session bookkeeping commits ready (and pushed).
+  - Anthropic GCP secret provisioned in noetl-demo-19700101 with worker SA bound.
+
+Codex commits + pushes:
+  None expected. Optional 1 ops PR if a playbook needed an in-flight fix
+  during re-register (unlikely).
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  Sync issue + memory entry + result file in ai-meta.
+  ai-meta gitlink bumps only if an unexpected playbook fix was needed.

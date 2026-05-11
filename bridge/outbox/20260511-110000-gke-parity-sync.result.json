@@ -1,0 +1,260 @@
+{
+  "task": "20260511-110000-gke-parity-sync",
+  "status": "AMBER",
+  "summary": "GKE NoETL server/catalog parity was restored and the travel/runtime smokes completed, including the activities hydration regression. GUI parity remains unresolved because the GKE cluster has no in-cluster gui/noetl-gui deployment or Helm release to update to ghcr.io/noetl/gui:v1.11.0. Ollama provider also falls back on GKE because ollama-bridge is not deployed there.",
+  "phase_results": [
+    {
+      "phase": 1,
+      "name": "audit_kind_vs_gke",
+      "status": "completed",
+      "kind": {
+        "context": "kind-noetl",
+        "namespace": "noetl",
+        "deployments": {
+          "gui": "ghcr.io/noetl/gui:v1.11.0",
+          "noetl-server": "localhost/local/noetl:2026-05-10-22-48",
+          "noetl-worker": "localhost/local/noetl:2026-05-10-22-48",
+          "ollama": "ollama/ollama:latest",
+          "ollama-bridge": "ghcr.io/noetl/noetl:v2.35.9"
+        },
+        "catalog_latest_before": {
+          "automation/agents/travel/runtime": {
+            "version": 33,
+            "id": "624209667085828165"
+          },
+          "automation/agents/mcp/amadeus": {
+            "version": 9,
+            "id": "624209666532180036"
+          },
+          "automation/agents/mcp/vertex-ai": {
+            "version": 3,
+            "id": "623370351069627351"
+          },
+          "automation/agents/mcp/ollama": {
+            "version": 2,
+            "id": "623469830623986139"
+          }
+        }
+      },
+      "gke": {
+        "context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+        "namespace": "noetl",
+        "cluster": {
+          "project": "noetl-demo-19700101",
+          "location": "us-central1",
+          "name": "noetl-cluster",
+          "status": "RUNNING",
+          "master_version": "1.34.6-gke.1237000"
+        },
+        "deployments": {
+          "noetl-server": "ghcr.io/noetl/noetl:v2.37.8",
+          "noetl-worker": "ghcr.io/noetl/noetl:v2.37.8",
+          "gateway/gateway": "ghcr.io/noetl/gateway:v2.10.0"
+        },
+        "helm_releases": [
+          "nats/nats",
+          "noetl/noetl",
+          "gateway/noetl-gateway"
+        ],
+        "catalog_latest_before": {
+          "automation/agents/travel/runtime": {
+            "version": 5,
+            "id": "624204932446421619"
+          },
+          "automation/agents/mcp/amadeus": {
+            "version": 3,
+            "id": "624204929728512626"
+          },
+          "automation/agents/mcp/vertex-ai": {
+            "version": 9,
+            "id": "624204934761677428"
+          },
+          "automation/agents/mcp/ollama": {
+            "version": 2,
+            "id": "624204936833663605"
+          }
+        }
+      }
+    },
+    {
+      "phase": 2,
+      "name": "re_register_playbooks_on_gke",
+      "status": "completed",
+      "method": "kubectl port-forward svc/noetl 18082:8082 plus POST /api/catalog/register",
+      "registered": {
+        "automation/agents/travel/runtime.yaml": {
+          "path": "automation/agents/travel/runtime",
+          "version": 6
+        },
+        "automation/agents/mcp/amadeus.yaml": {
+          "path": "automation/agents/mcp/amadeus",
+          "version": 4
+        },
+        "automation/agents/mcp/vertex-ai.yaml": {
+          "path": "automation/agents/mcp/vertex-ai",
+          "version": 10
+        },
+        "automation/agents/mcp/ollama.yaml": {
+          "path": "automation/agents/mcp/ollama",
+          "version": 3
+        }
+      }
+    },
+    {
+      "phase": 3,
+      "name": "bump_noetl_gui_on_gke",
+      "status": "blocked",
+      "requested_image": "ghcr.io/noetl/gui:v1.11.0",
+      "finding": "No gui/noetl-gui Deployment, Service, or Helm release exists in the GKE cluster. Only the noetl server/worker and gateway releases are present.",
+      "action_taken": "No GUI image was changed. This needs the GUI deployment ownership/path clarified, or a separate infra round to add/restore an in-cluster GUI deployment."
+    },
+    {
+      "phase": 4,
+      "name": "gateway_terminal_equivalent_smoke",
+      "status": "completed_with_notes",
+      "method": "Headless execution through the GKE NoETL API exposed by port-forward. Browser screenshots were not captured because there is no in-cluster GUI target to exercise.",
+      "executions": {
+        "amadeus_tools": {
+          "execution_id": "624226011525153600",
+          "status": "COMPLETED",
+          "tools_count": 5,
+          "evidence": "tools_list command.completed result _meta.tool_count=5"
+        },
+        "travel_help_openai_default": {
+          "execution_id": "624226042370065269",
+          "status": "COMPLETED",
+          "effective_provider": "openai",
+          "intent": "help",
+          "render_step": "render_help",
+          "render_type": "app:column"
+        },
+        "travel_flights_openai": {
+          "execution_id": "624226093230195658",
+          "status": "COMPLETED",
+          "effective_provider": "openai",
+          "intent": "flights",
+          "render_step": "render_amadeus_failure",
+          "render_type": "app:column",
+          "note": "Amadeus upstream returned the known temporary failure; the playbook completed and rendered a friendly widget instead of aborting."
+        },
+        "travel_help_anthropic": {
+          "execution_id": "624226455399956580",
+          "status": "COMPLETED",
+          "effective_provider": "anthropic",
+          "provider_fallback_reason": null,
+          "intent": "help",
+          "render_step": "render_help",
+          "render_type": "app:column"
+        },
+        "travel_help_vertex_ai": {
+          "execution_id": "624226849547092275",
+          "status": "COMPLETED",
+          "effective_provider": "vertex-ai",
+          "provider_fallback_reason": null,
+          "intent": "help",
+          "render_step": "render_help",
+          "render_type": "app:column"
+        },
+        "travel_help_ollama": {
+          "execution_id": "624227159959142829",
+          "status": "COMPLETED",
+          "effective_provider": "openai",
+          "provider_fallback_reason": "Ollama MCP call failed: URLError: <urlopen error [Errno -2] Name or service not known>",
+          "intent": "help",
+          "render_step": "render_help",
+          "render_type": "app:column",
+          "note": "Fallback is expected until ollama-bridge is deployed to GKE."
+        },
+        "activities_hydration_regression": {
+          "execution_id": "624227210525671975",
+          "child_execution_id": "624227238359073395",
+          "status": "COMPLETED",
+          "effective_provider": "openai",
+          "intent": "activities",
+          "render_step": "render_activities",
+          "render_type": "app:column",
+          "summary": "10 activities found near (40.758, -73.9855)",
+          "agent_data_ok": true,
+          "agent_items_len": 10,
+          "agent_activities_total": 1799
+        }
+      }
+    },
+    {
+      "phase": 5,
+      "name": "storage_tier_audit",
+      "status": "completed",
+      "answer": "GCS is configured in environment variables but is not the active cache tier. GKE is using NOETL_DEFAULT_STORAGE_TIER=kv for normal results, and large payloads are auto-selected into the worker-local disk tier under /opt/noetl/data/disk_cache. The router default cloud tier is S3, not GCS.",
+      "evidence": {
+        "worker_env": {
+          "NOETL_DEFAULT_STORAGE_TIER": "kv",
+          "NOETL_STORAGE_CLOUD_TIER": "s3",
+          "NOETL_GCS_BUCKET": "noetl-demo-output",
+          "NOETL_GCS_PREFIX": "results/",
+          "NOETL_STORAGE_LOCAL_CACHE_DIR": "/opt/noetl/data/disk_cache"
+        },
+        "server_env": {
+          "NOETL_DEFAULT_STORAGE_TIER": "kv"
+        },
+        "router": {
+          "class": "StorageRouter",
+          "default_cloud_tier": "StoreTier.S3",
+          "prefer_kv_for_small": true,
+          "kv_max": 1048576,
+          "available_tiers": [
+            "memory",
+            "kv",
+            "disk",
+            "s3",
+            "gcs",
+            "db",
+            "duckdb",
+            "eventlog"
+          ]
+        },
+        "disk_cache": {
+          "noetl-worker-6bd65c79d6-bbpql": {
+            "files": 1,
+            "size": "1.3M"
+          },
+          "noetl-worker-6bd65c79d6-wcprj": {
+            "files": 0
+          },
+          "volume_mounts": "none observed on noetl-worker pods; disk cache is pod-local ephemeral"
+        },
+        "database_reference_tables": {
+          "noetl.result_ref_rows": 0,
+          "noetl.temp_ref_rows": 0
+        }
+      }
+    },
+    {
+      "phase": 6,
+      "name": "write_sync_issue_and_memory",
+      "status": "completed",
+      "sync_issue": "sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md",
+      "memory": "memory/inbox/2026/05/20260511-110000-gke-parity-sync-amber.md"
+    },
+    {
+      "phase": 7,
+      "name": "ai_meta_pointer_bumps",
+      "status": "not_needed",
+      "note": "No submodule pointers changed in this config/deploy/audit round."
+    }
+  ],
+  "open_items": [
+    {
+      "item": "GUI deployment path for GKE",
+      "reason": "The cluster does not contain a gui/noetl-gui Deployment or Helm release, so ghcr.io/noetl/gui:v1.11.0 could not be applied. The observed stale GUI/unknown travel command likely lives in an external/static GUI deployment path outside this cluster's Helm releases."
+    },
+    {
+      "item": "Ollama provider on GKE",
+      "reason": "automation/agents/mcp/ollama is registered, but the in-cluster ollama-bridge service is absent on GKE. The travel runtime correctly falls back to OpenAI."
+    },
+    {
+      "item": "Deliberate object-storage cache configuration",
+      "reason": "GCS variables are present, but the active router cloud tier is S3 and large payloads are currently spilling to pod-local disk. Configure GCS explicitly only if cross-pod full-result rehydration is required."
+    }
+  ],
+  "secrets_hygiene": "No secret values were printed or written."
+}
