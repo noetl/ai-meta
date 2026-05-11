@@ -1,0 +1,114 @@
+{
+  "id": "20260511-130000-gateway-terminal-surface-and-gui-bump",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T13:00:00Z",
+  "title": "Path A — locate the gateway terminal surface, ship gui v1.11.0 there",
+
+  "description": "Follow-up A from the AMBER GKE parity-sync round (`bridge/outbox/20260511-110000-gke-parity-sync.result.json`). That round established there is NO `noetl-gui` Deployment in the GKE noetl namespace. But Kadyapam clearly sees the gateway terminal at `noetl@gateway:/travel$` — so it's being served from somewhere. This round traces what serves the gateway page, identifies what artifact needs updating to land the gui v1.11.0 command-parser changes (round #3's app:form refinement work), and ships the bump. Strong candidates: Cloudflare Pages SPA build at https://mestumre.dev (per the older `automation/cloudflare/gke_gateway_edge.yaml` deployment), an embedded static build in the noetl-server image, or a separate gateway namespace/service that wasn't audited in round 20260511-110000. Discovery-first round: Codex investigates before acting. Cap: 0 PRs if the surface auto-tracks main; 1 small PR if a pointer/branch/tag bump is needed.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "prior_round_context": {
+    "result_file": "bridge/outbox/20260511-110000-gke-parity-sync.result.json (AMBER)",
+    "what_was_established": "No noetl-gui Deployment / Service / Helm release exists in the GKE noetl namespace. So the `kubectl set image deployment/noetl-gui` path doesn't apply. The gateway terminal page Kadyapam sees must be served from a different surface.",
+    "what_was_NOT_established": "Where the gateway terminal page is actually served from, and how to update it."
+  },
+
+  "design_brief_for_codex": {
+    "phase_1_trace_the_gateway_surface": "Investigate where `noetl@gateway:/travel$` is actually served from. Strategy:\n\n  (a) **Browser-side trace**: open the gateway URL Kadyapam uses, inspect the DOM/network tab. The HTML source's `<script src=\"...\">` paths, the meta tags, the served domain — these point at the hosting origin. A Cloudflare Pages-served SPA will have its assets served from a `pages.dev` subdomain or a custom domain proxied through Cloudflare. A GKE-served SPA will have its assets served from the gateway hostname directly.\n\n  (b) **Repo-side trace**: look for deployment manifests that reference the GUI build artifact. Specific paths to check:\n    - `repos/ops/automation/cloudflare/gke_gateway_edge.yaml` — earlier memory mentioned this exists. Read it to see what it deploys to Cloudflare Pages and from where.\n    - `repos/gui/.github/workflows/*` — there's likely a workflow that builds + deploys to Cloudflare Pages on tag or main push. Inspect to identify the Pages project name and the trigger.\n    - `repos/gateway/` (if it exists as a separate submodule per the older memory entries about noetl/gateway v2.9.0) — may have its own deploy path.\n    - Helm chart values: `repos/ops/automation/helm/noetl/values.yaml` and adjacent — look for any `gui_url` / `static_path` / `embedded_gui` flag suggesting the GUI is served from somewhere unexpected.\n\n  (c) **GCP/Cloudflare API trace** (read-only): if Cloudflare Pages is in use, `wrangler pages project list` or the Cloudflare dashboard can show the active project and its last deployment commit. Codex shouldn't need credentials Kadyapam doesn't already have; if blocked, document what's missing.\n\nDocument the finding clearly in the result file: hosting origin, build artifact source, and the mechanism by which gui v1.11.0 would propagate to it.",
+
+    "phase_2_identify_the_bump_mechanism": "Once the surface is located, identify how to ship v1.11.0 to it. Three likely cases:\n\n  - **Case A — auto-tracking main**: Cloudflare Pages (or equivalent) auto-builds on every push to `main` in `repos/gui`. v1.11.0 was already merged to main in round #3, so the SPA should already be on v1.11.0 OR there's a deploy lag/failure. If lag: wait for build, then proceed to smoke. If failure: dig into the build log and report — that's a separate fix.\n\n  - **Case B — tracks a specific tag/branch**: Pages tracks a release tag or a deploy branch. v1.11.0 tag exists but Pages is pinned to an older one. Action: bump the pin via the appropriate ops mechanism (helm value, GitHub Action input, Cloudflare API call — match whatever the team's convention is).\n\n  - **Case C — manual deploy**: a ops playbook (e.g. `automation/cloudflare/gke_gateway_edge.yaml`) is the deploy trigger. Run the playbook with the v1.11.0 commit/tag and the right CLOUDFLARE_API_TOKEN scope.\n\nIn all cases, do NOT modify the deployment topology — only flip the version pointer that's already in place.",
+
+    "phase_3_execute_the_bump": "Execute whichever bump path Phase 2 identified. NEVER rotate or generate Cloudflare API tokens — if a token is needed and not present in env, document what's missing and STOP (AMBER on token).",
+
+    "phase_4_smoke_the_gateway_terminal": "After the bump propagates (Cloudflare Pages builds typically take 1-3 minutes), reproduce Kadyapam's original failing sequence on the gateway terminal:\n\n  1. Hard refresh the gateway URL (Ctrl+Shift+R / Cmd+Shift+R to bust browser cache).\n  2. `ls` — confirm 'travel' shows in the catalog.\n  3. `cd /mcp/amadeus; tools` — should now list 5 tools (was 0 in the original failing sequence; phase 4 of round 20260511-110000 already proved the catalog side; this round proves the GUI parser side).\n  4. `travel help` — should complete with help widget (was 'unknown command').\n  5. `travel flights from SFO to JFK on 2026-07-15 for 2 adults` — should complete with widget.\n  6. `travel --provider anthropic help` — effective_provider='anthropic'.\n  7. Screenshot the working terminal session.",
+
+    "phase_5_close_out": "Write result file and update the AMBER sync issue at `sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md` to reflect that the GUI gap is now closed (or document the new blocker if AMBER persists).\n\nIf GREEN: append a note to the round 20260511-110000 result file or write a small follow-up memory entry naming the gateway surface so future rounds don't have to rediscover it. The output should make 'gateway terminal lives at <X>' something anyone reading the memory inbox can find in one search.\n\nIf still AMBER (e.g., Cloudflare token missing, build failure surfaced, unexpected topology): document the precise blocker and what Kadyapam needs to do."
+  },
+
+  "phases": {
+    "1_trace_the_gateway_surface": {
+      "objective": "Identify where the gateway terminal page is actually served from.",
+      "spec": [
+        "Browser inspection: open the gateway URL, capture the served domain, the asset paths in the HTML source, and the network requests.",
+        "Repo inspection: read `repos/ops/automation/cloudflare/gke_gateway_edge.yaml`. Look at `repos/gui/.github/workflows/` for deploy workflows. Check helm chart values for any embedded-GUI flag.",
+        "If Cloudflare Pages is in use: identify the project name and the active source (branch / tag / commit).",
+        "Document the hosting origin + build artifact source in the result file."
+      ],
+      "verify": "Result file names the gateway-terminal hosting origin and the mechanism by which gui commits propagate there."
+    },
+
+    "2_identify_the_bump_mechanism": {
+      "objective": "Determine how v1.11.0 reaches the gateway surface.",
+      "spec": [
+        "Case A (auto-tracking main): confirm if a recent main-tracking build is already on v1.11.0. If yes, the gap is browser-cache or DNS, not deployment — recommend hard refresh + retry.",
+        "Case B (pinned to tag/branch): identify the pin and the bump mechanism (helm value? GitHub Action input? Cloudflare API?).",
+        "Case C (manual deploy via ops playbook): identify the playbook (likely `automation/cloudflare/gke_gateway_edge.yaml`) and the required inputs.",
+        "Document the case + the exact command sequence the bump requires."
+      ],
+      "verify": "Bump path is named and ready to execute."
+    },
+
+    "3_execute_the_bump": {
+      "objective": "Ship v1.11.0 to the gateway surface.",
+      "spec": [
+        "Execute the case-specific bump path.",
+        "If Cloudflare API token is needed and not in env: AMBER + STOP, document what's missing for Kadyapam.",
+        "If a build is triggered: wait for it to complete; report build logs if it fails.",
+        "Confirm the new version is live at the gateway URL (inspect a `version.json` or commit hash in the HTML if available)."
+      ],
+      "verify": "v1.11.0 (or the latest matching commit) is live at the gateway URL."
+    },
+
+    "4_smoke_the_gateway_terminal": {
+      "objective": "Reproduce Kadyapam's original failing sequence and confirm it's fixed.",
+      "spec": [
+        "Hard refresh the gateway URL.",
+        "Walk through the smoke sequence from the design brief (ls → cd /mcp/amadeus → tools → travel help → travel flights → travel --provider anthropic help).",
+        "Capture screenshots.",
+        "Verify executions reached completed status via noetl status <id> --json | jq."
+      ],
+      "verify": "Gateway terminal accepts `travel <query>` and renders widgets correctly."
+    },
+
+    "5_close_out": {
+      "objective": "Result file, sync issue update, memory entry.",
+      "spec": [
+        "Write `bridge/outbox/20260511-130000-gateway-terminal-surface-and-gui-bump.result.json`.",
+        "Update `sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md` — close the GUI gap section if GREEN, or document the new blocker if AMBER.",
+        "Memory entry naming the gateway hosting surface so future rounds find it in one search (`memory/inbox/2026/05/...gateway-terminal-served-from-X.md`).",
+        "If GREEN, append paragraph to `bridge/outbox/codex-spike-green-validation.md`."
+      ],
+      "verify": "Documentation closes the loop on the AMBER from round 20260511-110000."
+    }
+  },
+
+  "expected_state": {
+    "description": "The gateway terminal at the URL Kadyapam uses serves gui v1.11.0 (or the latest main-tracking build). `travel <query>` works. Hosting origin is documented in memory so future rounds don't have to rediscover it.",
+    "verify_pattern": "Result file's phase 4 shows all gateway-terminal smokes GREEN. Phase 1 names the hosting origin clearly."
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/ops, repos/gui, repos/docs, repos/e2e source — pointer/version bumps only",
+    "Rotating, generating, or escalating Cloudflare API tokens — Kadyapam owns those",
+    "Changing the gateway deployment topology — bump existing pointers, don't change the architecture",
+    "Touching the storage tier configuration (that's Path B, separate round)",
+    "Deploying ollama-bridge to GKE",
+    "Cutting any release (gui v1.11.0 was already released in round #3)",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "Browser DevTools (Network + Elements tabs) to identify the hosting origin",
+    "Read tool on repos/ops/automation/cloudflare/gke_gateway_edge.yaml and repos/gui/.github/workflows/",
+    "wrangler pages (Cloudflare CLI) for read-only Pages project inspection if Cloudflare auth is already in place",
+    "kubectl --context=<gke> get/describe for any cluster-side artifact discovery",
+    "noetl status <id> --json | jq for execution-level smoke verification"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-130000-gateway-terminal-surface-and-gui-bump.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_trace_the_gateway_surface: {hosting_origin, build_artifact_source, deploy_mechanism}, 2_identify_the_bump_mechanism: {case: 'A' | 'B' | 'C', pin_source, bump_command}, 3_execute_the_bump: {executed: bool, new_version_live: bool, build_logs_if_failed}, 4_smoke_the_gateway_terminal: {amadeus_tools_count, travel_help_status, flights_status, anthropic_status, screenshots: []}, 5_close_out: {sync_issue_updated: bool, memory_entry_path, validation_log_appended: bool}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Path B — storage tier decision (GCS vs S3 vs persistent-volume vs leave-as-is)', 'Ollama bridge deployment on GKE if real Ollama inference wanted', 'Amadeus production API switch when production-data smokes wanted']}. If verdict GREEN, append paragraph to bridge/outbox/codex-spike-green-validation.md and update the GUI gap section of sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md."
+}

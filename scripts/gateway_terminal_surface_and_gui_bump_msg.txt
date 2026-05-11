@@ -1,0 +1,107 @@
+Codex prompt — Path A: locate the gateway terminal surface, ship gui v1.11.0 there
+====================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-130000-gateway-terminal-surface-and-gui-bump.task.json
+
+Result goes to:
+  bridge/outbox/20260511-130000-gateway-terminal-surface-and-gui-bump.result.json
+
+Prior round (AMBER):
+  bridge/outbox/20260511-110000-gke-parity-sync.result.json
+
+Sync issue to update:
+  sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md
+
+Context:
+  GKE parity-sync round (20260511-110000) landed AMBER on GUI. Catalog and
+  noetl-engine parity were fixed; item #11 activities hydration GREEN on GKE.
+  But the GUI bump was blocked because there is NO `noetl-gui` Deployment in
+  the GKE noetl namespace. Kadyapam still sees the gateway terminal at
+  `noetl@gateway:/travel$`, so the page is served from elsewhere — Codex
+  needs to find where.
+
+  Strong candidates from earlier memory notes:
+    - Cloudflare Pages SPA build at https://mestumre.dev served via
+      Cloudflare Tunnel to the private GKE Gateway ClusterIP (per
+      `automation/cloudflare/gke_gateway_edge.yaml`).
+    - Embedded static build in the noetl-server image (older topology).
+    - Separate gateway service in a different namespace.
+
+  Discovery-first round. Investigate before acting.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  Phase 1 — Trace the gateway surface:
+    Browser-side: open the gateway URL, inspect DOM/network to identify the
+    hosting origin and asset paths.
+
+    Repo-side: read
+      repos/ops/automation/cloudflare/gke_gateway_edge.yaml
+      repos/gui/.github/workflows/*
+      repos/ops/automation/helm/noetl/values.yaml
+    for any GUI deployment/build wiring.
+
+    Cloudflare-side (if applicable, read-only): `wrangler pages project list`
+    or dashboard inspection to find the active Pages project and its source.
+
+  Phase 2 — Identify the bump mechanism:
+    Case A — auto-tracks main: v1.11.0 already in main, the gap is
+             browser-cache/DNS, not deployment. Hard refresh + retry.
+    Case B — pinned to tag/branch: identify the pin + how to bump.
+    Case C — manual deploy via ops playbook: identify the playbook + inputs.
+
+  Phase 3 — Execute the bump:
+    Whichever case Phase 2 named. If Cloudflare token needed and not
+    present, AMBER + STOP + document.
+
+  Phase 4 — Smoke the gateway terminal:
+    Hard refresh, walk the original failing sequence:
+      ls
+      cd /mcp/amadeus
+      tools                 (expected: 5 tools — was 0)
+      travel help           (expected: completes with widget — was unknown command)
+      travel flights from SFO to JFK on 2026-07-15 for 2 adults
+      travel --provider anthropic help
+    Screenshots. Confirm executions via noetl status <id> --json | jq.
+
+  Phase 5 — Close out:
+    Result file. Update the AMBER sync issue. Memory entry naming the
+    gateway hosting surface so future rounds find it in one search.
+
+Codex job (5 phases — see task JSON):
+
+  1. trace the gateway surface (browser + repo + Cloudflare read inspection)
+  2. identify bump mechanism (Case A/B/C)
+  3. execute the bump (or AMBER + document if blocked)
+  4. smoke the gateway terminal
+  5. close out (result + sync issue update + memory entry)
+
+Architectural rules:
+  - Pointer/version bumps only. No code changes.
+  - Don't rotate or generate Cloudflare API tokens — Kadyapam owns those.
+  - Don't change the gateway deployment topology — bump existing pointers,
+    don't redesign.
+  - Don't touch the storage tier configuration (that's Path B, separate round).
+  - Don't deploy ollama-bridge to GKE in this round.
+  - Don't cut any release (gui v1.11.0 was released in round #3).
+  - No git push from ai-meta.
+
+Pre-handoff (already done by Kadyapam):
+  - GKE noetl-server + noetl-worker on v2.37.8 (item #11).
+  - Catalog re-registered on GKE for the four session-touched playbooks.
+  - Bridge task + this prompt + handoff memory ready to push.
+
+Codex commits + pushes:
+  Optional 1 small PR if a pin source needs to flip (helm value? deploy
+  workflow input?). Most likely no PRs if Case A or Case C.
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  Result file + sync issue update + memory entry in ai-meta.
+  ai-meta gitlink bumps only if a pin source PR actually landed.
+
+What to do if blocked:
+  - No Cloudflare token in env → AMBER + STOP + document for Kadyapam.
+  - Build failure on Pages → capture logs, AMBER + STOP.
+  - Surface still unknown after Phase 1 → document what was tried and
+    where the trace ran out; Kadyapam knows the actual topology.

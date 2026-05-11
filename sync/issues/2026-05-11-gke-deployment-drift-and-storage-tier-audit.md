@@ -99,3 +99,46 @@ For the travel activities path, this is acceptable after item #11 because the pa
 ## Result
 
 GKE NoETL server/catalog parity is restored. Overall round status is AMBER because GUI parity remains unresolved outside the observed GKE Helm/deployment surface.
+
+## Follow-Up: Gateway Terminal Surface Trace
+
+Date: 2026-05-11
+
+Path A traced the missing GUI surface. The gateway terminal page is served from Cloudflare Pages at `https://mestumre.dev`; it is not backed by an in-cluster `gui` / `noetl-gui` Deployment. The API path is `https://gateway.mestumre.dev`, which routes through the GKE `gateway` namespace and the `cloudflare/noetl-gke-gateway-tunnel` deployment.
+
+Evidence:
+
+- `https://mestumre.dev` returns a Vite SPA shell with Cloudflare headers and assets such as `/assets/index-Db6acc8T.js`.
+- The browser resolves to `https://mestumre.dev/login` and shows the Gateway Login page.
+- `repos/ops/automation/cloudflare/gke_gateway_edge.yaml` declares:
+  - `pages_project_name: noetl-gui`
+  - `pages_branch: main`
+  - `gui_domain: mestumre.dev`
+  - `gateway_public_url: https://gateway.mestumre.dev`
+  - `gateway_hostname: gateway.mestumre.dev`
+- GKE has `cloudflare/noetl-gke-gateway-tunnel` running 2/2 and `gateway/gateway` running `ghcr.io/noetl/gateway:v2.10.0`.
+
+The bump mechanism is the existing ops playbook:
+
+```bash
+cd repos/ops
+export CLOUDFLARE_API_TOKEN=<scoped token>
+noetl run automation/cloudflare/gke_gateway_edge.yaml \
+  --runtime local \
+  --set action=pages \
+  --set gui_repo_dir=../gui \
+  --set pages_project_name=noetl-gui \
+  --set pages_branch=main \
+  --set gui_domain=mestumre.dev \
+  --set gateway_public_url=https://gateway.mestumre.dev
+```
+
+The playbook runs `npm ci`, builds `repos/gui` with `VITE_API_MODE=gateway`, `VITE_GATEWAY_URL=https://gateway.mestumre.dev`, and deploys the `dist` directory with `wrangler pages deploy`.
+
+This follow-up also closed AMBER: `CLOUDFLARE_API_TOKEN` was not present in the environment, and `wrangler pages project list` failed because non-interactive Wrangler requires that token. No Cloudflare project, DNS, tunnel, or Pages deployment was changed.
+
+Current conclusion:
+
+- The GKE backend/catalog drift is fixed.
+- The GUI drift is now precisely located: Cloudflare Pages project `noetl-gui`.
+- The next action is a credentialed Cloudflare Pages deploy using the existing playbook. Kadyapam owns provisioning/exporting the scoped Cloudflare token; do not store it in ai-meta.

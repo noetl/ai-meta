@@ -1,0 +1,103 @@
+{
+  "task": "20260511-130000-gateway-terminal-surface-and-gui-bump",
+  "status": "AMBER",
+  "summary": "The gateway terminal surface was located: the public GUI is served from Cloudflare Pages at https://mestumre.dev, while API calls route to https://gateway.mestumre.dev through the GKE gateway and Cloudflare tunnel. The existing bump mechanism is the ops playbook automation/cloudflare/gke_gateway_edge.yaml action=pages/deploy, which builds repos/gui and runs wrangler pages deploy to Cloudflare Pages project noetl-gui. Execution stopped before deploy because this environment has no CLOUDFLARE_API_TOKEN and wrangler cannot operate non-interactively without it.",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "trace_the_gateway_surface",
+      "status": "completed",
+      "browser_observation": {
+        "url_opened": "https://mestumre.dev",
+        "resolved_url": "https://mestumre.dev/login",
+        "title": "NoETL Dashboard",
+        "visible_surface": "Gateway Login",
+        "screenshot": "bridge/outbox/20260511-130000-gateway-terminal-surface-login.png"
+      },
+      "http_observation": {
+        "gui_origin": "https://mestumre.dev",
+        "server_header": "cloudflare",
+        "html_asset": "/assets/index-Db6acc8T.js",
+        "css_asset": "/assets/index-D-67cvlr.css",
+        "env_config": "/env-config.js",
+        "env_config_body": "window.__NOETL_ENV__ = window.__NOETL_ENV__ || {};",
+        "gateway_origin": "https://gateway.mestumre.dev"
+      },
+      "repo_wiring": {
+        "cloudflare_playbook": "repos/ops/automation/cloudflare/gke_gateway_edge.yaml",
+        "pages_project_name": "noetl-gui",
+        "pages_branch": "main",
+        "gui_domain": "mestumre.dev",
+        "gateway_public_url": "https://gateway.mestumre.dev",
+        "gateway_tunnel": {
+          "hostname": "gateway.mestumre.dev",
+          "kubernetes_namespace": "cloudflare",
+          "deployment": "noetl-gke-gateway-tunnel",
+          "replicas_ready": "2/2"
+        },
+        "gke_gateway_service": {
+          "namespace": "gateway",
+          "deployment_image": "ghcr.io/noetl/gateway:v2.10.0",
+          "service": "gateway",
+          "observed_type": "LoadBalancer",
+          "service_port": 80
+        }
+      }
+    },
+    {
+      "phase": 2,
+      "name": "identify_the_bump_mechanism",
+      "status": "completed",
+      "case": "Case C - manual Cloudflare Pages deploy via ops playbook",
+      "mechanism": "Run the local ops playbook with action=pages or action=deploy after exporting CLOUDFLARE_API_TOKEN. The playbook runs npm ci, builds repos/gui with VITE_API_MODE=gateway and VITE_GATEWAY_URL=https://gateway.mestumre.dev, then executes npx --yes wrangler pages deploy dist --project-name noetl-gui --branch main.",
+      "candidate_command": "cd repos/ops && CLOUDFLARE_API_TOKEN=<token> noetl run automation/cloudflare/gke_gateway_edge.yaml --runtime local --set action=pages --set gui_repo_dir=../gui --set pages_project_name=noetl-gui --set pages_branch=main --set gui_domain=mestumre.dev --set gateway_public_url=https://gateway.mestumre.dev",
+      "version_context": {
+        "gui_latest_release": "v1.11.0",
+        "release_url": "https://github.com/noetl/gui/releases/tag/v1.11.0",
+        "release_commit": "831ba66",
+        "feature_commit": "74f97f9",
+        "note": "v1.11.0 is the semantic-release version commit for the app:form {fieldId} feature."
+      }
+    },
+    {
+      "phase": 3,
+      "name": "execute_the_bump",
+      "status": "blocked",
+      "blocker": "CLOUDFLARE_API_TOKEN is not present in the environment. npx --yes wrangler pages project list fails with: In a non-interactive environment, it is necessary to set a CLOUDFLARE_API_TOKEN environment variable.",
+      "action_taken": "No Cloudflare project, DNS, tunnel, or Pages deployment was modified."
+    },
+    {
+      "phase": 4,
+      "name": "smoke_the_gateway_terminal",
+      "status": "not_run",
+      "reason": "Stopped at the Cloudflare-token blocker before deployment. Public GUI opens to the Auth0/token login page in this browser session, so the terminal sequence was not runnable without credentials/session."
+    },
+    {
+      "phase": 5,
+      "name": "close_out",
+      "status": "completed",
+      "sync_issue_updated": "sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md",
+      "memory_entry": "memory/inbox/2026/05/20260511-130000-gateway-terminal-served-from-cloudflare-pages-amber.md"
+    }
+  ],
+  "findings": [
+    {
+      "finding": "The GUI surface is Cloudflare Pages, not an in-cluster Kubernetes gui Deployment.",
+      "evidence": "https://mestumre.dev returns static Vite assets with Cloudflare headers. The ops playbook names Cloudflare Pages project noetl-gui and custom domain mestumre.dev."
+    },
+    {
+      "finding": "The API/gateway surface is gateway.mestumre.dev through the GKE gateway and Cloudflare tunnel.",
+      "evidence": "ops playbook maps gateway.mestumre.dev to gateway.gateway.svc.cluster.local:80, and GKE has cloudflare/noetl-gke-gateway-tunnel running 2/2 plus gateway/gateway on ghcr.io/noetl/gateway:v2.10.0."
+    },
+    {
+      "finding": "The currently served public bundle is older than the travel-command bundle.",
+      "evidence": "The live bundle includes the /travel route and app:form code but does not contain literal travel command strings such as 'started travel agent', 'usage: travel', or 'automation/agents/travel/runtime'."
+    },
+    {
+      "finding": "Cloudflare deploy is blocked on credentials owned by Kadyapam.",
+      "evidence": "No CLOUDFLARE_API_TOKEN/CF token is exported, and wrangler reports that a CLOUDFLARE_API_TOKEN is required in a non-interactive environment."
+    }
+  ],
+  "next_action_for_kadyapam": "Export a scoped CLOUDFLARE_API_TOKEN locally and rerun the Pages deploy path, or provide a one-shot shell with that token available. The token needs Cloudflare Pages Edit for project noetl-gui and the zone/tunnel permissions already documented by automation/cloudflare/gke_gateway_edge.yaml.",
+  "secrets_hygiene": "No Cloudflare token, Auth0 token, or session token was read, printed, or stored."
+}
