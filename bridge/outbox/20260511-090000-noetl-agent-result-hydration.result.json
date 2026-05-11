@@ -1,0 +1,136 @@
+{
+  "task": "20260511-090000-noetl-agent-result-hydration",
+  "status": "GREEN",
+  "completed_at": "2026-05-10T22:50:00-07:00",
+  "summary": "NoETL agent-to-playbook result hydration is fixed for large child MCP results. The final GKE smoke proved the parent travel runtime receives data.ok=true plus the first 10 activity items from an Amadeus child execution whose raw payload externalized to a worker-local disk reference.",
+  "pull_requests": [
+    {
+      "repo": "noetl/noetl",
+      "pr": 424,
+      "url": "https://github.com/noetl/noetl/pull/424",
+      "title": "fix(agent): hydrate sub-playbook result from terminal events",
+      "release": "v2.37.3"
+    },
+    {
+      "repo": "noetl/noetl",
+      "pr": 425,
+      "url": "https://github.com/noetl/noetl/pull/425",
+      "title": "fix(agent): resolve terminal event result references",
+      "release": "v2.37.4"
+    },
+    {
+      "repo": "noetl/noetl",
+      "pr": 426,
+      "url": "https://github.com/noetl/noetl/pull/426",
+      "title": "fix(agent): preserve compact NoETL child data for parent routing",
+      "release": "v2.37.5"
+    },
+    {
+      "repo": "noetl/noetl",
+      "pr": 427,
+      "url": "https://github.com/noetl/noetl/pull/427",
+      "title": "fix(agent): read through disk refs from child terminal results",
+      "release": "v2.37.6"
+    },
+    {
+      "repo": "noetl/noetl",
+      "pr": 428,
+      "url": "https://github.com/noetl/noetl/pull/428",
+      "title": "fix(agent): expose compact child data at agent data root",
+      "release": "v2.37.7"
+    },
+    {
+      "repo": "noetl/noetl",
+      "pr": 429,
+      "url": "https://github.com/noetl/noetl/pull/429",
+      "title": "fix(agent): project bounded control data for large child results",
+      "release": "v2.37.8"
+    }
+  ],
+  "code_changes_final_shape": [
+    "noetl/tools/agent/executor.py fetches the sub-execution terminal event, resolves references when possible, expands flattened data_* context, and now prefers bounded control_data when a child payload externalized on another worker pod.",
+    "noetl/worker/result_handler.py emits bounded control_data for large MCP-like results: status scalars, metadata, counts, and the first 10 collection items under data.items-compatible shape.",
+    "noetl/worker/nats_worker.py preserves control_data through the strict event projection without opening the generic data-plane data key."
+  ],
+  "tests": [
+    {
+      "command": "uv run pytest tests/tools/test_agent_executor.py tests/worker/test_control_context_projection.py -q",
+      "result": "30 passed, 1 warning"
+    },
+    {
+      "command": "uv run python -m py_compile noetl/tools/agent/executor.py noetl/worker/nats_worker.py noetl/worker/result_handler.py",
+      "result": "passed"
+    }
+  ],
+  "local_kind_validation": {
+    "image": "local/noetl:2026-05-10-22-48",
+    "travel_runtime_version": 33,
+    "execution_id": "624209763244441670",
+    "result": {
+      "status": "COMPLETED",
+      "agent_step": "amadeus_via_mcp_activities",
+      "agent_data_ok": true,
+      "agent_items_len": 10,
+      "agent_activities_total": 1799,
+      "render_step": "render_activities",
+      "render_type": "app:column",
+      "render_summary": "10 activities found near (40.758, -73.9855)"
+    }
+  },
+  "gke_validation": {
+    "cluster": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "deployed_image": "ghcr.io/noetl/noetl:v2.37.8",
+    "travel_runtime_version": 5,
+    "activities_execution_id": "624205070757790326",
+    "activities_result": {
+      "status": "COMPLETED",
+      "agent_step": "amadeus_via_mcp_activities",
+      "agent_data_ok": true,
+      "agent_items_len": 10,
+      "agent_activities_total": 1799,
+      "render_step": "render_activities",
+      "render_type": "app:column",
+      "render_summary": "10 activities found near (40.758, -73.9855)"
+    },
+    "provider_sanity": [
+      {
+        "provider": "openai",
+        "execution_id": "624205625479660304",
+        "status": "COMPLETED",
+        "effective_provider": "openai",
+        "fallback": null,
+        "render_step": "render_help"
+      },
+      {
+        "provider": "anthropic",
+        "execution_id": "624205657691915109",
+        "status": "COMPLETED",
+        "effective_provider": "anthropic",
+        "fallback": null,
+        "render_step": "render_help"
+      },
+      {
+        "provider": "vertex-ai",
+        "execution_id": "624205688838816698",
+        "status": "COMPLETED",
+        "effective_provider": "vertex-ai",
+        "fallback": null,
+        "render_step": "render_help"
+      },
+      {
+        "provider": "ollama",
+        "execution_id": "624206000844701748",
+        "status": "COMPLETED",
+        "effective_provider": "openai",
+        "fallback": "Ollama MCP call failed because the GKE cluster currently has no ollama or ollama-bridge Service/Pod in namespace noetl.",
+        "render_step": "render_help"
+      }
+    ]
+  },
+  "deployment_notes": [
+    "The GKE bump_image lifecycle playbook reported a final verify_images mismatch twice because it selected an old terminating worker pod. Direct kubectl rollout status and pod image checks confirmed the non-terminating server and workers were on the target image.",
+    "The old v2.37.7 GKE smoke proved the parent could route on scalar crumbs but still lacked item data across pods. v2.37.8 fixed that by emitting bounded control_data before event projection.",
+    "The Ollama provider sanity run completed via fallback because this GKE cluster currently does not deploy ollama/ollama-bridge; this is infrastructure state, not part of the agent-result hydration engine fix."
+  ],
+  "secrets": "No secret values were printed or written."
+}

@@ -1,0 +1,118 @@
+Codex prompt — noetl engine: verify Claude's agent → MCP result-hydration fix, deploy to kind + GKE
+=====================================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-090000-noetl-agent-result-hydration.task.json
+
+Result goes to:
+  bridge/outbox/20260511-090000-noetl-agent-result-hydration.result.json
+
+Surfacing context:
+  bridge/outbox/20260511-020500-amadeus-500-investigation.result.json (item #7
+  verdict b, plus the activities reference-truncation side finding)
+
+Context:
+  Item #7's Amadeus investigation surfaced a real engine bug: when agent →
+  MCP sub-executions return large results, the agent executor's
+  `envelope.data` ends up being the TRUNCATED `/api/executions/{id}/status`
+  doc instead of the actual MCP envelope. `_compact_status_variables` in
+  noetl/server/api/core/utils.py replaces values over _STATUS_VALUE_MAX_BYTES
+  with `{_truncated, _original_size_bytes, _preview}` stubs. Travel runtime's
+  `when: amadeus_via_mcp_activities.data.ok | default(false)` evaluates
+  against the stub (no .ok field) → routes successful executions to
+  render_amadeus_failure widget.
+
+  The travel runtime ALREADY works around this for Vertex AI and Ollama via
+  `_fetch_vertex_child_context` / `_fetch_ollama_child_context` helpers that
+  walk events directly. This round moves the hydration into the noetl agent
+  executor so all callers (Amadeus activities, vertex, ollama, future MCP
+  hops) benefit.
+
+Claude already coded the fix + 3 unit tests in repos/noetl. Codex's job:
+verify the diff, run tests, ship the PR, deploy to kind, smoke
+(activities should now hydrate), deploy to GKE, smoke again.
+
+What Claude wrote (verify before proceeding):
+
+  noetl/tools/agent/executor.py
+    - New helper `_fetch_sub_execution_terminal_result(execution_id)`:
+      fetches `/api/executions/{id}/events?page_size=500&page=1`, walks
+      for highest-event_id command.completed/step.exit/call.done whose
+      node_name isn't a boundary (start/end), returns its
+      `result.context`. Best-effort: returns None on network failure or
+      no terminal-step event.
+    - Wiring in `_invoke_noetl_playbook`: `envelope.data` priority order
+      is now `_fetch_sub_execution_terminal_result(sub_execution_id) →
+      sub_terminal → sub_result.get('data')`. Only invokes the new helper
+      when sub_execution_id is truthy.
+
+  tests/tools/test_agent_executor.py
+    - 3 new tests using monkeypatch on sys.modules['requests']:
+      a. picks_last_terminal_step (highest event_id wins, boundary nodes skipped)
+      b. returns_none_when_no_terminal (fallback path)
+      c. swallows_request_failure (network errors → None, never raises)
+
+Codex job (8 phases — see task JSON):
+
+  1. verify Claude changes:    git diff repos/noetl; confirm only the two
+                               expected files modified. No surprise touches.
+
+  2. run unit tests:           pytest tests/tools/test_agent_executor.py -x -v.
+                               All existing tests must still pass; 3 new
+                               tests must pass. STOP if regression.
+
+  3. noetl PR:                 branch kadyapam/agent-result-hydration-from-events
+                               PR title: "fix(agent): hydrate sub-execution data from events to avoid truncated status-variable stubs"
+                               --squash --delete-branch on merge. Wait for
+                               semantic-release to auto-tag.
+
+  4. deploy to kind:           Build new noetl wheel + image, push to kind
+                               registry, restart noetl-server + noetl-worker.
+
+  5. kind smoke target activities:
+                               travel --provider openai activities near Times Square.
+                               Before fix: routes to render_amadeus_failure
+                               (truncated stub). After fix: routes to
+                               render_activities with real data IF Amadeus
+                               returns 200 today; otherwise verify via the
+                               audit table that envelope_ok now reflects
+                               reality. If Amadeus 5xx, use a synthetic large-
+                               payload test via mcp/ollama instead.
+
+  6. deploy to GKE:            Standard GKE pipeline. lifecycle/bump_image
+                               or equivalent.
+
+  7. GKE smoke 4-provider matrix:
+                               travel --provider {openai,anthropic,vertex-ai,ollama}
+                               activities near Times Square. All four should
+                               produce app:column widgets with hydrated
+                               envelope context. Screenshots.
+
+  8. ai-meta pointer bump:     git submodule update --remote repos/noetl
+                               git add repos/noetl
+                               git commit: "chore(sync): bump noetl for agent sub-execution result hydration fix"
+                               DO NOT push.
+
+Architectural rules:
+  - Don't modify anything beyond Claude's two files unless a test failure
+    demands a related fix.
+  - Don't modify repos/ops, repos/gui, repos/docs, repos/e2e — engine-only round.
+  - Don't remove the travel runtime's existing _fetch_vertex_child_context /
+    _fetch_ollama_child_context workarounds — they stay as belt-and-suspenders.
+    Their removal is a future cleanup round once the engine fix has been
+    stable.
+  - Don't change the priority order in the wiring (events → status →
+    dispatch.data is correct).
+  - Don't echo full sub-execution payloads in PR or result file — summarise
+    with counts and shape.
+  - No git push from ai-meta.
+
+Pre-handoff (already done by Claude):
+  - Engine fix + 3 tests written in repos/noetl.
+  - Bridge task + this prompt + memory entry on disk in ai-meta.
+
+Codex commits + pushes:
+  repos/noetl (1 PR — engine fix + 3 unit tests)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/noetl after PR merges.

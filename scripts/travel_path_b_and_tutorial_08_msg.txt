@@ -1,0 +1,132 @@
+Codex prompt — Travel agent: Path B (model workload fields) + ship Kadyapam's tutorial 08 GUI walkthrough
+============================================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-070000-travel-path-b-and-tutorial-08.task.json
+
+Result goes to:
+  bridge/outbox/20260511-070000-travel-path-b-and-tutorial-08.result.json
+
+Reference precedents:
+  - item #9 (classifier_system_prompt single-source refactor) — same pattern,
+    same input-scope mechanic. Path B is Path A's neighbour.
+  - existing workload.vertex_model and workload.ollama_model fields — Path B
+    just matches that shape for openai + anthropic.
+
+Context:
+  Two independent pieces of work in one round:
+
+  (1) Path B — lift `openai_model` and `anthropic_model` into workload fields.
+      After item #9 + #5b model flip:
+        - workload.vertex_model ✓ (Phase 3)
+        - workload.ollama_model ✓ (Phase 4)
+        - workload.classifier_system_prompt ✓ (item #9)
+        - OpenAI model: hardcoded "gpt-4o-mini" in _openai_text helper
+        - Anthropic model: hardcoded "claude-haiku-4-5-20251001" in _anthropic_text helper
+      Path B fixes the last two asymmetries. After this round every provider's
+      model name is a workload override.
+
+  (2) Tutorial 08 — Kadyapam pre-wrote the screenshot-led GUI walkthrough,
+      updated 07 to link it, cross-linked from widgets.md, and added screenshot
+      assets. ALL FOUR CHANGES ARE UNCOMMITTED in the repos/docs working tree.
+      npm run build already passed. Codex ships the user's content via a docs
+      PR — does NOT author content.
+
+  Both pieces share the same regression smoke matrix at close-out. Cap: 1 ops
+  PR + 1 docs PR.
+
+Patch design (Codex implements; full brief in task JSON design_brief_for_codex):
+
+  repos/ops/automation/agents/travel/runtime.yaml  (Path B):
+    Add workload defaults:
+      openai_model: "gpt-4o-mini"
+      anthropic_model: "claude-haiku-4-5-20251001"
+
+    Update classify_via_http_provider's input block:
+      openai_model: "{{ workload.openai_model }}"
+      anthropic_model: "{{ workload.anthropic_model }}"
+
+    Inside _openai_text helper:
+      "model": "gpt-4o-mini"  →  "model": openai_model
+
+    Inside _anthropic_text helper:
+      "model": "claude-haiku-4-5-20251001"  →  "model": anthropic_model
+
+    No other changes — classify_via_vertex_mcp and classify_via_ollama_mcp
+    are already correctly wired through workload.vertex_model / workload.ollama_model.
+
+    Grep invariants:
+      grep -c '"gpt-4o-mini"' ...                   → 1 (workload only)
+      grep -c '"claude-haiku-4-5-20251001"' ...     → 1 (workload only)
+      grep -c 'workload.openai_model' ...            → ≥ 1
+      grep -c 'workload.anthropic_model' ...         → ≥ 1
+
+  repos/docs/  (Tutorial 08 shipping):
+    Inspect working tree: `cd repos/docs && git status`. Confirm:
+      - docs/tutorials/08-travel-agent-gui-walkthrough.md (NEW)
+      - docs/tutorials/07-travel-agent-with-widgets.md (UPDATED — links to 08, refreshes "What's next")
+      - docs/gui/widgets.md (UPDATED — cross-link to 08)
+      - static/img/tutorials/travel-agent/*.png (NEW screenshots)
+
+    DO NOT modify Kadyapam's tutorial content. Codex ships, doesn't author.
+
+    ONE OPTIONAL exception: if tutorial 08 or 07's 'Pluggable AI provider' section
+    mentions the OpenAI or Anthropic model name inline, you may add a single short
+    paragraph noting model overrides via workload.openai_model / workload.anthropic_model
+    (mirrors the prompt-override paragraph from item #9). Only add if the existing
+    text naturally invites it. If not, leave content untouched.
+
+Codex job (5 phases — see task JSON):
+
+  1. apply Path B refactor:    Move model strings to workload, update _openai_text
+                               and _anthropic_text to read from input. Pydantic-validate.
+                               Grep invariants pass.
+
+  2. ops PR for Path B:        branch kadyapam/travel-model-workload-fields
+                               PR title: "refactor(travel-agent): lift openai_model and anthropic_model into workload fields (Path B)"
+                               --squash --delete-branch on merge.
+
+  3. ship tutorial 08 docs PR: branch kadyapam/travel-tutorial-08-gui-walkthrough
+                               git add -A docs/tutorials/ docs/gui/ static/img/tutorials/
+                               npm run build (verify still clean)
+                               PR title: "docs(tutorials): add 08 screenshot-led GUI walkthrough; cross-links in 07 and widgets.md"
+                               --squash --delete-branch on merge.
+
+  4. re-register + 4-provider smoke matrix:
+                               travel help (default → openai, model='gpt-4o-mini')
+                               travel --provider anthropic help (model='claude-haiku-4-5-20251001')
+                               travel --provider vertex-ai help (GKE GREEN, kind fallback)
+                               travel --provider ollama help
+                               travel flights ... under default openai
+                               Optional override probe: submit one execution with
+                               workload payload {ai_provider: 'openai', openai_model: 'gpt-4o'}
+                               to confirm caller override flows through.
+
+  5. ai-meta pointer bumps:    git submodule update --remote repos/ops repos/docs
+                               git add repos/ops repos/docs
+                               git commit: "chore(sync): bump ops + docs for Path B model fields + tutorial 08 GUI walkthrough"
+                               DO NOT push.
+
+Architectural rules:
+  - Don't modify the Amadeus, Vertex AI, or Ollama MCP playbooks.
+  - Don't modify the classifier merger or any render_* step.
+  - Don't modify Kadyapam's tutorial 08 / 07 / widgets.md content beyond
+    the optional one-paragraph model-override note (and only if existing
+    text naturally invites it).
+  - Don't touch the unrelated untracked memory file in ai-meta.
+  - Don't lift any other constant into workload — model names are Path B's
+    specific scope.
+  - No git push from ai-meta.
+
+Pre-handoff (already done by Kadyapam):
+  - Tutorial 08 + 07 update + widgets.md update + screenshots written
+    locally, npm run build passed. Sitting uncommitted in repos/docs.
+  - ai-meta has 5 commits ahead of origin including the model-flip GREEN
+    bookkeeping. Should be pushed first or alongside this round's handoff.
+
+Codex commits + pushes:
+  repos/ops  (1 PR — Path B refactor)
+  repos/docs (1 PR — tutorial 08 + cross-links + screenshots)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bumps for repos/ops + repos/docs after both PRs merge.

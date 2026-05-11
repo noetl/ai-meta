@@ -1,0 +1,131 @@
+{
+  "id": "20260511-070000-travel-path-b-and-tutorial-08",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-11T00:01:26Z",
+  "overall_status": "GREEN",
+  "verdict": "GREEN",
+  "summary": "Path B landed the travel runtime model-name workload fields, and Tutorial 8 shipped the screenshot-led GUI walkthrough. The merged runtime was re-registered locally as version 27, and the provider smoke matrix completed with the expected local-kind Vertex fallback.",
+  "phases": {
+    "1_path_b_refactor": {
+      "status": "GREEN",
+      "repo": "repos/ops",
+      "file": "automation/agents/travel/runtime.yaml",
+      "changes": [
+        "Added workload.openai_model defaulting to gpt-4o-mini",
+        "Added workload.anthropic_model defaulting to claude-haiku-4-5-20251001",
+        "Threaded both fields into classify_via_http_provider input",
+        "Replaced OpenAI and Anthropic hardcoded HTTP request model literals with input-scope variables",
+        "Threaded openai_model into the classify_intent OpenAI fallback helper"
+      ],
+      "validation": {
+        "noetl_validate": "not available in installed CLI; command returned unrecognized subcommand",
+        "pyyaml_parse": true,
+        "grep_invariants": "No hardcoded OpenAI/Anthropic HTTP model literals remain in request bodies"
+      }
+    },
+    "2_ops_pr": {
+      "status": "GREEN",
+      "pr_url": "https://github.com/noetl/ops/pull/69",
+      "branch": "kadyapam/path-b-model-workload-fields",
+      "merged_sha": "e8d17f8701eee0679bccbf76c072cb6cb7f652bf",
+      "merge_method": "squash"
+    },
+    "3_tutorial_08_docs_pr": {
+      "status": "GREEN",
+      "pr_url": "https://github.com/noetl/docs/pull/59",
+      "branch": "kadyapam/travel-gui-walkthrough-tutorial",
+      "merged_sha": "37315a37b7499f512e35f7ba663da1c816f1b86a",
+      "merge_method": "squash",
+      "files": [
+        "docs/tutorials/08-travel-agent-gui-walkthrough.md",
+        "docs/tutorials/07-travel-agent-with-widgets.md",
+        "docs/gui/widgets.md",
+        "static/img/tutorials/travel-agent/01-catalog-travel-runtime.png",
+        "static/img/tutorials/travel-agent/02-prompt-report-widget.png",
+        "static/img/tutorials/travel-agent/03-execution-events-render-tail.png",
+        "static/img/tutorials/travel-agent/04-travel-canvas-empty.png",
+        "static/img/tutorials/travel-agent/06-travel-canvas-refinement-form.png"
+      ],
+      "validation": {
+        "npm_run_build": true
+      }
+    },
+    "4_register_and_smoke": {
+      "status": "GREEN",
+      "cluster": "local kind",
+      "travel_catalog_id": "624031008114869038",
+      "travel_catalog_version": 27,
+      "smoke_matrix": [
+        {
+          "label": "openai",
+          "execution_id": "624031086732903215",
+          "status": "COMPLETED",
+          "render_tail": "render_help",
+          "intent": "help",
+          "effective_provider": "openai",
+          "provider_fallback_reason": null,
+          "render_type": "app:column"
+        },
+        {
+          "label": "anthropic",
+          "execution_id": "624031106848785204",
+          "status": "COMPLETED",
+          "render_tail": "render_help",
+          "intent": "help",
+          "effective_provider": "anthropic",
+          "provider_fallback_reason": null,
+          "render_type": "app:column"
+        },
+        {
+          "label": "ollama",
+          "execution_id": "624031136284410718",
+          "status": "COMPLETED",
+          "render_tail": "render_help",
+          "intent": "help",
+          "effective_provider": "ollama",
+          "provider_fallback_reason": null,
+          "render_type": "app:column"
+        },
+        {
+          "label": "openai_model_override",
+          "execution_id": "624031150201111432",
+          "status": "COMPLETED",
+          "render_tail": "render_help",
+          "intent": "help",
+          "effective_provider": "openai",
+          "provider_fallback_reason": null,
+          "render_type": "app:column",
+          "workload_openai_model": "gpt-4o"
+        },
+        {
+          "label": "vertex_ai_local_kind",
+          "execution_id": "624032194758967486",
+          "status": "COMPLETED",
+          "render_tail": "render_help",
+          "intent": "help",
+          "effective_provider": "openai",
+          "provider_fallback_reason": "service-account credentials missing private_key or client_email",
+          "render_type": "app:column",
+          "note": "Expected on local kind without GKE Workload Identity; GKE Vertex was previously validated GREEN."
+        }
+      ]
+    },
+    "5_ai_meta_pointer_bump": {
+      "status": "GREEN",
+      "ops_pointer_sha": "e8d17f8701eee0679bccbf76c072cb6cb7f652bf",
+      "docs_pointer_sha": "37315a37b7499f512e35f7ba663da1c816f1b86a",
+      "ai_meta_push": "not pushed by Codex"
+    }
+  },
+  "regressions_found": [],
+  "notes": [
+    "The docs tutorial content was preserved, with one narrow Path B note added where the tutorial already named the Anthropic model.",
+    "No MCP playbooks, classifier merger behavior, or render tail steps were modified.",
+    "The installed noetl CLI exposes no validate subcommand in this environment; registration through /api/catalog/register succeeded and produced catalog version 27."
+  ],
+  "deferred_followups": [
+    "NoETL engine follow-up for large agent-to-MCP result reference hydration.",
+    "Amadeus production API switch or deeper sandbox 500 investigation."
+  ]
+}
