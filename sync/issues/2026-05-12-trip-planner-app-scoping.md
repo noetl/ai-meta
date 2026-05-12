@@ -84,17 +84,21 @@ cap: 1 order per call.
 
 ### Round 2 — Duffel Stays availability check + hotels source decision
 
-Phase 1: gcloud + worker pod probe to determine if Duffel Stays is
-enabled on our test account (Duffel exposes Stays at `/stays/...` and
-returns 403/404 when beta-gated). Read-only check from inside a worker
-pod with the existing `duffel-api-test` token. No new secret.
+**CLOSED 2026-05-12: Stays NOT available** — `POST /stays/search` and
+`GET /stays/bookings` both returned 403 with explicit sales-contact
+messaging ("This feature is not enabled for your account. Please
+contact sales to get access: https://duffel.com/contact-us"). Probe
+details in
+`memory/inbox/2026/05/20260512-230000-duffel-stays-unavailable-round-2.md`.
 
-Phase 2 depends on the result:
-- **If Stays available**: add `search_stays`, `get_stay`, `create_stays_order`
-  to `mcp/duffel.yaml`. Travel runtime gains
-  `hotel_provider: duffel | amadeus` selector with default `duffel`.
-- **If Stays not available**: stick with Amadeus hotels. Travel runtime
-  stays as-is for hotels. Document the gap; revisit when Stays opens.
+Decision locked: **Round 4 uses Amadeus hotels** (`mcp/amadeus.search_hotels`)
+as the hotels source. Lives with the known test 5xx flake; the
+friendly-failure render path is already proven by execution
+`625309687340073612` from round 20260512-130000. Re-evaluate Duffel
+Stays only if Kadyapam initiates a commercial conversation with Duffel.
+
+No PRs, no travel runtime changes, no new secrets. One read-only probe
+from a worker pod with cleanup.
 
 ### Round 3 — Firestore MCP + event sourcing + replay tooling
 
