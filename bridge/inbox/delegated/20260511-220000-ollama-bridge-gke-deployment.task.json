@@ -1,0 +1,87 @@
+{
+  "id": "20260511-220000-ollama-bridge-gke-deployment",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T22:00:00Z",
+  "title": "Deploy ollama-bridge to GKE — enable native `travel --provider ollama` on the production cluster",
+
+  "description": "GKE currently has no `ollama` or `ollama-bridge` service deployed. `travel --provider ollama` on GKE falls back to OpenAI per the item #11 round's smoke. This round deploys ollama-bridge to GKE so the chooser pattern is fully populated across all four providers. The bridge service already exists in helm templates (`templates/ollama-bridge-deployment.yaml` + `templates/ollama-bridge-service.yaml` per the helm chart) — the question is whether to deploy it standalone or with an actual Ollama backend. Investigation phase decides: bridge-only (cheap), bridge + CPU Ollama (small models), or bridge + GPU node pool (full inference). Cap: depends on the decision; document it explicitly.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 8,
+
+  "design_brief_for_codex": {
+    "current_state": "GKE has no ollama-bridge deployment. Travel runtime workload defaults `ollama_bridge_url` to `http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc` — the service simply doesn't exist on GKE. Local kind has the bridge running. The bridge translates MCP JSON-RPC to Ollama's REST API; it needs an actual Ollama instance behind it to serve real inference.",
+
+    "decision_to_make": "Three deployment options, decide before implementing:\n  (A) Bridge-only — deploy ollama-bridge without an actual Ollama backend. Useful for routing tests but `--provider ollama` will return errors when the bridge can't reach Ollama. Lowest cost, lowest value.\n  (B) Bridge + CPU Ollama — small models (gemma3:4b, the existing default). Slow inference but real. ~2-4GB memory per Ollama pod. No GPU needed.\n  (C) Bridge + GPU node pool — full inference, larger models, low latency. Requires provisioning a GPU node pool in the GKE cluster (cost implications).\n\nDefault recommendation: (B) — matches local kind's setup (CPU Ollama), enables real `--provider ollama` smokes, no GPU provisioning required. Cost: ~$30-50/month for one always-on Ollama pod.",
+
+    "phase_1_decide_and_inspect": "Read the existing helm templates for ollama-bridge-deployment + ollama-bridge-service. Identify what the local kind setup looks like (image tags, resource requests, env vars). Decide option (A/B/C) and document.",
+
+    "phase_2_deploy_to_gke": "Apply the chosen deployment to GKE. For option (B): deploy Ollama + ollama-bridge with the same image tags as kind. Pull a model (e.g. `ollama pull gemma3:4b` inside the Ollama pod) to warm the model cache.",
+
+    "phase_3_smoke": "`travel --provider ollama help` on GKE — expected: effective_provider='ollama' (NOT the OpenAI fallback). Run the activities path too. Capture execution_id + audit row.",
+
+    "phase_4_close_out": "Memory entry. Sync issue update (close the 'ollama on GKE' deferred line). Validation log append if GREEN. ai-meta pointer bump only if a helm value or new manifest was needed."
+  },
+
+  "phases": {
+    "1_decide_and_inspect": {
+      "objective": "Decide option A/B/C; inspect existing helm/ops setup.",
+      "spec": [
+        "Read repos/ops/automation/helm/noetl/templates/ollama-bridge-{deployment,service}.yaml.",
+        "Inspect local kind's running ollama deployment + bridge pod.",
+        "Pick option A/B/C with rationale. Default to (B) unless something blocks."
+      ],
+      "verify": "Decision documented."
+    },
+
+    "2_deploy_to_gke": {
+      "objective": "Deploy the chosen configuration to GKE.",
+      "spec": [
+        "For (B): kubectl apply or helm upgrade with ollama + bridge enabled. Confirm both pods healthy.",
+        "Pull the default model inside the Ollama pod (`ollama pull gemma3:4b` or via kubectl exec).",
+        "Verify bridge can reach Ollama: `kubectl exec ollama-bridge -- curl -s ollama-service:11434/api/tags`."
+      ],
+      "verify": "Bridge + Ollama pods healthy; model loaded."
+    },
+
+    "3_smoke": {
+      "objective": "Confirm `travel --provider ollama` works on GKE.",
+      "spec": [
+        "`travel --provider ollama help` — effective_provider='ollama'.",
+        "`travel --provider ollama flights from SFO to JFK on 2026-07-15 for 2 adults` — same.",
+        "`travel --provider ollama activities near Times Square` — same (verifies the engine hydration handles ollama envelope too).",
+        "Verify audit rows + widgets."
+      ],
+      "verify": "Ollama path GREEN on GKE."
+    },
+
+    "4_close_out": {
+      "objective": "Close-out memory + sync issue + validation log.",
+      "spec": [
+        "Memory entry naming the deployed option (A/B/C) + resource cost.",
+        "Update sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md — close 'ollama on GKE' line.",
+        "Append validation log paragraph if GREEN.",
+        "Bump repos/ops gitlink only if helm values changed."
+      ],
+      "verify": "Bookkeeping complete."
+    }
+  },
+
+  "denied_tools": [
+    "Provisioning GPU nodes in GKE without explicit Kadyapam approval (cost implication) — if option (C) is chosen, AMBER + STOP for user approval",
+    "Modifying the noetl S3 backend or storage tier (orthogonal concern)",
+    "Cutting a release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "kubectl --context=<gke> for deploy + smoke",
+    "helm upgrade if helm-managed",
+    "Browser screenshot for the gateway terminal smoke if appropriate"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-220000-ollama-bridge-gke-deployment.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_decide_and_inspect: {option_chosen, rationale}, 2_deploy_to_gke: {pods_healthy, model_loaded}, 3_smoke: {help_status, flights_status, activities_status, all_effective_provider_ollama: bool}, 4_close_out: {sync_issue_updated, memory_entry_path, validation_log_appended}}, verdict, notes, deferred_followups: ['Cloud-tier router decision', 'Amadeus production API switch']}."
+}

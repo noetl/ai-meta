@@ -1,0 +1,96 @@
+{
+  "id": "20260511-235000-cloud-tier-router-decision",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T23:50:00Z",
+  "title": "Cloud-tier router decision — GCS vs in-cluster S3 vs remote AWS S3 for durable storage (design round, not implementation)",
+
+  "description": "Surfaced as Path B from the GKE parity-sync round (20260511-110000). The audit found: NOETL_DEFAULT_STORAGE_TIER=kv, worker-local disk for spillover, router cloud tier configured as S3 (not GCS), GCS configured but inactive. The MinIO elimination round addressed the IN-CLUSTER object store (SeaweedFS now). This round addresses the orthogonal cloud-tier router decision: where does durable spillover live for cross-cluster / disaster-recovery scenarios? GCS (matches GCP project), in-cluster S3 (SeaweedFS, already deployed), remote AWS S3 (current state, unclear why)? **DESIGN-FIRST round: deliverable is a decision doc, not code.** Implementation is a separate follow-up round once the decision is made.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 7200,
+  "max_iterations": 6,
+
+  "design_brief_for_codex": {
+    "context": "The storage router has tiers: memory (in-process), kv (key-value e.g. NATS), disk (worker-local), S3/GCS (cloud/durable), DB (postgres), eventlog (also postgres but for audit). Current GKE config:\n  - NOETL_DEFAULT_STORAGE_TIER=kv (NATS-backed)\n  - Spillover beyond KV size: worker-local /opt/noetl/data/disk_cache (ephemeral)\n  - Cloud tier configured: S3 with NOETL_S3_ENDPOINT (now SeaweedFS in-cluster after MinIO elimination)\n  - GCS tier configured but never picked by the router\n\nThe question: what SHOULD the cloud tier be for durable spillover? Three viable answers:",
+
+    "option_gcs": "GCS — matches the GCP project, Workload Identity already wired for the worker SA (Vertex AI uses it). Durable, region-replicated, cheap egress within GCP. Cons: requires the GCS bucket to be provisioned and the router config flipped. Once we're in GCP, GCS is the natural cloud-tier choice.",
+
+    "option_in_cluster_s3": "In-cluster S3 (SeaweedFS) — already deployed, no extra provisioning. Cons: not durable across cluster recreations (PV survives but cluster delete loses data). Not cross-region. Treats spillover as ephemeral-but-survives-pod-restarts, which is what the chooser round just validated.",
+
+    "option_remote_aws_s3": "Remote AWS S3 — durable, cross-region. Cons: cross-cloud egress cost, IAM complexity (running on GCP but using AWS bucket), and the question of why a GCP deployment would use AWS storage when GCS is right there.",
+
+    "phase_1_inspect_actual_state": "On GKE, inspect the current StorageRouter config: env vars, the actual S3 endpoint, whether the GCS tier is reachable via Workload Identity. Document.\n\n```\nkubectl -n noetl exec deploy/noetl-worker -- env | grep -E 'NOETL_STORAGE|NOETL_S3|NOETL_GCS|NOETL_DEFAULT_STORAGE_TIER'\nkubectl -n noetl exec deploy/noetl-worker -- python -c '\nfrom noetl.core.storage.router import default_router\nfrom noetl.core.storage.models import StoreTier\nprint(\"available tiers:\", [t.value for t in StoreTier])\nprint(\"cloud tier:\", default_router._resolve_default_cloud_tier() if hasattr(default_router, \"_resolve_default_cloud_tier\") else \"unknown\")\n'\n```",
+
+    "phase_2_workload_analysis": "What ACTUALLY needs durable cross-pod spillover? Reads of the audit table, large MCP envelopes, retry data, the activities-style large payloads. Order-of-magnitude: how often does spillover happen? How big is the typical spillover blob? Is durability across cluster recreation actually needed, or is across-pod-restart sufficient?\n\nAnswer drives the option choice:\n  - If across-pod-restart enough: in-cluster S3 (already deployed, no extra work).\n  - If across-cluster needed: GCS or remote AWS — GCS wins (same cloud, no egress).",
+
+    "phase_3_decision_doc": "Write the decision in `sync/issues/2026-05-11-cloud-tier-router-decision.md`. Include:\n  - Current state (env inspection from phase 1)\n  - Workload analysis (phase 2)\n  - Three options with cost/complexity/durability/cross-region matrix\n  - Recommendation with rationale\n  - Implementation sketch for the chosen option (which env vars to set, what to provision)\n  - Migration plan (zero-downtime if possible)",
+
+    "phase_4_close_out": "Memory entry. Sync issue links the decision doc. Validation log paragraph if decision is final. NO implementation in this round — the implementation round is named as the deferred follow-up."
+  },
+
+  "phases": {
+    "1_inspect_actual_state": {
+      "objective": "Inventory GKE storage tier config.",
+      "spec": [
+        "kubectl exec inspection of NOETL_STORAGE_* / NOETL_S3_* / NOETL_GCS_* env vars.",
+        "Python introspection of default_router class + available tiers + actual cloud tier choice.",
+        "Inspect Workload Identity bindings — does the worker SA already have storage permissions on GCS in the project?",
+        "Document in result file."
+      ],
+      "verify": "Current state documented."
+    },
+
+    "2_workload_analysis": {
+      "objective": "Characterize spillover frequency + size from existing audit data.",
+      "spec": [
+        "Query travel_agent_events for render_amadeus_failure + render_activities row sizes — proxy for spillover volume.",
+        "Inspect noetl execution doc events for any storage_tier event_type (spillover happens?). If postgres-backed temp_ref table exists: SELECT count(*), avg(size), max(size).",
+        "Order-of-magnitude estimate: spillover frequency, typical blob size, retention need."
+      ],
+      "verify": "Quantified analysis in result file."
+    },
+
+    "3_decision_doc": {
+      "objective": "Write sync/issues/2026-05-11-cloud-tier-router-decision.md.",
+      "spec": [
+        "Three-option matrix: GCS / in-cluster S3 (SeaweedFS) / remote AWS S3.",
+        "Each option: cost, complexity, durability, cross-region, ops burden.",
+        "Recommendation with rationale.",
+        "Implementation sketch (env vars, provisioning needed, migration plan).",
+        "DO NOT implement — design only."
+      ],
+      "verify": "Decision doc complete; recommendation stated."
+    },
+
+    "4_close_out": {
+      "objective": "Memory + sync issue link + validation log.",
+      "spec": [
+        "Memory entry naming the recommended option + rationale.",
+        "Sync issue cross-references the decision doc.",
+        "Validation log if recommendation is final and ready for implementation round.",
+        "Deferred follow-up: implementation round (chooser change + provisioning + smoke)."
+      ],
+      "verify": "Bookkeeping complete."
+    }
+  },
+
+  "denied_tools": [
+    "Implementing the chosen option — design only this round; implementation is a separate follow-up",
+    "Provisioning new GCS buckets — Kadyapam owns provisioning",
+    "Modifying the storage router code in repos/noetl",
+    "Modifying the in-cluster object-store chooser (SeaweedFS stays)",
+    "Cutting a release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "kubectl exec for env + router introspection",
+    "psql for travel_agent_events + temp_ref analysis",
+    "Web fetch for Amadeus/GCS/AWS docs if needed for cost comparison",
+    "Read tool on noetl/core/storage/* to confirm tier semantics"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-235000-cloud-tier-router-decision.result.json. Required fields: {id, from, to, completed_at, overall_status, phases: {1_inspect_actual_state: {env_vars, cloud_tier_in_use, workload_identity_storage_bindings}, 2_workload_analysis: {spillover_count, avg_size_bytes, max_size_bytes, frequency_estimate}, 3_decision_doc: {sync_issue_path, recommended_option, rationale}, 4_close_out: {memory_entry_path, validation_log_appended}}, verdict, notes, deferred_followups: ['Implement chosen cloud tier option (separate round)']}."
+}

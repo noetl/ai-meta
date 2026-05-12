@@ -1,0 +1,105 @@
+{
+  "id": "20260511-230000-amadeus-production-api-switch",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T23:00:00Z",
+  "title": "Amadeus production API switch — workload field for test|production, smoke production endpoint",
+
+  "description": "Item #7 confirmed the Amadeus test API has persistent 5xx flake. Production API behaves better. This round adds a workload field `amadeus_env: test | production` to the Amadeus MCP playbook, plumbs the endpoint URL choice through, and runs a small production smoke (limited scope — production API usage costs real money per request). Cap: 1 ops PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "design_brief_for_codex": {
+    "current_state": "repos/ops/automation/agents/mcp/amadeus.yaml has hardcoded endpoints like `https://test.api.amadeus.com/v2/shopping/flight-offers`. The travel runtime's workload has `amadeus_env: test` as a field but it's never plumbed through — the MCP playbook ignores it.",
+
+    "target_state": "mcp/amadeus playbook accepts `amadeus_env: test | production` as a workload field. The four endpoint URLs (token + flights + locations + hotels + activities) switch between `test.api.amadeus.com` and `api.amadeus.com` based on the field. Default stays `test` so existing kind smokes don't change. Production credentials (different from test credentials!) are pulled from a separate secret path when `amadeus_env: production`.",
+
+    "phase_1_audit_endpoints": "Read mcp/amadeus.yaml. Identify every test.api.amadeus.com URL. Document the production equivalents (api.amadeus.com per Amadeus self-service docs).",
+
+    "phase_2_workload_field_and_substitution": "Add `amadeus_env: test` (default) to workload. Replace hardcoded test URLs with `{{ 'https://api.amadeus.com' if workload.amadeus_env == 'production' else 'https://test.api.amadeus.com' }}` — same Jinja conditional pattern from the keychain endpoint rule. Or use a workload-derived base URL field to keep the substitution clean.",
+
+    "phase_3_credentials_path": "Production Amadeus credentials are DIFFERENT from test credentials. The workload has fields `amadeus_key_path` and `amadeus_secret_path` for the test creds. Add `amadeus_production_key_path` and `amadeus_production_secret_path` for production. The keychain entry's `map.client_id` / `map.client_secret` Jinja conditionally picks the right secret path based on `amadeus_env`.",
+
+    "phase_4_production_secrets_gate": "If `amadeus_env: production` and the production secret paths point at NOT_FOUND secrets — fall back gracefully with a clear error in the audit row. Kadyapam owns provisioning the production secrets in GCP, same as Anthropic.",
+
+    "phase_5_smoke_limited": "Smoke production with TIGHTLY LIMITED scope to control cost:\n  1. `cd /mcp/amadeus; call get_token` with production endpoint — verifies auth.\n  2. `travel --provider openai locations near Paris` — locations is a cheap endpoint, single call.\n  3. ONE flights query: `travel --provider openai flights from SFO to JFK on 2026-07-15 for 1 adult` — single offers request.\n  Do NOT spam smokes. Production usage costs per-call. Capture results.",
+
+    "phase_6_close_out": "Memory + sync issue update + validation log. Document production credential setup recipe for Kadyapam if production secrets weren't provisioned yet."
+  },
+
+  "phases": {
+    "1_audit_endpoints": {
+      "objective": "Inventory test endpoint URLs in mcp/amadeus.",
+      "spec": ["grep test.api.amadeus.com in repos/ops/automation/agents/mcp/amadeus.yaml; document each URL + the production equivalent."],
+      "verify": "Inventory in result file."
+    },
+
+    "2_workload_field_and_substitution": {
+      "objective": "amadeus_env field added; URLs Jinja-switch.",
+      "spec": [
+        "Add `amadeus_env: test` to mcp/amadeus workload.",
+        "Replace test URLs with Jinja-conditional substitution OR derive base URL field.",
+        "Pydantic-validate."
+      ],
+      "verify": "Runtime validates. Default test mode preserves current behavior."
+    },
+
+    "3_credentials_path": {
+      "objective": "Production credentials wired via separate secret paths.",
+      "spec": [
+        "Add amadeus_production_key_path + amadeus_production_secret_path workload fields.",
+        "Update keychain entry's Jinja to conditionally pick the right secret path.",
+        "Test creds default unchanged."
+      ],
+      "verify": "Keychain works for both test (default) and production (when secret exists)."
+    },
+
+    "4_production_secrets_check": {
+      "objective": "Document what Kadyapam needs to provision for production smokes.",
+      "spec": [
+        "Read Amadeus self-service docs for production endpoint requirements (Amadeus requires explicit production approval).",
+        "Recipe in result file: `gcloud secrets create amadeus-production-{key,secret} --project=noetl-demo-19700101 ...`.",
+        "If production secrets aren't provisioned: AMBER on smoke, document for Kadyapam, GREEN on the code change."
+      ],
+      "verify": "Provisioning recipe documented."
+    },
+
+    "5_smoke_limited": {
+      "objective": "Tightly limited production smoke (cost control).",
+      "spec": [
+        "If production secrets exist: get_token + 1 locations call + 1 flights call. Capture results.",
+        "If not: skip phase 5, mark code-only GREEN."
+      ],
+      "verify": "Production endpoint validated OR provisioning recipe ready."
+    },
+
+    "6_close_out": {
+      "objective": "Memory + sync issue + validation log + ai-meta pointer bump.",
+      "spec": [
+        "Memory entry summarising outcome.",
+        "Sync issue update — close 'Amadeus production switch' line.",
+        "Bump repos/ops gitlink. Stage, don't push."
+      ],
+      "verify": "Bookkeeping complete."
+    }
+  },
+
+  "denied_tools": [
+    "Provisioning Amadeus production credentials — Kadyapam owns secret manager",
+    "Spamming the production API to validate — single-digit calls maximum",
+    "Modifying the travel runtime's classifier (this is mcp/amadeus only)",
+    "Cutting a release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "Read tool on amadeus.yaml + Amadeus docs",
+    "gcloud secrets describe (read-only)",
+    "noetl status <id> --json | jq for smoke verification"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-230000-amadeus-production-api-switch.result.json. Required fields: {id, from, to, completed_at, overall_status, phases: {1_audit_endpoints: {urls_found}, 2_workload_field_and_substitution: {validates}, 3_credentials_path: {keychain_updated}, 4_production_secrets_check: {recipe_documented, production_secrets_exist}, 5_smoke_limited: {executed, get_token_status, locations_status, flights_status}, 6_close_out: {ops_sha, ai_meta_commit_local, sync_issue_updated}}, verdict, notes, deferred_followups}."
+}

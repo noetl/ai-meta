@@ -1,0 +1,70 @@
+{
+  "id": "20260511-210000-authoring-guide-kind-gke-parity-rule",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T21:00:00Z",
+  "title": "Playbook authoring guide — pin the kind→GKE parity process rule (14th rule)",
+
+  "description": "Three rediscoveries in one session is strong signal: GKE parity sync (20260511-110000), MinIO elimination (20260511-150000), and gateway terminal trace (20260511-130000) all surfaced the same drift — local-GREEN doesn't mean GKE-GREEN. Pin this as the 14th rule in `repos/docs/docs/reference/playbook_authoring_guide.md`. Pure docs round. Cap: 1 docs PR.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 1800,
+  "max_iterations": 4,
+
+  "design_brief_for_codex": {
+    "current_state": "Authoring guide has 13 rules in 7 sections (after the 13th 'Python step authoring' rule landed in docs#57).",
+
+    "target_state": "14th rule in a new section `## Deployment parity` (or extend an existing one if more natural after re-reading the guide structure). Rule heading: `### Every kind deploy needs a chained GKE-parity round`. Two-paragraph body explaining the trap, Good/Bad blocks (Good: bridge tasks include explicit GKE deploy phase OR queue a parity round next; Bad: assume local GREEN means production GREEN). Evidence pointer to all three result files where this surfaced.",
+
+    "good_block_sketch": "```yaml\n# Bridge task explicitly chains GKE deploy after kind smoke:\nphases:\n  5_smoke_kind:\n    objective: Verify on kind\n  6_deploy_to_gke:\n    objective: Apply same changes to GKE; smoke\n  7_close_out:\n    objective: Document both surfaces\n```",
+
+    "bad_block_sketch": "```yaml\n# Round assumes local-GREEN is the success criterion:\nphases:\n  5_smoke_kind:\n    objective: Verify on kind. Done.\n# Result: GKE drift accumulates silently until a user reports it.\n```",
+
+    "evidence_pointers": "- bridge/outbox/20260511-110000-gke-parity-sync.result.json (catalog drift)\n- bridge/outbox/20260511-130000-gateway-terminal-surface-and-gui-bump.result.json (GUI surface unknown)\n- bridge/outbox/20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser.result.json (infra drift)",
+
+    "no_other_changes": "Don't touch any of the 13 existing rules. Don't reorder sections beyond inserting the new one (or extending an existing one cleanly)."
+  },
+
+  "phases": {
+    "1_apply_edit": {
+      "objective": "Insert the 14th rule.",
+      "spec": [
+        "Pick section placement (new `## Deployment parity` section OR extend `## Step semantics` if more natural).",
+        "Insert rule with heading, body, Good/Bad code blocks, evidence pointers.",
+        "`npm run build` clean."
+      ],
+      "verify": "Build clean; rule present."
+    },
+
+    "2_open_and_merge_docs_pr": {
+      "objective": "Branch, commit, push, PR, merge.",
+      "spec": [
+        "branch kadyapam/authoring-guide-kind-gke-parity-rule",
+        "PR title: `docs(reference): add 14th rule — every kind deploy needs a chained GKE-parity round`",
+        "Body cites the three result files. Squash-merge."
+      ],
+      "verify": "PR merged."
+    },
+
+    "3_bump_ai_meta_pointer": {
+      "objective": "Bump repos/docs gitlink. Stage but do not push.",
+      "spec": [
+        "git submodule update --remote repos/docs",
+        "git add repos/docs && git commit -m 'chore(sync): bump docs for authoring-guide kind-gke-parity rule'"
+      ],
+      "verify": "ai-meta has fresh local commit."
+    }
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/ops, repos/gui, repos/e2e",
+    "Modifying any of the 13 existing rules",
+    "Cutting a release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": ["cd repos/docs && npm install && npm run build", "git/gh"],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-210000-authoring-guide-kind-gke-parity-rule.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_apply_edit: {section_placement, docs_build_clean}, 2_open_and_merge_docs_pr: {pr_url, merged_sha}, 3_bump_ai_meta_pointer: {docs_sha, ai_meta_commit_local}}, verdict, notes}."
+}
