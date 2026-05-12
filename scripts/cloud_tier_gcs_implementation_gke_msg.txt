@@ -1,0 +1,50 @@
+Codex prompt — Implement GCS cloud tier on GKE (Round D recommendation execution)
+===================================================================================
+
+Bridge task: bridge/inbox/delegated/20260512-000000-cloud-tier-gcs-implementation-gke.task.json
+Result:      bridge/outbox/20260512-000000-cloud-tier-gcs-implementation-gke.result.json
+Decision doc: sync/issues/2026-05-11-cloud-tier-router-decision.md
+
+Round D recommended GCS as the GKE cloud spill tier. This round executes:
+verify IAM, flip ConfigMap, prove durability via worker-restart test.
+
+Bucket `noetl-demo-output` already exists. Worker SA Workload Identity is
+wired (Vertex AI uses it). The Round D smoke found 403 on storage.buckets.get
+— so IAM binding is the gate.
+
+Codex job (6 phases):
+  1. Verify IAM: in-pod google.cloud.storage probe (bucket.exists,
+     upload_from_string, delete). If 403 on any step → AMBER + STOP with
+     the IAM recipe for Kadyapam.
+  2. Flip NOETL_STORAGE_CLOUD_TIER=gcs in the right config surface
+     (ConfigMap, helm values, or both — match how SeaweedFS got there).
+  3. kubectl rollout restart noetl-worker + noetl-server. Verify env.
+  4. Worker-restart durability test against GCS — same proof shape as
+     SeaweedFS, but using google.cloud.storage SDK. ETag + content match
+     required.
+  5. Travel agent activities smoke on GKE. Confirm execution clean. If
+     activities payload too small to trigger spillover, do a synthetic
+     large-object write to prove the GCS path end-to-end.
+  6. Close out: sync issue section close, validation log, memory entry,
+     ops pointer bump if config change PR landed.
+
+IAM recipe for Kadyapam if phase 1 blocks:
+  gcloud storage buckets add-iam-policy-binding gs://noetl-demo-output \
+    --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \
+    --role=roles/storage.objectAdmin \
+    --project=noetl-demo-19700101
+
+(Alternative scoped: roles/storage.objectCreator + roles/storage.objectViewer.)
+
+Architectural rules:
+  - GCS as cloud tier ONLY. NOT SeaweedFS migration. NOT AWS S3.
+  - Don't touch storage router code in repos/noetl.
+  - Don't modify the in-cluster object-store chooser.
+  - Don't provision IAM yourself — Kadyapam owns.
+  - No release cut. No git push from ai-meta.
+
+Two outcomes possible:
+  GREEN: IAM ready, ConfigMap flipped, durability proven, travel smoke clean.
+  AMBER + STOP: IAM not granted — recipe documented for Kadyapam, no rollout.
+
+Either outcome is acceptable. The IAM step is gate-able by user action.

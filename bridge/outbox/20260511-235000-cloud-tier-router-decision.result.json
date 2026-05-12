@@ -1,0 +1,90 @@
+{
+  "id": "20260511-235000-cloud-tier-router-decision",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-12T03:05:00Z",
+  "overall_status": "GREEN_DESIGN_ONLY",
+  "phases": {
+    "1_inspect_actual_state": {
+      "status": "completed",
+      "env_vars": {
+        "NOETL_DEFAULT_STORAGE_TIER": "kv",
+        "NOETL_STORAGE_CLOUD_TIER": "s3",
+        "NOETL_S3_ENDPOINT": "http://object-store.object-store.svc.cluster.local:9000",
+        "NOETL_S3_BUCKET": "noetl",
+        "NOETL_S3_REGION": "us-east-1",
+        "NOETL_GCS_BUCKET": "noetl-demo-output",
+        "NOETL_GCS_PREFIX": "results/",
+        "NOETL_STORAGE_LOCAL_CACHE_DIR": "/opt/noetl/data/disk_cache"
+      },
+      "cloud_tier_in_use": "s3",
+      "cloud_tier_target": "in-cluster SeaweedFS through object-store.object-store.svc.cluster.local:9000",
+      "router_introspection": {
+        "store_tiers": ["memory", "kv", "disk", "s3", "gcs", "db", "duckdb", "eventlog"],
+        "result_handler_default_tier": "kv",
+        "router_default_cloud_tier": "s3",
+        "auto_512kb": "kv",
+        "auto_2mb": "disk",
+        "default_store_class": "TempStore"
+      },
+      "workload_identity_storage_bindings": {
+        "kubernetes_service_account": "noetl/noetl-worker",
+        "google_service_account": "noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+        "project_roles_seen": ["roles/aiplatform.user", "roles/container.viewer", "roles/mcp.toolUser"],
+        "gcs_bucket": "noetl-demo-output",
+        "gcs_probe": "403 storage.buckets.get denied from inside worker",
+        "conclusion": "GCS bucket exists and env is configured, but worker IAM is not sufficient for GCS router use today."
+      }
+    },
+    "2_workload_analysis": {
+      "status": "completed",
+      "spillover_count": 8621,
+      "avg_size_bytes": 8060,
+      "p50_size_bytes": 1123,
+      "p95_size_bytes": 9527,
+      "max_size_bytes": 1249108,
+      "frequency_estimate": {
+        "total_events_7d": 216249,
+        "events_with_temp_or_result_ref_markers_7d": 8933,
+        "temp_ref_table_rows": 0,
+        "result_ref_table_rows": 0,
+        "known_large_payload": "amadeus_search_activities",
+        "known_large_payload_rows": 9,
+        "known_large_payload_avg_bytes": 1240126,
+        "known_large_payload_max_bytes": 1249108,
+        "worker_disk_cache_files": 1,
+        "worker_disk_cache_bytes": 1249029
+      },
+      "retention_need": "Current evidence points to rare, modest spillover. Cross-pod restart durability is already covered by SeaweedFS. Cross-cluster or disaster recovery requires GCS."
+    },
+    "3_decision_doc": {
+      "status": "completed",
+      "sync_issue_path": "sync/issues/2026-05-11-cloud-tier-router-decision.md",
+      "recommended_option": "GCS for GKE production cloud spill tier; keep SeaweedFS as local/kind and in-cluster object store",
+      "rationale": [
+        "GKE is already in GCP and uses Workload Identity successfully for other services.",
+        "GCS bucket noetl-demo-output already exists, but worker IAM must be granted before flipping.",
+        "Current spillover volume is small enough that storage cost is not the deciding factor.",
+        "SeaweedFS is good for pod restart durability but is not cross-cluster disaster recovery.",
+        "Remote AWS S3 adds cross-cloud egress and credential complexity without a current requirement."
+      ]
+    },
+    "4_close_out": {
+      "status": "completed",
+      "memory_entry_path": "memory/inbox/2026/05/20260511-235000-cloud-tier-router-decision-green.md",
+      "validation_log_appended": "bridge/outbox/codex-spike-green-validation.md",
+      "implementation_round": "GKE storage cloud tier to GCS"
+    }
+  },
+  "verdict": "Recommend GCS as the durable GKE production cloud tier once bucket IAM is granted. SeaweedFS remains the right in-cluster object-store backend, but not the cross-cluster durability answer.",
+  "notes": [
+    "Design-only round: no buckets, IAM, Helm values, router code, or deployments were changed.",
+    "The GCS bucket exists, but the worker service account currently receives 403 on bucket metadata access.",
+    "The live S3 cloud tier is in-cluster SeaweedFS, not remote AWS S3."
+  ],
+  "deferred_followups": [
+    "Implement chosen cloud tier option (separate round): grant GCS IAM, flip NOETL_STORAGE_CLOUD_TIER=gcs, restart, and run large-result durability smoke.",
+    "Keep SeaweedFS deployed for local/kind and in-cluster S3-compatible workflows.",
+    "Do not introduce remote AWS S3 unless a new cross-cloud requirement appears."
+  ]
+}
