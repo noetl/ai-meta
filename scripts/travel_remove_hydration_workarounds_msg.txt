@@ -1,0 +1,92 @@
+Codex prompt — Travel runtime cleanup: remove _fetch_*_child_context workarounds (post-v2.37.8)
+==================================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-200000-travel-remove-hydration-workarounds.task.json
+
+Result goes to:
+  bridge/outbox/20260511-200000-travel-remove-hydration-workarounds.result.json
+
+Context:
+  noetl v2.37.8 (item #11) added _fetch_sub_execution_terminal_result in the
+  agent executor. It walks events and hydrates envelope.data with the
+  terminal step's result.context — uncompacted, not the truncated /status doc.
+
+  Pre-v2.37.8, the travel runtime worked around the truncation via two
+  helpers in the classifier merger:
+    - _fetch_vertex_child_context
+    - _fetch_ollama_child_context
+  Both walked /api/executions/{id}/events themselves for the vertex / ollama
+  step's result.context.
+
+  Now those helpers are belt-and-suspenders. The GKE smoke 624795118960115887
+  proved the engine path works (10 items rendered via render_activities,
+  full envelope hydrated). This round removes the workarounds.
+
+What stays:
+  - classify_via_vertex_mcp + classify_via_ollama_mcp step definitions
+  - _extract_vertex_text_from_context + _extract_ollama_text_from_context
+    (or whatever they're named) — still useful for chat_completion envelope
+    normalization
+  - render_* steps — unaffected, already read envelope.data
+  - Engine hydration helper in repos/noetl — load-bearing now, stays
+
+What goes:
+  - _fetch_vertex_child_context function definition
+  - _fetch_ollama_child_context function definition
+  - Their callers in the merger — replaced with direct envelope.data reads
+
+Codex job (5 phases — see task JSON):
+
+  1. audit + design:        Grep workaround references. Document call sites.
+                            Confirm scope is bounded (merger only, not render_*).
+                            Sketch the replacement: which envelope.data.* reads
+                            substitute the helper return values.
+
+  2. apply removal:         Delete both helper functions. Replace callers
+                            with envelope.get('data', {}) access. Keep the
+                            text-normalization helpers. Pydantic-validate.
+
+  3. smoke all four providers:
+                            Re-register travel runtime (kind catalog v28).
+                            Smoke help under all four providers on kind.
+                            Smoke `travel --provider vertex-ai activities near
+                            Times Square` on GKE — the critical regression test.
+                            Spot-check engine hydration: `noetl status <id>
+                            --json | jq '.events[] | select(.step | test(\"classify_via_vertex_mcp\")) | .result.context.data | keys'`
+                            should show the full envelope keys.
+
+  4. grep invariant:        grep -c for both workaround names → 0.
+                            Line-count drop ~40-80 lines.
+
+  5. ops PR + ai-meta bump: branch kadyapam/travel-remove-hydration-workarounds
+                            PR title: `refactor(travel-agent): remove _fetch_*_child_context workarounds (post-v2.37.8 engine hydration)`
+                            Squash-merge. Bump repos/ops gitlink. Don't push ai-meta.
+
+Architectural rules:
+  - Ops only round. No noetl, gui, docs, e2e changes.
+  - Don't touch the engine hydration helper in repos/noetl — load-bearing.
+  - Don't modify classify_via_vertex_mcp / classify_via_ollama_mcp step
+    definitions (only the merger's text-extraction path).
+  - Don't remove the _extract_*_text_from_context helpers — they normalize
+    the chat_completion envelope shape.
+  - Don't modify render_* steps — they already read envelope.data.
+  - No release cut.
+  - No git push from ai-meta.
+
+Pre-handoff (already done):
+  - noetl v2.37.8 deployed kind + GKE.
+  - GKE activities smoke 624795118960115887 confirmed engine hydration works.
+  - ai-meta artefacts pushed.
+
+Codex commits + pushes:
+  repos/ops (1 PR — removal + smoke)
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/ops after PR merges.
+
+What to do if blocked:
+  - Pydantic validation fails after removal: helpers may have transitive
+    consumers Claude's audit missed. Document + AMBER + STOP.
+  - Smoke regression: roll back the PR, AMBER + STOP, capture the failing
+    audit row + execution diff.

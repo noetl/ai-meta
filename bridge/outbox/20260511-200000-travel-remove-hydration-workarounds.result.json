@@ -1,0 +1,183 @@
+{
+  "id": "20260511-200000-travel-remove-hydration-workarounds",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-12T01:44:52Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_audit_and_design": {
+      "status": "completed",
+      "vertex_workaround_lines": [
+        580,
+        665,
+        675
+      ],
+      "ollama_workaround_lines": [
+        624,
+        667,
+        730
+      ],
+      "call_sites": {
+        "vertex": "classify_intent merger called _fetch_vertex_child_context when the Vertex envelope had no text or was an error, then fed the returned context into _extract_vertex_text_from_context.",
+        "ollama": "classify_intent merger called _fetch_ollama_child_context when the Ollama envelope had no text or was an error, then fed the returned context into _extract_ollama_text_from_context."
+      },
+      "replacement_design": "NoETL v2.37.8 hydrates framework=noetl envelope.data from sub-execution terminal events. The merger now reads envelope.data directly, falling back to the envelope itself only when data is not a dict."
+    },
+    "2_apply_removal": {
+      "status": "completed",
+      "validates": true,
+      "validation": "PYTHONPATH=/Volumes/X10/projects/noetl/ai-meta/repos/noetl Playbook.model_validate passed for automation/agents/travel/runtime.yaml",
+      "helpers_deleted": true,
+      "callers_updated": true,
+      "files_changed": [
+        "repos/ops/automation/agents/travel/runtime.yaml"
+      ]
+    },
+    "3_smoke_all_four_providers": {
+      "status": "completed",
+      "registered_catalogs": {
+        "kind": {
+          "path": "automation/agents/travel/runtime",
+          "version": 34,
+          "catalog_id": "624806405463081338"
+        },
+        "gke": {
+          "path": "automation/agents/travel/runtime",
+          "version": 7,
+          "catalog_id": "624806408910799177"
+        }
+      },
+      "help_openai": {
+        "surface": "kind",
+        "execution_id": "624806711404003707",
+        "status": "COMPLETED",
+        "effective_provider": "openai",
+        "render_type": "app:column"
+      },
+      "help_anthropic": {
+        "surface": "kind",
+        "execution_id": "624806839179280848",
+        "status": "COMPLETED",
+        "effective_provider": "anthropic",
+        "render_type": "app:column"
+      },
+      "help_vertex_kind": {
+        "surface": "kind",
+        "execution_id": "624806879100666405",
+        "status": "COMPLETED",
+        "effective_provider": "openai",
+        "provider_fallback_reason": "service-account credentials missing private_key or client_email",
+        "render_type": "app:column",
+        "hydrated_data_keys": [
+          "_meta",
+          "command_id",
+          "isError",
+          "status",
+          "summary",
+          "text"
+        ]
+      },
+      "help_ollama": {
+        "surface": "kind",
+        "execution_id": "624806944607306399",
+        "status": "COMPLETED",
+        "effective_provider": "ollama",
+        "render_type": "app:column",
+        "hydrated_data_keys": [
+          "_meta",
+          "command_id",
+          "isError",
+          "status",
+          "summary",
+          "text",
+          "usage",
+          "usage_completion_tokens",
+          "usage_prompt_tokens",
+          "usage_total_tokens",
+          "worker_id"
+        ]
+      },
+      "help_vertex_gke": {
+        "surface": "gke",
+        "execution_id": "624807547353956682",
+        "status": "COMPLETED",
+        "effective_provider": "vertex-ai",
+        "render_type": "app:column",
+        "hydrated_data_keys": [
+          "_meta",
+          "command_id",
+          "isError",
+          "status",
+          "summary",
+          "text",
+          "usage",
+          "usage_completion_tokens",
+          "usage_prompt_tokens",
+          "usage_total_tokens",
+          "worker_id"
+        ]
+      },
+      "activities_vertex_gke": {
+        "surface": "gke",
+        "execution_id": "624807869216457156",
+        "status": "COMPLETED",
+        "effective_provider": "vertex-ai",
+        "intent": "activities",
+        "render_step": "render_activities",
+        "render_type": "app:column",
+        "summary": "10 activities found near (40.758, -73.9855)",
+        "classify_via_vertex_mcp_has_data": true,
+        "amadeus_via_mcp_activities": {
+          "has_data": true,
+          "ok": true,
+          "items_len": 10,
+          "activities_total": 1799,
+          "data_keys": [
+            "_mcp_status",
+            "_meta",
+            "activities_total",
+            "error",
+            "isError",
+            "items",
+            "ok",
+            "status_code"
+          ]
+        }
+      },
+      "audit_rows": {
+        "kind": "classify_intent rows recorded for the four kind help smokes with expected ai_provider values: openai, anthropic, openai fallback for vertex, and ollama.",
+        "gke": "classify_intent rows recorded for both GKE Vertex smokes; render_activities row recorded for execution 624807869216457156 with render_type=app:column."
+      },
+      "engine_hydration_confirmed": true
+    },
+    "4_grep_invariant": {
+      "status": "completed",
+      "vertex_workaround_count": 0,
+      "ollama_workaround_count": 0,
+      "line_count_before": 1894,
+      "line_count_after": 1830,
+      "line_count_delta": -64,
+      "diffstat": "1 file changed, 4 insertions(+), 68 deletions(-)"
+    },
+    "5_ops_pr_and_pointer_bump": {
+      "status": "completed",
+      "pr_url": "https://github.com/noetl/ops/pull/71",
+      "merged_sha": "82da6e559daeae1a27c034aa2bf18fb22dab0786",
+      "ops_sha": "82da6e559daeae1a27c034aa2bf18fb22dab0786",
+      "ai_meta_commit_local": "pending after staging"
+    }
+  },
+  "regressions_found": [],
+  "iterations": 1,
+  "verdict": "GREEN",
+  "notes": [
+    "The GKE Vertex activities smoke is the critical proof: both classify_via_vertex_mcp.data and amadeus_via_mcp_activities.data were hydrated directly by the engine and the runtime no longer performed child-event lookup.",
+    "Kind Vertex fallback is expected because kind lacks GKE Workload Identity."
+  ],
+  "deferred_followups": [
+    "14th authoring-guide rule pinning kind-to-GKE parity process lesson",
+    "Cloud-tier router decision (GCS vs in-cluster S3 vs remote AWS S3)",
+    "Ollama bridge deployment on GKE if real Ollama wanted",
+    "Amadeus production API switch"
+  ]
+}

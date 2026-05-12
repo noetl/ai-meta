@@ -1,0 +1,119 @@
+{
+  "id": "20260511-200000-travel-remove-hydration-workarounds",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T20:00:00Z",
+  "title": "Travel runtime — remove _fetch_vertex_child_context + _fetch_ollama_child_context workarounds (cleanup post-v2.37.8)",
+
+  "description": "Pure cleanup round. The travel runtime's classifier merger contains `_fetch_vertex_child_context` and `_fetch_ollama_child_context` helpers that manually walk a sub-execution's events table to extract the terminal step's `result.context`. These workarounds were necessary before noetl v2.37.8 because the agent executor's envelope.data was sourced from the truncated `/status` doc. As of item #11 (noetl v2.37.8 merged + deployed to kind + GKE), the agent executor itself hydrates envelope.data from events — so the travel runtime's workarounds are now belt-and-suspenders that add complexity to the merger without adding behavior. The GKE smoke at execution 624795118960115887 proved the engine path works (10 items rendered via render_activities through the engine hydration). This round removes the workarounds and replaces them with direct envelope.data.* reads. Cap: 1 ops PR + ai-meta pointer bump. No docs changes expected.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "prior_round_context": {
+    "v2_37_8_status": "Deployed to local kind + GKE. Item #11 hydration fix lives in noetl/tools/agent/executor.py via _fetch_sub_execution_terminal_result. GKE smoke 624795118960115887 confirmed engine-side hydration works for the activities path.",
+    "workarounds_in_travel_runtime": "Two helpers in classify_via_vertex_mcp / classify_via_ollama_mcp / their merger consumption. They fetch /api/executions/{id}/events directly and walk for the vertex_generate_content or ollama equivalent step's result.context. The engine fix now does this generically for any agent → MCP hop."
+  },
+
+  "design_brief_for_codex": {
+    "current_state": "repos/ops/automation/agents/travel/runtime.yaml has two Python helper functions inside the classifier merger / classify_via_* branches:\n  - `_fetch_vertex_child_context(envelope)` — fetches /api/executions/{child_execution_id}/events, walks for vertex_generate_content, returns result.context.\n  - `_fetch_ollama_child_context(envelope)` — same shape for the ollama path.\n\nBoth are called from the classifier merger when extracting text from the vertex / ollama sub-execution result. They exist because pre-v2.37.8 the agent executor's envelope.data was the truncated /status doc.",
+
+    "target_state": "Remove both helpers entirely. Replace their callers with direct reads of `envelope.data` (which the engine now hydrates from events). The text-extraction path becomes the same one the helpers' return values fed — read `envelope.data.text` or `envelope.data.content[0].text` or `envelope.data._meta.text` (the chat_completion envelope shape). The merger's openai/anthropic urllib branch stays unchanged (no envelope hydration concern there).",
+
+    "phase_1_audit_and_design": "Grep the travel runtime for `_fetch_vertex_child_context`, `_fetch_ollama_child_context`, `vertex_generate_content`, `ollama` references in the classifier merger. Document the call sites + the data flow. Confirm:\n  (a) Both helpers exist and are called from the merger.\n  (b) The merger has a clear branch for vertex vs ollama text extraction.\n  (c) The helpers' return value is consumed via a known shape (likely a context dict with `text`/`isError`/`_meta`).\n\nIf grep surfaces unexpected usage (e.g., a render_* step also calls these helpers), document and adjust the plan.",
+
+    "phase_2_apply_removal": "Edit repos/ops/automation/agents/travel/runtime.yaml's classifier merger:\n  - DELETE the `_fetch_vertex_child_context` function definition.\n  - DELETE the `_fetch_ollama_child_context` function definition.\n  - Replace callers with direct `envelope.get('data', {})` access. The text-extraction helpers (`_extract_vertex_text_from_context`, `_extract_ollama_text_from_context` or whatever they're named) can stay — they normalize the chat_completion envelope shape and that's still useful.\n  - The envelope.data now IS the result.context (engine hydrates this), so the helpers' walk-the-events step is replaced by a direct dict access.\n\nKeep classify_via_vertex_mcp and classify_via_ollama_mcp step definitions unchanged — only the merger's text-extraction path changes.\n\nPydantic-validate via `repos/noetl/.venv/bin/python -c '...'`.",
+
+    "phase_3_smoke_all_four_providers": "Re-register travel runtime. Smoke each provider locally on kind first, then GKE:\n  - `travel help` (default → openai)\n  - `travel --provider anthropic help`\n  - `travel --provider vertex-ai help` (kind: falls back to openai; GKE: real vertex)\n  - `travel --provider ollama help`\n  - `travel --provider vertex-ai activities near Times Square` (GKE only — this is the critical test that the engine hydration is doing the work the workaround used to do)\n\nFor each: verify effective_provider matches expected (or documented fallback), audit row present, widget rendered.",
+
+    "phase_4_grep_invariant": "Confirm the workarounds are gone:\n  - `grep -c '_fetch_vertex_child_context' repos/ops/automation/agents/travel/runtime.yaml` → 0\n  - `grep -c '_fetch_ollama_child_context' repos/ops/automation/agents/travel/runtime.yaml` → 0\n  - The runtime's line count should drop by ~40-80 lines from the helper removal.",
+
+    "phase_5_ops_pr_and_pointer_bump": "Branch `kadyapam/travel-remove-hydration-workarounds`. Conventional-commit: `refactor(travel-agent): remove _fetch_*_child_context workarounds (post-v2.37.8 engine hydration)`. Body cites item #11 (noetl v2.37.8) + the GKE smoke that proved engine hydration works. Squash-merge. Bump repos/ops gitlink in ai-meta. Don't push ai-meta — Kadyapam pushes."
+  },
+
+  "phases": {
+    "1_audit_and_design": {
+      "objective": "Map the workarounds + their callers in the merger. Confirm scope is bounded.",
+      "spec": [
+        "grep _fetch_vertex_child_context + _fetch_ollama_child_context in repos/ops/automation/agents/travel/runtime.yaml.",
+        "Document line ranges + call sites.",
+        "Confirm no render_* step also calls these helpers (would expand scope).",
+        "Sketch the replacement: which envelope.data.* reads replace the helper return values."
+      ],
+      "verify": "Audit doc shows bounded removal scope."
+    },
+
+    "2_apply_removal": {
+      "objective": "Delete helpers, replace callers with direct envelope.data reads. Pydantic-validate.",
+      "spec": [
+        "Edit runtime.yaml: remove both helper function definitions.",
+        "Replace callers with `envelope.get('data', {})` access.",
+        "Keep text-normalization helpers (_extract_*_text_from_context) — they still do useful work on the chat_completion envelope shape.",
+        "Pydantic-validate the patched runtime."
+      ],
+      "verify": "Runtime validates. Workarounds gone."
+    },
+
+    "3_smoke_all_four_providers": {
+      "objective": "All four providers complete cleanly post-removal.",
+      "spec": [
+        "Re-register travel runtime (catalog v28 expected on kind).",
+        "Smoke help under all four providers on kind.",
+        "Smoke `travel --provider vertex-ai activities near Times Square` on GKE — the critical regression test.",
+        "Verify audit rows + widgets for each.",
+        "Spot-check the engine hydration is in play: `noetl status <vertex-activities-exec> --json | jq '.events[] | select(.step | test(\"classify_via_vertex_mcp\")) | .result.context.data | keys'` should show full envelope keys (items, ok, _meta, etc.) — proving the engine returned the full context, not the truncated stub the workarounds used to handle."
+      ],
+      "verify": "Four providers GREEN. Engine hydration confirmed in events."
+    },
+
+    "4_grep_invariant": {
+      "objective": "Workaround references are zero across the runtime.",
+      "spec": [
+        "grep -c '_fetch_vertex_child_context' repos/ops/automation/agents/travel/runtime.yaml → 0.",
+        "grep -c '_fetch_ollama_child_context' repos/ops/automation/agents/travel/runtime.yaml → 0.",
+        "Line count reduction proportional to the removed helpers (~40-80 lines)."
+      ],
+      "verify": "Greps return zero. Diff size matches expectation."
+    },
+
+    "5_ops_pr_and_pointer_bump": {
+      "objective": "Ship the cleanup. Bump ai-meta. Don't push.",
+      "spec": [
+        "`cd repos/ops && git checkout -b kadyapam/travel-remove-hydration-workarounds`.",
+        "Commit: `refactor(travel-agent): remove _fetch_*_child_context workarounds (post-v2.37.8 engine hydration)`. Body cites item #11 + GKE smoke 624795118960115887.",
+        "Push, PR, squash-merge.",
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/ops && git add repos/ops && git commit -m 'chore(sync): bump ops for travel workaround cleanup'`.",
+        "Don't push."
+      ],
+      "verify": "Ops PR merged. ai-meta has fresh local commit."
+    }
+  },
+
+  "expected_state": {
+    "description": "Travel runtime is leaner: ~40-80 lines smaller. Both workaround helpers gone. All four providers + GKE activities smoke pass through the engine-hydrated envelope.data without per-provider event-walking. The travel runtime is now a thin dispatcher with no hydration concerns.",
+    "verify_shell": "set -eo pipefail; cd /Volumes/X10/projects/noetl/ai-meta; VERTEX_WA=$(grep -c '_fetch_vertex_child_context' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); OLLAMA_WA=$(grep -c '_fetch_ollama_child_context' repos/ops/automation/agents/travel/runtime.yaml 2>/dev/null || echo 0); echo \"vertex_workaround:$VERTEX_WA ollama_workaround:$OLLAMA_WA\"; if [ \"$VERTEX_WA\" -eq 0 ] && [ \"$OLLAMA_WA\" -eq 0 ]; then echo 'GOAL: TRAVEL_WORKAROUNDS_REMOVED'; else echo 'GOAL: NOT_YET'; fi",
+    "success_pattern": "GOAL: TRAVEL_WORKAROUNDS_REMOVED"
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/gui, repos/docs, repos/e2e — ops only round",
+    "Modifying the engine hydration helper (noetl/tools/agent/executor.py:_fetch_sub_execution_terminal_result) — that stays as the load-bearing implementation",
+    "Modifying classify_via_vertex_mcp, classify_via_ollama_mcp step definitions — only the merger's text-extraction path changes",
+    "Modifying render_* steps — they read envelope.data already, unaffected",
+    "Removing the _extract_*_text_from_context helpers — they still do useful chat_completion envelope normalization",
+    "Cutting any release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "noetl validate (or .venv/bin/python Playbook.model_validate)",
+    "noetl register / noetl status <id> --json | jq",
+    "git apply / git commit -F - / git push",
+    "gh pr create / gh pr merge --squash --delete-branch",
+    "psql or kubectl exec for audit row verification"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-200000-travel-remove-hydration-workarounds.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_audit_and_design: {vertex_workaround_lines, ollama_workaround_lines, call_sites}, 2_apply_removal: {validates, helpers_deleted: bool, callers_updated}, 3_smoke_all_four_providers: {help_openai, help_anthropic, help_vertex_kind, help_vertex_gke, help_ollama, activities_vertex_gke, engine_hydration_confirmed: bool}, 4_grep_invariant: {vertex_workaround_count: 0, ollama_workaround_count: 0, line_count_delta}, 5_ops_pr_and_pointer_bump: {pr_url, merged_sha, ops_sha, ai_meta_commit_local}}, regressions_found, iterations, verdict, notes, deferred_followups: ['14th authoring-guide rule pinning kind→GKE parity process lesson', 'Cloud-tier router decision (GCS vs in-cluster S3 vs remote AWS S3)', 'Ollama bridge deployment on GKE if real Ollama wanted', 'Amadeus production API switch']}. If verdict GREEN, append paragraph to bridge/outbox/codex-spike-green-validation.md."
+}
