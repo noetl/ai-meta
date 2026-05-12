@@ -255,3 +255,218 @@ Travel smoke:
 | `travel --provider ollama help` | `624832446000792195` | `COMPLETED`; rendered `app:column`; expected fallback to `effective_provider=openai`; fallback reason says the bridge could not connect to `ollama.noetl.svc.cluster.local:11434` |
 
 This closes the earlier "bridge service absent" part of the Ollama-on-GKE item. The remaining item is backend provisioning: either deploy a CPU Ollama pod or point the bridge at an external Ollama endpoint when real `effective_provider=ollama` inference is needed.
+
+## Follow-Up: Ollama Backend On GKE, Option B
+
+Date: 2026-05-12
+
+Option B is now live on GKE: `ollama-bridge` fronts an in-cluster CPU-only Ollama backend.
+
+Ops changes:
+
+- `noetl/ops#74` added an opt-in Helm `ollama` component: PVC, Deployment, and Service.
+- `noetl/ops#75` resized the backend after live validation showed `gemma3:4b` needed more memory than the first sizing allowed.
+- Merged ops SHA: `3587f12ac0e1aaee0185e285b064cfde7703f430`.
+
+Deployed shape:
+
+```text
+Helm release: noetl revision 129
+Deployment:   noetl/ollama
+Service:      ollama.noetl.svc.cluster.local:11434
+PVC:          noetl/ollama-data, 20Gi
+Image:        ollama/ollama:latest
+Model:        gemma3:4b, digest prefix a2af6cc3eb7f, size 3.3 GB
+Resources:    request 500m CPU / 8Gi memory, limit 2 CPU / 10Gi memory
+```
+
+The first live sizing (`4Gi` request / `6Gi` limit) was not enough. Ollama cached the model but `/api/chat` returned HTTP 500 because the model needed about `4.0 GiB` while only `2.7 GiB` was free inside the container after runtime overhead. The 8Gi/10Gi sizing fixed this; a direct bridge-to-backend chat probe returned `pong`.
+
+Travel smokes:
+
+| Check | Execution | Result |
+| --- | --- | --- |
+| `travel --provider ollama help` | `624881246190961331` | `COMPLETED`; child `624881262003487439`; `effective_provider=ollama`; no fallback; `app:column` |
+| `travel --provider ollama flights SFO JFK 2026-07-15` | `624881921993999156` | `COMPLETED`; child `624881937731027792`; `effective_provider=ollama`; no fallback; friendly Amadeus widget |
+| `travel --provider ollama activities near Times Square` | `624885675040440455` | `COMPLETED`; child `624885689158467747`; `effective_provider=ollama`; no fallback; `render_activities`; `app:column` |
+
+Observed CPU latency is high but functional: about `91s` average end-to-end for the three travel smokes and about `62s` average for the Ollama child execution. If this needs to feel interactive, the follow-up is a performance decision rather than a routing bug: smaller model, more CPU, GPU nodes, or an external Ollama endpoint.
+
+One ignored attempt: activities execution `624882636149752823` overlapped the Helm/server rollout and stuck after `log_classification` when the child result tried to emit events while the server connection was unavailable. The clean post-rollout rerun is `624885675040440455`.
+
+Round status: GREEN. The earlier `--provider ollama` OpenAI fallback on GKE is closed.
+
+## Follow-Up: Ollama Backend Stopped For Cost Control
+
+Date: 2026-05-12
+
+The GKE Ollama backend was stopped after the option B proof round to avoid ongoing Autopilot resource consumption from the 8Gi/10Gi CPU-only pod.
+
+Current state:
+
+```text
+Helm release: noetl revision 130
+Deployment:   noetl/ollama, 0/0 replicas
+Service:      ollama.noetl.svc.cluster.local:11434 remains present
+PVC:          noetl/ollama-data, 20Gi, remains Bound
+Bridge:       noetl/ollama-bridge remains running
+```
+
+`ollama-bridge` still resolves, but `travel --provider ollama ...` should be expected to fall back to OpenAI until the backend is re-enabled. The persistent volume was intentionally retained so the cached `gemma3:4b` model can be reused when the backend is provisioned again.
+
+The stop command is durable through Helm because `noetl/ops#76` changed the chart to allow `ollama.replicas=0` instead of rendering zero through Helm's `default 1` fallback.
+
+To provision the backend back when needed:
+
+```bash
+cd /Volumes/X10/projects/noetl/ai-meta/repos/ops
+
+helm upgrade noetl automation/helm/noetl \
+  --namespace noetl \
+  --kube-context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  --reuse-values \
+  --set ollama.enabled=true \
+  --set ollama.replicas=1 \
+  --set ollama.resources.requests.memory=8Gi \
+  --set ollama.resources.limits.memory=10Gi
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl rollout status deployment/ollama --timeout=420s
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl exec deploy/ollama -- ollama list
+```
+
+If `gemma3:4b` is not listed after the pod starts, pull it again:
+
+```bash
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl exec deploy/ollama -- ollama pull gemma3:4b
+```
+
+Then verify backend routing:
+
+```bash
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl exec deploy/ollama-bridge -- \
+  curl -fsS http://ollama.noetl.svc.cluster.local:11434/api/tags
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl exec deploy/ollama-bridge -- \
+  curl -fsS http://ollama.noetl.svc.cluster.local:11434/api/chat \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"gemma3:4b","messages":[{"role":"user","content":"Return exactly pong"}],"stream":false}'
+```
+
+Recommended NoETL smokes after re-enabling:
+
+```text
+travel --provider ollama help
+travel --provider ollama activities near Times Square
+```
+
+Expected result when the backend is live: each execution completes with a widget, `effective_provider=ollama`, and no `provider_fallback_reason`. Expect high CPU latency, roughly one minute for the child classifier execution.
+
+To stop it again after a test window:
+
+```bash
+cd /Volumes/X10/projects/noetl/ai-meta/repos/ops
+
+helm upgrade noetl automation/helm/noetl \
+  --namespace noetl \
+  --kube-context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  --reuse-values \
+  --set ollama.enabled=true \
+  --set ollama.replicas=0
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl get deployment/ollama service/ollama persistentvolumeclaim/ollama-data
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl get pods -l app=ollama
+```
+
+Round status: GREEN. Cost-control state is in effect: the expensive backend pod is stopped, while the service and PVC remain ready for a controlled re-enable window.
+
+## Follow-Up: SeaweedFS Object Store Stopped For Cost Control
+
+Date: 2026-05-12
+
+The GKE in-cluster object store was also stopped after the GCS cloud-tier switch was validated. GKE now uses `NOETL_STORAGE_CLOUD_TIER=gcs` with bucket `noetl-demo-output`, so the SeaweedFS pod is no longer the active cloud spill path. The S3-compatible object-store configuration remains available for rollback/direct callers, but its pod does not need to consume GKE resources while idle.
+
+Current state:
+
+```text
+Helm release: noetl revision 131
+objectStore.enabled=true
+objectStore.kind=seaweedfs
+objectStore.replicas=0
+Deployment: object-store/seaweedfs, 0/0 replicas
+Service: object-store/object-store remains present
+PVC: object-store/object-store-data, 50Gi, remains Bound
+Worker cloud tier: NOETL_STORAGE_CLOUD_TIER=gcs
+GCS bucket: noetl-demo-output
+```
+
+The stop command is durable through Helm because `noetl/ops#77` added `objectStore.replicas` and wired it into both SeaweedFS and RustFS deployments.
+
+To provision SeaweedFS back when needed:
+
+```bash
+cd /Volumes/X10/projects/noetl/ai-meta/repos/ops
+
+helm upgrade noetl automation/helm/noetl \
+  --namespace noetl \
+  --kube-context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  --reuse-values \
+  --set objectStore.enabled=true \
+  --set objectStore.kind=seaweedfs \
+  --set objectStore.replicas=1
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n object-store rollout status deployment/seaweedfs --timeout=300s
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n object-store get deployment/seaweedfs service/object-store persistentvolumeclaim/object-store-data
+```
+
+If the intent is to route NoETL cloud spillover back to in-cluster S3, also flip the worker/server cloud tier back from GCS to S3 through Helm and restart NoETL:
+
+```bash
+helm upgrade noetl automation/helm/noetl \
+  --namespace noetl \
+  --kube-context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  --reuse-values \
+  --set objectStore.enabled=true \
+  --set objectStore.kind=seaweedfs \
+  --set objectStore.replicas=1 \
+  --set config.worker.env.NOETL_STORAGE_CLOUD_TIER=s3 \
+  --set config.server.env.NOETL_STORAGE_CLOUD_TIER=s3
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n noetl rollout restart deployment/noetl-worker deployment/noetl-server
+```
+
+Then run the object-store durability smoke from the object-store chooser round: write an object through the NoETL S3 endpoint, restart `deployment/noetl-worker`, and verify the object content/ETag still matches.
+
+To stop SeaweedFS again:
+
+```bash
+cd /Volumes/X10/projects/noetl/ai-meta/repos/ops
+
+helm upgrade noetl automation/helm/noetl \
+  --namespace noetl \
+  --kube-context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  --reuse-values \
+  --set objectStore.enabled=true \
+  --set objectStore.kind=seaweedfs \
+  --set objectStore.replicas=0
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n object-store get deployment/seaweedfs service/object-store persistentvolumeclaim/object-store-data
+
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n object-store get pods -l app=seaweedfs
+```
+
+Round status: GREEN. Cost-control state is in effect for the in-cluster object store: the SeaweedFS pod is stopped, while the Service and PVC remain ready for rollback or a controlled S3 test window.
