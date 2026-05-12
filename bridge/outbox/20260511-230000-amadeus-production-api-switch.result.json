@@ -1,0 +1,120 @@
+{
+  "id": "20260511-230000-amadeus-production-api-switch",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-12T02:45:26Z",
+  "overall_status": "GREEN_CODE_ONLY",
+  "phases": {
+    "1_audit_endpoints": {
+      "status": "completed",
+      "urls_found": [
+        {
+          "name": "oauth_token",
+          "test_url": "https://test.api.amadeus.com/v1/security/oauth2/token",
+          "production_url": "https://api.amadeus.com/v1/security/oauth2/token"
+        },
+        {
+          "name": "search_flights",
+          "test_url": "https://test.api.amadeus.com/v2/shopping/flight-offers",
+          "production_url": "https://api.amadeus.com/v2/shopping/flight-offers"
+        },
+        {
+          "name": "search_locations",
+          "test_url": "https://test.api.amadeus.com/v1/reference-data/locations",
+          "production_url": "https://api.amadeus.com/v1/reference-data/locations"
+        },
+        {
+          "name": "search_hotels",
+          "test_url": "https://test.api.amadeus.com/v1/reference-data/locations/hotels/by-city",
+          "production_url": "https://api.amadeus.com/v1/reference-data/locations/hotels/by-city"
+        },
+        {
+          "name": "search_activities",
+          "test_url": "https://test.api.amadeus.com/v1/shopping/activities",
+          "production_url": "https://api.amadeus.com/v1/shopping/activities"
+        }
+      ]
+    },
+    "2_workload_field_and_substitution": {
+      "status": "completed",
+      "validates": true,
+      "details": [
+        "mcp/amadeus already had default amadeus_env=test; this round made it load-bearing.",
+        "OAuth2 token endpoint now selects test vs production by amadeus_env.",
+        "Flights, locations, hotels, and activities Python wrappers receive the selected base URL and emit amadeus_env in MCP metadata/data.",
+        "Default test mode remains the default workload value."
+      ],
+      "validation": [
+        "Playbook.model_validate passed for automation/agents/mcp/amadeus.yaml.",
+        "Local Jinja render probe resolved test credential paths plus https://test.api.amadeus.com/v1/security/oauth2/token, and production credential paths plus https://api.amadeus.com/v1/security/oauth2/token."
+      ]
+    },
+    "3_credentials_path": {
+      "status": "completed",
+      "keychain_updated": true,
+      "details": [
+        "Added amadeus_production_key_path=projects/1014428265962/secrets/amadeus-production-client-id/versions/1.",
+        "Added amadeus_production_secret_path=projects/1014428265962/secrets/amadeus-production-client-secret/versions/1.",
+        "amadeus_credentials keychain map picks production paths only when amadeus_env == production; otherwise it preserves the existing test paths."
+      ]
+    },
+    "4_production_secrets_check": {
+      "status": "completed",
+      "recipe_documented": true,
+      "production_secrets_exist": false,
+      "secret_check": {
+        "project": "noetl-demo-19700101",
+        "project_number": "1014428265962",
+        "amadeus-production-client-id": "NOT_FOUND",
+        "amadeus-production-client-secret": "NOT_FOUND"
+      },
+      "provisioning_recipe": [
+        "Amadeus production access requires production credentials from Amadeus Self-Service before these secrets can be created.",
+        "echo -n \"<production-client-id>\" | gcloud secrets create amadeus-production-client-id --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
+        "echo -n \"<production-client-secret>\" | gcloud secrets create amadeus-production-client-secret --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
+        "gcloud secrets add-iam-policy-binding amadeus-production-client-id --project=noetl-demo-19700101 --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor",
+        "gcloud secrets add-iam-policy-binding amadeus-production-client-secret --project=noetl-demo-19700101 --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor"
+      ],
+      "sources": [
+        "https://developers.amadeus.com/self-service/apis-docs/guides/developer-guides/quick-start/",
+        "https://amadeus4dev.github.io/developer-guides/API-Keys/moving-to-production/",
+        "https://amadeus4dev.github.io/developer-guides/test-data/"
+      ]
+    },
+    "5_smoke_limited": {
+      "status": "skipped",
+      "executed": false,
+      "skip_reason": "Production Amadeus secrets are not provisioned in GCP Secret Manager, so no paid production API calls were made.",
+      "get_token_status": "skipped_missing_secret",
+      "locations_status": "skipped_missing_secret",
+      "flights_status": "skipped_missing_secret",
+      "default_test_mode_probe": {
+        "kind_catalog_version": 10,
+        "execution_id": "624838761406268192",
+        "completed": true,
+        "failed": false,
+        "note": "Registered patched playbook on local kind and confirmed default test-mode execution completed with Amadeus OAuth bound. Secret/token values were intentionally not copied into this result file."
+      }
+    },
+    "6_close_out": {
+      "status": "completed",
+      "ops_pr": "https://github.com/noetl/ops/pull/72",
+      "ops_sha": "e9cf2fdaf3c482513268a5ba7642d732362d5221",
+      "ai_meta_commit_local": null,
+      "sync_issue_updated": "sync/issues/2026-05-11-amadeus-test-api-500s.md",
+      "memory_entry": "memory/inbox/2026/05/20260511-230000-amadeus-production-api-switch-code-only-green.md",
+      "validation_log_updated": "bridge/outbox/codex-spike-green-validation.md"
+    }
+  },
+  "verdict": "Code switch landed and merged in ops#72. Production smoke is pending Amadeus production secret provisioning; no paid production calls were made.",
+  "notes": [
+    "No Amadeus production credentials were provisioned or read by value.",
+    "The local kind status output contains test credential/token values, but those values were not copied into this result file.",
+    "The installed noetl CLI is 2.8.4 and has no validate subcommand, so validation used the repository Playbook Pydantic model."
+  ],
+  "deferred_followups": [
+    "Provision amadeus-production-client-id and amadeus-production-client-secret in GCP Secret Manager and grant noetl-worker-mcp secretAccessor.",
+    "Run the tightly limited production smoke: get_token, one locations call, one flights call.",
+    "If production endpoints prove stable, consider registering production-mode travel smoke as an explicit opt-in operational runbook, not a regression matrix."
+  ]
+}

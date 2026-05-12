@@ -109,6 +109,6 @@ Do not patch `automation/agents/mcp/amadeus.yaml` for flights, locations, or hot
 
 Follow-ups:
 
-1. Add a production-Amadeus switch round when production credentials are ready; the test sandbox is returning service-side 38189 for three endpoints.
+1. Production-Amadeus switch capability landed in ops#72 (`e9cf2fdaf3c482513268a5ba7642d732362d5221`) as a code-only GREEN. `automation/agents/mcp/amadeus` now accepts `amadeus_env: test | production`, defaults to `test`, switches OAuth/API hosts to `api.amadeus.com` only when production is requested, and uses separate production secret paths. Production smoke is pending secret provisioning for `amadeus-production-client-id` and `amadeus-production-client-secret`; no paid production API calls were made in the switch round.
 2. Add an activities-result compaction/hydration round so successful `search_activities` calls do not look like travel failures when the child result is stored by reference.
 3. Consider adding a short retry for Amadeus 500 code 38189 only if production shows intermittent recovery; the current evidence suggests a persistent sandbox/service-side failure, not a transient one.
