@@ -1,0 +1,159 @@
+{
+  "task_id": "20260512-030000-google-places-enrichment-mcp",
+  "status": "AMBER",
+  "summary": "Google Places + Maps Pattern C enrichment shipped and validated for the live activities path on GKE. The remaining AMBER is upstream Amadeus test API 500s for locations/hotels before enrichment can run, not a Google auth or widget-rendering failure.",
+  "pr_summary": {
+    "ops": [
+      {
+        "pr": "https://github.com/noetl/ops/pull/78",
+        "merge_sha": "fc854db",
+        "title": "feat(travel-agent): add Google Places + Maps as opt-in enrichment layer"
+      },
+      {
+        "pr": "https://github.com/noetl/ops/pull/79",
+        "merge_sha": "4055dd4",
+        "title": "fix(travel-agent): bind Google Places MCP workload inputs"
+      },
+      {
+        "pr": "https://github.com/noetl/ops/pull/80",
+        "merge_sha": "4b7f6aa",
+        "title": "fix(travel-agent): publish Google Places helper constants"
+      },
+      {
+        "pr": "https://github.com/noetl/ops/pull/81",
+        "merge_sha": "1e28a14",
+        "title": "fix(travel-agent): expose Google Places data for agent hops"
+      },
+      {
+        "pr": "https://github.com/noetl/ops/pull/82",
+        "merge_sha": "7a9ca6a",
+        "title": "fix(travel-agent): keep Google enrichment payload compact"
+      }
+    ],
+    "docs": [
+      {
+        "pr": "https://github.com/noetl/docs/pull/62",
+        "merge_sha": "fab22d7",
+        "title": "docs(tutorials): note Google Places travel enrichment"
+      }
+    ]
+  },
+  "gke_registration": {
+    "context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "namespace": "noetl",
+    "google_places_mcp": {
+      "path": "automation/agents/mcp/google-places",
+      "version": 6,
+      "catalog_id": "625307577596772621"
+    },
+    "travel_runtime": {
+      "path": "automation/agents/travel/runtime",
+      "version": 13,
+      "catalog_id": "625307577697435918"
+    }
+  },
+  "pre_handoff_checks": {
+    "maps_apis_enabled": true,
+    "worker_service_account": "noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+    "serviceusage_consumer_role_present": true,
+    "widget_secret_present": "projects/1014428265962/secrets/google-maps-widget-key",
+    "backend_oauth_places_probe": {
+      "status": 200,
+      "note": "Worker pod ADC successfully called Places searchText with X-Goog-User-Project."
+    },
+    "widget_key_probe": {
+      "secret_prefix": "AIzaSyAW...",
+      "secret_length": 39,
+      "allowed_referer_static_map": "200 image/png",
+      "bad_referer_static_map": "403 text/plain",
+      "blank_referer_note": "Blank referer also returned 200 for this endpoint/key; bad referer 403 confirmed the configured restriction is active."
+    }
+  },
+  "smokes": {
+    "direct_google_places_mcp": {
+      "execution_id": "625307783436435727",
+      "status": "COMPLETED",
+      "tool": "search_text",
+      "query": "Eiffel Tower Paris",
+      "control_data_present": true,
+      "first_result": "Eiffel Tower",
+      "static_map_url_has_widget_key": true,
+      "photo_url_has_widget_key": false,
+      "secret_material": "not recorded"
+    },
+    "travel_activities_default_off": {
+      "execution_id": "625309959902724902",
+      "status": "COMPLETED",
+      "render_node": "render_activities",
+      "summary": "10 activities found near (40.758, -73.9855)",
+      "items_total": 10,
+      "google_enriched_count": 0,
+      "picture_count": 0
+    },
+    "travel_activities_enriched": {
+      "execution_id": "625308771379577122",
+      "status": "COMPLETED",
+      "render_node": "render_activities",
+      "summary": "10 activities found near (40.7128, -74.006)",
+      "items_total": 10,
+      "google_enriched_count": 10,
+      "picture_count": 1,
+      "first_picture_url_has_widget_key": true,
+      "google_child_execution_id": "625308944897933747",
+      "per_execution_cap": 10
+    },
+    "travel_locations_enriched": {
+      "execution_id": "625309575519928818",
+      "status": "COMPLETED",
+      "render_node": "render_amadeus_failure",
+      "outcome": "amadeus_failure",
+      "upstream_status_code": 500,
+      "note": "Amadeus test API failed before Google enrichment could run."
+    },
+    "travel_hotels_enriched": {
+      "execution_id": "625309687340073612",
+      "status": "COMPLETED",
+      "render_node": "render_amadeus_failure",
+      "outcome": "amadeus_failure",
+      "upstream_status_code": 500,
+      "note": "Amadeus test API failed before Google enrichment could run."
+    },
+    "non_destructive_widget_key_failure": {
+      "execution_id": "625309315867345375",
+      "status": "COMPLETED",
+      "tool": "static_map_url",
+      "step_status": "ok",
+      "url_present": false,
+      "widget_key_error_present": true,
+      "summary": "static_map_url unavailable: widget key unreadable"
+    }
+  },
+  "fix_forwards": [
+    {
+      "issue": "MCP tool inputs were not bound into the playbook step scope.",
+      "fix": "ops#79 added tool.input bindings for method, tool, arguments, google_project, widget_key_secret, and max_enrichments."
+    },
+    {
+      "issue": "Python helper constants were not visible from helper functions because NoETL executes code with separate globals/locals.",
+      "fix": "ops#80 republished constants and modules through globals().update(...)."
+    },
+    {
+      "issue": "Agent-hop parent did not receive the child playbook's result data.",
+      "fix": "ops#81 emitted control_data alongside data from Google Places MCP responses."
+    },
+    {
+      "issue": "Large Place Photo payloads could externalize into references while the GKE object-store pod is intentionally stopped for cost control.",
+      "fix": "ops#82 removed photos from search fields and used compact Maps Static URLs for enrichment thumbnails."
+    }
+  ],
+  "cleanup": {
+    "temporary_worker_scale_restored": "noetl-worker 2/2",
+    "port_forward_stopped": true,
+    "ai_meta_pushed": false
+  },
+  "artifacts": {
+    "sync_issue": "sync/issues/2026-05-12-google-places-travel-enrichment.md",
+    "memory": "memory/inbox/2026/05/20260512-112013-google-places-enrichment-amber.md"
+  },
+  "verdict": "Code/docs are merged, Pattern C auth is proven, default OFF is proven, activities enrichment is GREEN, and failure is non-blocking. Full all-intent GREEN is blocked by the known Amadeus test API 500s on locations/hotels."
+}
