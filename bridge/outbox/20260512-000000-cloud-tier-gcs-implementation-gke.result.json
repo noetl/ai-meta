@@ -1,0 +1,107 @@
+{
+  "id": "20260512-000000-cloud-tier-gcs-implementation-gke",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-12T03:31:19Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_verify_iam": {
+      "status": "completed_with_note",
+      "bucket_exists": "403_storage.buckets.get_denied",
+      "upload_ok": true,
+      "blob_exists_ok": true,
+      "download_ok": true,
+      "delete_ok": true,
+      "missing_permission_if_blocked": "storage.buckets.get is still denied for bucket.exists(), but the NoETL GCSBackend does not call bucket metadata APIs. Required object operations for put/get/delete passed from inside the worker pod.",
+      "iam_binding_seen": {
+        "bucket": "gs://noetl-demo-output",
+        "member": "serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+        "role": "roles/storage.objectAdmin"
+      }
+    },
+    "2_configmap_flip": {
+      "status": "completed",
+      "config_source": [
+        "repos/ops/automation/helm/noetl/values.yaml",
+        "repos/ops/ci/manifests/noetl/configmap-server.yaml",
+        "repos/ops/ci/manifests/noetl/configmap-worker.yaml",
+        "GKE Helm release noetl revision 127"
+      ],
+      "helm_lint_clean": true,
+      "helm_dry_run_clean": true,
+      "ops_pr": "https://github.com/noetl/ops/pull/73",
+      "ops_sha": "d866c53c8a40289c32118ab3963c4021b91e7c98",
+      "notes": [
+        "NOETL_STORAGE_CLOUD_TIER is now gcs for server and worker.",
+        "NOETL_GCS_BUCKET=noetl-demo-output and NOETL_GCS_PREFIX=results/ are set for server and worker.",
+        "S3/SeaweedFS env remains present for direct S3-compatible callers and rollback, but it is no longer the configured cloud spill tier."
+      ]
+    },
+    "3_rollout": {
+      "status": "completed",
+      "helm_revision": 127,
+      "worker_image": "ghcr.io/noetl/noetl:v2.37.8",
+      "server_image": "ghcr.io/noetl/noetl:v2.37.8",
+      "env_var_value": "NOETL_STORAGE_CLOUD_TIER=gcs",
+      "pods_healthy": {
+        "noetl-worker": "2/2 ready",
+        "noetl-server": "1/1 ready"
+      },
+      "router_introspection": {
+        "Router.default_cloud_tier": "gcs",
+        "ResultHandler.default_tier": "kv",
+        "select_2mb_auto": "disk"
+      }
+    },
+    "4_worker_restart_durability_test_gcs": {
+      "status": "completed",
+      "bucket": "noetl-demo-output",
+      "object": "results/_noetl_gcs_durability_probe.txt",
+      "etag_pre": "CJX8nNXmspQDEAE=",
+      "etag_post": "CJX8nNXmspQDEAE=",
+      "generation_pre": "1778556336553493",
+      "generation_post": "1778556336553493",
+      "sha256_pre": "f79fefeb22e0d486639a6e669e2e7ce1b7b8beec4ecd5eca8060cd03417355d2",
+      "sha256_post": "f79fefeb22e0d486639a6e669e2e7ce1b7b8beec4ecd5eca8060cd03417355d2",
+      "content_match": true,
+      "cleanup": "probe object deleted after verification"
+    },
+    "5_travel_agent_smoke_gcs_backed": {
+      "status": "completed",
+      "execution_id": "624862041857065895",
+      "query": "activities near Times Square",
+      "effective_provider": "openai",
+      "intent": "activities",
+      "render_kind": "render_activities",
+      "render_type": "app:column",
+      "spillover_triggered": true,
+      "gcs_spill_object": "gs://noetl-demo-output/results/execution_624862076334244851_result_amadeus_search_activities_57a3e6e4",
+      "synthetic_test_used": true,
+      "synthetic_test": {
+        "kind": "direct StoreTier.GCS put/resolve from inside worker",
+        "store": "gcs",
+        "resolved_match": true,
+        "ref": "noetl://execution/gcs-direct-probe/result/direct_gcs/e8a3a62b",
+        "cleanup": "synthetic object removed after verification"
+      }
+    },
+    "6_close_out": {
+      "status": "completed",
+      "sync_issue_section_closed": "sync/issues/2026-05-11-cloud-tier-router-decision.md",
+      "validation_log_appended": "bridge/outbox/codex-spike-green-validation.md",
+      "memory_entry_path": "memory/inbox/2026/05/20260512-000000-cloud-tier-gcs-implementation-gke-green.md",
+      "ops_pointer_bumped": true
+    }
+  },
+  "verdict": "GKE cloud spill tier is now GCS. Helm revision 127 runs server and workers with NOETL_STORAGE_CLOUD_TIER=gcs, GCS object durability survived a worker restart, and the travel activities smoke produced a GCS-backed Amadeus MCP spill object.",
+  "notes": [
+    "No SeaweedFS/object-store deployment was modified.",
+    "No noetl storage router code was modified.",
+    "bucket.exists() still needs storage.buckets.get; current bucket-level objectAdmin is enough for NoETL GCS object put/get/delete but not metadata probes.",
+    "S3-compatible env remains available for direct callers and rollback."
+  ],
+  "deferred_followups": [
+    "Optionally grant storage.buckets.get through a narrow custom role or bucket viewer role if future health checks require bucket.exists().",
+    "Monitor GCS object growth under gs://noetl-demo-output/results/ and tune retention/cleanup once production volume is known."
+  ]
+}

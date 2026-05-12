@@ -1,7 +1,7 @@
 # Cloud-tier router decision
 
 Date: 2026-05-11
-Status: decision ready; implementation deferred
+Status: implemented on GKE
 
 ## Decision
 
@@ -185,3 +185,59 @@ Scope:
 - Large-result durability smoke.
 - Travel activities smoke.
 - Documentation of fallback/rollback to `s3` if GCS access fails.
+
+## Implementation Result
+
+Date: 2026-05-12
+Status: GREEN
+
+ops#73 (`d866c53c8a40289c32118ab3963c4021b91e7c98`) implemented the GCS cloud-tier configuration in the Helm values and CI configmaps. GKE Helm release `noetl` revision `127` now runs:
+
+```text
+NOETL_STORAGE_CLOUD_TIER=gcs
+NOETL_GCS_BUCKET=noetl-demo-output
+NOETL_GCS_PREFIX=results/
+```
+
+`noetl-worker` and `noetl-server` rolled successfully on `ghcr.io/noetl/noetl:v2.37.8`.
+
+Worker/router introspection after rollout:
+
+```text
+Router.default_cloud_tier=gcs
+ResultHandler.default_tier=kv
+select_2mb_auto=disk
+```
+
+IAM note: `roles/storage.objectAdmin` on the bucket is enough for NoETL's GCS runtime path (`upload`, object `exists`, `download`, `delete`). `bucket.exists()` still returns `403 storage.buckets.get denied`, so future bucket-metadata health checks would need an additional narrow permission.
+
+Durability proof:
+
+```text
+object=gs://noetl-demo-output/results/_noetl_gcs_durability_probe.txt
+etag_pre=CJX8nNXmspQDEAE=
+etag_post=CJX8nNXmspQDEAE=
+sha256=f79fefeb22e0d486639a6e669e2e7ce1b7b8beec4ecd5eca8060cd03417355d2
+content_match=true
+```
+
+The object survived a `deployment/noetl-worker` restart and was deleted after verification.
+
+Travel smoke:
+
+```text
+execution_id=624862041857065895
+query="activities near Times Square"
+effective_provider=openai
+intent=activities
+tail=render_activities
+render_type=app:column
+```
+
+The smoke produced a GCS-backed Amadeus MCP spill object:
+
+```text
+gs://noetl-demo-output/results/execution_624862076334244851_result_amadeus_search_activities_57a3e6e4
+```
+
+This closes the cloud-tier router decision thread. SeaweedFS remains deployed for local/kind and direct S3-compatible use cases, but GKE production spillover is now GCS-backed.

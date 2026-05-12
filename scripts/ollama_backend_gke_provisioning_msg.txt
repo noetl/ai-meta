@@ -1,0 +1,38 @@
+Codex prompt — Provision Ollama backend on GKE (Round B option A → option B promotion)
+========================================================================================
+
+Bridge task: bridge/inbox/delegated/20260512-010000-ollama-backend-gke-provisioning.task.json
+Result:      bridge/outbox/20260512-010000-ollama-backend-gke-provisioning.result.json
+
+Round B (`bridge/outbox/20260511-220000-ollama-bridge-gke-deployment.result.json`)
+deployed the ollama-bridge Service on GKE without an Ollama backend (option A).
+Bridge routes; `travel --provider ollama` falls back to OpenAI cleanly. This
+round promotes to option B: CPU-only Ollama pod with gemma3:4b cached, so
+real `--provider ollama` inference works on GKE.
+
+No new infra primitives. CPU-only, ~2-4GB memory, ~$30-50/month always-on.
+
+Codex job (5 phases):
+  1. Inspect existing ollama helm templates. Identify case (a) gated-by-flag
+     vs (b) needs-new-template.
+  2. Helm values: enable (a) or add (b). helm template --validate clean.
+  3. Deploy. kubectl rollout. ollama pull gemma3:4b inside the pod
+     (model cache ~3GB, takes 2-5 minutes). Verify bridge reaches backend.
+  4. Smoke travel --provider ollama help / flights / activities. Each
+     should show effective_provider='ollama', no fallback. CPU latency
+     ~3-10 seconds per classification — bump wait_timeout if needed.
+  5. Close out: sync issue, validation log, memory, ops pointer bump.
+
+Architectural rules:
+  - Option B is CPU-only. No GPU provisioning.
+  - Don't touch the ollama-bridge service (already working).
+  - Don't touch storage tier, classifier code, chooser pattern.
+  - Pull only gemma3:4b in this round.
+  - No release cut. No git push from ai-meta.
+
+Expected GREEN: all three ollama smokes show effective_provider='ollama'.
+Audit rows show ai_provider='ollama'. Bridge + Ollama pod logs both show
+inference happening.
+
+After this lands: only Amadeus production credentials provisioning remains
+as a deferred user-gated follow-up.
