@@ -177,3 +177,49 @@ Remaining GKE work:
 3. Run a true NoETL large-payload execution that spills through the ResultHandler/DISK async spill path, kill worker pods, and verify report/status rehydrates from object storage.
 
 Round status: AMBER. The local deployment and backend chooser are validated, but the noetl PR is review-blocked and GKE replacement was deferred until merged state is complete.
+
+## Follow-Up: Object-Store Chooser GKE Rollout
+
+Date: 2026-05-11
+
+`noetl/noetl#430` merged, so the MinIO-elimination AMBER is closed for the NoETL engine pointer and GKE rollout path. ai-meta now points `repos/noetl` at post-#430 main (`19eafd89e50c8a6fdb9d0f789866942667dbdf3f`, ai-meta commit `d09b6c1`).
+
+GKE inspection found the cluster in case (a): NoETL was configured for a stale in-cluster MinIO endpoint, not remote AWS S3 and not an existing chooser deployment.
+
+```text
+worker NOETL_S3_ENDPOINT=http://minio.minio.svc.cluster.local:9000
+worker NOETL_S3_BUCKET=noetl-results
+worker NOETL_STORAGE_CLOUD_TIER=s3
+```
+
+No visible MinIO workload or object-store Service existed before the rollout. The Helm chooser was enabled with SeaweedFS as the default backend:
+
+```text
+object-store/object-store Service -> 9000
+object-store/seaweedfs image=chrislusf/seaweedfs:3.97
+PVC object-store-data size=50Gi
+```
+
+NoETL server and worker now read:
+
+```text
+NOETL_S3_ENDPOINT=http://object-store.object-store.svc.cluster.local:9000
+NOETL_S3_BUCKET=noetl
+NOETL_STORAGE_CLOUD_TIER=s3
+```
+
+Because the endpoint change is delivered through ConfigMaps, server and worker needed explicit rollout restarts before pod environments reflected the new values.
+
+Durability proof passed: a worker wrote `smoke/gke-object-store-durability-20260512T011442Z.txt` to SeaweedFS, then `deployment/noetl-worker` was restarted. The restarted worker fetched the same object with ETag `33067294b42a79290bb83f8f06f2e48c` and SHA-256 `f2da5c239fb1ecaae06bc6f1cc9e4425bb93e8c90ca109dbe27dd9a4d7f317f8`.
+
+Travel activities smoke also passed on GKE:
+
+| Check | Execution | Result |
+| --- | --- | --- |
+| `travel --provider openai activities near Times Square` | `624795118960115887` | `COMPLETED`; child `624795172798202107`; `render_activities`; `app:column`; `10` rendered items; `activities_total=1799` |
+
+The `travel_agent_events` table in the `pg_k8s` target database contains both the `classify_intent` and `render_activities` audit rows for the execution. The render row records `ai_provider=openai`, `intent=activities`, `render_type=app:column`, `envelope_ok=true`, and `envelope_total=10`.
+
+The item #11 engine fix is still doing the right work after the object-store rollout: the worker logged a local disk-cache miss for the child result reference, then recovered the bounded child data through the terminal-event/control-data path and rendered the parent widget. In other words, object-store durability is now present for the configured S3 backend, and the agent-result hydration fallback is still the immediate correctness path for this travel activities execution.
+
+Round status: GREEN with one note. Backend/API evidence is complete, but no Cloudflare GUI screenshot was captured because the available browser surface was `https://mestumre.dev/login`.

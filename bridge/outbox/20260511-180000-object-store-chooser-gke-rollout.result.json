@@ -1,0 +1,119 @@
+{
+  "task": "20260511-180000-object-store-chooser-gke-rollout",
+  "status": "GREEN_WITH_NOTES",
+  "summary": "noetl#430 was merged and ai-meta now points repos/noetl at post-#430 main. GKE was still configured for the stale in-cluster MinIO endpoint, so the Helm object-store chooser was enabled with SeaweedFS as the default backend and NoETL server/worker were repointed to the canonical object-store Service. A worker-restart durability test passed on GKE, and the travel activities path completed with an app:column widget plus travel_agent_events audit rows. GUI screenshot capture was not completed because the available browser surface was the Cloudflare login page; backend/API evidence is recorded instead.",
+  "completed_at": "2026-05-12T01:20:43Z",
+  "phase_results": [
+    {
+      "phase": 1,
+      "name": "bump_noetl_gitlink",
+      "status": "completed",
+      "ai_meta_commit": "d09b6c1",
+      "noetl_head": "19eafd89e50c8a6fdb9d0f789866942667dbdf3f",
+      "noetl_head_subject": "Merge pull request #430 from noetl/kadyapam/storage-s3-compatible-naming"
+    },
+    {
+      "phase": 2,
+      "name": "inspect_gke_s3_endpoint",
+      "status": "completed",
+      "finding": "case_a_stale_in_cluster_minio_endpoint",
+      "before": {
+        "worker_NOETL_S3_ENDPOINT": "http://minio.minio.svc.cluster.local:9000",
+        "worker_NOETL_S3_BUCKET": "noetl-results",
+        "worker_NOETL_STORAGE_CLOUD_TIER": "s3",
+        "visible_minio_or_object_store_workloads": "No MinIO workload or object-store Service was visible before the chooser deploy."
+      }
+    },
+    {
+      "phase": 3,
+      "name": "deploy_object_store_chooser",
+      "status": "completed",
+      "helm_release": "noetl/noetl revision 125",
+      "backend": "seaweedfs",
+      "object_store": {
+        "namespace": "object-store",
+        "service": "object-store.object-store.svc.cluster.local:9000",
+        "deployment": "seaweedfs",
+        "image": "chrislusf/seaweedfs:3.97",
+        "pvc": "object-store-data",
+        "capacity": "50Gi"
+      },
+      "after": {
+        "server_NOETL_S3_ENDPOINT": "http://object-store.object-store.svc.cluster.local:9000",
+        "server_NOETL_S3_BUCKET": "noetl",
+        "server_NOETL_STORAGE_CLOUD_TIER": "s3",
+        "worker_NOETL_S3_ENDPOINT": "http://object-store.object-store.svc.cluster.local:9000",
+        "worker_NOETL_S3_BUCKET": "noetl",
+        "worker_NOETL_STORAGE_CLOUD_TIER": "s3"
+      },
+      "note": "ConfigMap changes required explicit noetl-server/noetl-worker rollout restarts before the pods picked up the new endpoint."
+    },
+    {
+      "phase": 4,
+      "name": "worker_restart_durability_test",
+      "status": "completed",
+      "method": "boto3 put/get inside noetl-worker, rollout restart deployment/noetl-worker, boto3 get again from the restarted worker deployment",
+      "object": {
+        "bucket": "noetl",
+        "key": "smoke/gke-object-store-durability-20260512T011442Z.txt",
+        "etag": "33067294b42a79290bb83f8f06f2e48c",
+        "sha256": "f2da5c239fb1ecaae06bc6f1cc9e4425bb93e8c90ca109dbe27dd9a4d7f317f8",
+        "bytes": 63,
+        "matches_after_worker_restart": true
+      }
+    },
+    {
+      "phase": 5,
+      "name": "travel_agent_activities_smoke",
+      "status": "completed_with_notes",
+      "execution_id": "624795118960115887",
+      "child_execution_id": "624795172798202107",
+      "query": "activities near Times Square",
+      "requested_provider": "openai",
+      "effective_provider": "openai",
+      "intent": "activities",
+      "status": "COMPLETED",
+      "render_step": "render_activities",
+      "render_type": "app:column",
+      "summary": "10 activities found near (40.758, -73.9855)",
+      "agent_data_ok": true,
+      "agent_items_len": 10,
+      "agent_activities_total": 1799,
+      "audit_rows": [
+        {
+          "event_type": "classify_intent",
+          "ai_provider": "openai",
+          "intent": "activities"
+        },
+        {
+          "event_type": "render_activities",
+          "ai_provider": "openai",
+          "intent": "activities",
+          "render_type": "app:column",
+          "envelope_ok": "true",
+          "envelope_total": "10"
+        }
+      ],
+      "note": "The agent executor first logged a local disk-cache miss for the child reference, then the post-#430 terminal-event fallback returned the bounded child data and the parent rendered successfully. This is the expected engine-fix behavior."
+    },
+    {
+      "phase": 6,
+      "name": "close_out",
+      "status": "completed",
+      "sync_issue": "sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md",
+      "validation_log": "bridge/outbox/codex-spike-green-validation.md",
+      "memory": "memory/inbox/2026/05/20260511-180000-object-store-chooser-gke-rollout-green.md"
+    }
+  ],
+  "open_items": [
+    {
+      "item": "Cloudflare GUI screenshot",
+      "reason": "The currently available browser surface is https://mestumre.dev/login. No authenticated GUI screenshot was captured in this backend rollout round."
+    },
+    {
+      "item": "Ollama bridge on GKE",
+      "reason": "Unchanged from prior parity work; ollama-bridge is not deployed on GKE and remains a separate infra round."
+    }
+  ],
+  "secrets_hygiene": "No secret values are intentionally written in this result file. Raw execution status responses can expose resolved keychain data, so close-out evidence was summarized from sanitized event and audit queries only."
+}

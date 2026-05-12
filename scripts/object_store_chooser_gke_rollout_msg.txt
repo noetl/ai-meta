@@ -1,0 +1,91 @@
+Codex prompt — Object-store chooser GKE rollout (closes the MinIO-elimination AMBER)
+======================================================================================
+
+Bridge task:
+  bridge/inbox/delegated/20260511-180000-object-store-chooser-gke-rollout.task.json
+
+Result goes to:
+  bridge/outbox/20260511-180000-object-store-chooser-gke-rollout.result.json
+
+Sync issue to update:
+  sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md
+
+Prior round (AMBER):
+  bridge/outbox/20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser.result.json
+
+Context:
+  noetl#430 merged on May 11, 2026 (https://github.com/noetl/noetl/pull/430).
+  The engine-side MinIO comment/docstring sweep is now on noetl main, which
+  unblocks the gitlink bump and the GKE rollout from the AMBER MinIO
+  elimination round.
+
+  Local kind already runs SeaweedFS default with worker-restart durability
+  proven. This round mirrors that on GKE.
+
+Codex job (6 phases — see task JSON):
+
+  1. Bump noetl gitlink:
+     cd /Volumes/X10/projects/noetl/ai-meta
+     git submodule update --remote repos/noetl
+     # Confirm noetl#430 merge SHA in `cd repos/noetl && git log --oneline -3`
+     git add repos/noetl
+     git commit -m 'chore(sync): bump noetl to post-#430 main (MinIO sweep complete)'
+     # Don't push — Kadyapam pushes at the end
+
+  2. Inspect GKE S3 endpoint:
+     kubectl -n noetl --context=<gke> exec deploy/noetl-worker -- env | grep -E 'NOETL_S3_ENDPOINT|NOETL_S3_ACCESS_KEY|NOETL_TEMPSTORE'
+     kubectl get pods --all-namespaces | grep -iE 'minio|seaweedfs|rustfs|object-store'
+     Determine: (a) in-cluster MinIO, (b) remote AWS S3, or (c) already on chooser.
+     Document.
+
+  3. Deploy chooser if needed:
+     Case (a): helm upgrade with objectStore.kind=seaweedfs. Confirm
+               object-store Service reachable from noetl pods. Clean up old
+               MinIO when SeaweedFS is healthy.
+     Case (b): no deploy change. Document the distinction (remote S3 vs
+               in-cluster chooser).
+     Case (c): confirm + continue.
+
+  4. Worker-restart durability test on GKE:
+     boto3 PUT an object inside the worker pod, capture etag/checksum.
+     kubectl rollout restart deployment/noetl-worker. Wait for ready.
+     boto3 GET — match etag/checksum. Must succeed for case a/c.
+     Case b: trivially passing (AWS S3 is durable by design); document.
+
+  5. Travel agent activities smoke on GKE:
+     travel --provider openai activities near Times Square.
+     Verify: status=completed, app:column widget, audit row shows
+     envelope context. Capture screenshot.
+
+  6. Close out:
+     Update sync issue — close Path B + MinIO sections.
+     Append validation log paragraph.
+     Memory entry summarising outcome.
+     Confirm ai-meta has noetl pointer bump + memory + sync update staged.
+     Don't push.
+
+Architectural rules:
+  - Pointer bump + deploy + smoke only. No code changes.
+  - If GKE is on remote AWS S3 (case b), DO NOT migrate it — that's a
+    separate cloud-tier router decision still deferred.
+  - Don't provision new GCP buckets.
+  - Don't rotate credentials.
+  - Don't cut a release.
+  - No git push from ai-meta.
+
+Pre-handoff (already done by Kadyapam):
+  - noetl#430 merged.
+  - ai-meta bridge task + this prompt + handoff memory ready to push.
+
+Codex commits + pushes:
+  Optional 1 small ops PR ONLY if GKE inspection surfaces an unexpected
+  fix (e.g., the chart's GKE-specific values need a tweak that wasn't
+  visible from kind). Default: 0 PRs.
+
+Codex stages but DOES NOT push (Kadyapam pushes):
+  ai-meta gitlink bump for repos/noetl + memory entry + sync issue update.
+
+What to do if blocked:
+  - GKE S3 turns out to be on AWS bucket: case (b), document + skip deploy.
+  - kubectl access to GKE unavailable: AMBER + STOP + document for Kadyapam.
+  - helm upgrade conflicts: capture state, AMBER + STOP, don't force.

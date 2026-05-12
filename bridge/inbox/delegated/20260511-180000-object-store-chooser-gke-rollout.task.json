@@ -1,0 +1,127 @@
+{
+  "id": "20260511-180000-object-store-chooser-gke-rollout",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-11T18:00:00Z",
+  "title": "Object-store chooser GKE rollout — bump noetl#430 gitlink, deploy SeaweedFS on GKE, prove durability",
+
+  "description": "Closes the AMBER from round 20260511-150000 (MinIO elimination). noetl#430 merged on May 11, 2026 (https://github.com/noetl/noetl/pull/430). With the comment/docstring sweep on noetl main, the gitlink can now be bumped and GKE can deploy the chooser. Local kind already runs SeaweedFS default with durability proven. This round mirrors that on GKE: identify the current S3 endpoint, deploy SeaweedFS via the helm chooser if in-cluster, run the worker-restart durability test, smoke the travel agent activities path. Cap: 0 PRs (unless GKE inspection surfaces something unexpected that needs a small ops fix). Output: sync issue closure, validation log, memory entry, ai-meta noetl pointer bump.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 5400,
+  "max_iterations": 6,
+
+  "prior_round_context": {
+    "result_file": "bridge/outbox/20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser.result.json (AMBER)",
+    "what_was_established": "Local kind on SeaweedFS default + RustFS opt-in. Worker-restart durability proven on kind. ops#70 + docs#60 merged. noetl#430 was the engine comment/docstring sweep — review-blocked at AMBER close.",
+    "what_just_changed": "noetl#430 merged. The MinIO references in noetl/core/storage/ and elsewhere are gone from main. ai-meta needs the gitlink bump, then GKE can roll the new chooser."
+  },
+
+  "design_brief_for_codex": {
+    "phase_1_bump_noetl_gitlink": "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/noetl`. Confirm the new HEAD includes noetl#430's merge SHA. `git add repos/noetl && git commit -m 'chore(sync): bump noetl to post-#430 main (MinIO sweep complete)'`. Do NOT push — Kadyapam pushes at session end.",
+
+    "phase_2_inspect_gke_s3_endpoint": "Identify what GKE currently uses as its S3 endpoint. Check the noetl-worker + noetl-server pods' env:\n\n```\nkubectl -n noetl --context=<gke> exec deploy/noetl-worker -- env | grep -E 'NOETL_S3_ENDPOINT|NOETL_S3_ACCESS_KEY|NOETL_TEMPSTORE'\nkubectl -n noetl --context=<gke> get pods --all-namespaces | grep -iE 'minio|seaweedfs|rustfs|object-store'\n```\n\nThree possibilities to identify:\n  (a) In-cluster MinIO surviving on GKE despite removal from kind — needs replacement.\n  (b) Remote AWS S3 bucket — different deployment model (not in-cluster object store). Leave alone, document.\n  (c) Already on SeaweedFS or RustFS somehow (unlikely but possible if a prior round rolled it without our knowledge).\n\nDocument which case applies in the result file.",
+
+    "phase_3_deploy_chooser_on_gke": "If phase 2 found in-cluster MinIO (case a): deploy SeaweedFS via the helm chooser. Use the same path the team uses for GKE helm releases. The new chart values include `objectStore.kind: seaweedfs` as default — confirm that's what propagates. After helm upgrade, watch the rollout: `kubectl -n <storage-ns> rollout status deployment/object-store-seaweedfs` (or whatever name the helm template produces).\n\nIf phase 2 found remote AWS S3 (case b): NO deployment change. Document why — the chooser is for in-cluster backends; cloud-routed S3 is a different deployment model (the cloud-tier router decision still deferred).\n\nIf phase 2 found case c: confirm + skip to phase 4.",
+
+    "phase_4_worker_restart_durability_test_gke": "Same proof as kind. Pre-stage an object via boto3 from inside the noetl-worker pod (or via the in-cluster S3 service). Capture an etag/checksum. Trigger a worker rollout: `kubectl -n noetl rollout restart deploy/noetl-worker`. Wait for ready. Re-fetch the object. Compare etag/checksum — must match. This is the durability proof.\n\nIf the deployment is on remote AWS S3 (case b from phase 2), the durability test is trivially passing (S3 is durable by design). Document either way.",
+
+    "phase_5_travel_agent_activities_smoke_gke": "Smoke the activities path that exercised item #11's hydration fix:\n\n```\ntravel --provider openai activities near Times Square\n```\n\nVerify on GKE: status=completed, render_type=app:column, items rendered (or render_amadeus_failure if Amadeus 5xx — same friendly-error pathway). Capture execution_id + audit row showing envelope_ok status.\n\nAlso confirm spillover went through the storage tier — query travel_agent_events audit row for the storage indicator, OR check the storage backend's bucket directly for the spillover artifact.",
+
+    "phase_6_close_out": "Update sync issue at `sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md` — close the Path B + MinIO-related sections, leave cloud-tier-router decision as the only open item. Append paragraph to `bridge/outbox/codex-spike-green-validation.md`. Write memory entry summarising the GKE rollout outcome. Final ai-meta state: noetl pointer bumped + memory + sync issue updates."
+  },
+
+  "phases": {
+    "1_bump_noetl_gitlink": {
+      "objective": "Bring ai-meta's repos/noetl pointer to post-#430 main.",
+      "spec": [
+        "`cd /Volumes/X10/projects/noetl/ai-meta && git submodule update --remote repos/noetl`",
+        "Confirm `cd repos/noetl && git log --oneline -3` includes noetl#430's merge.",
+        "`git add repos/noetl && git commit -m 'chore(sync): bump noetl to post-#430 main (MinIO sweep complete)'`. Don't push."
+      ],
+      "verify": "ai-meta has a fresh local commit pointing at noetl post-#430."
+    },
+
+    "2_inspect_gke_s3_endpoint": {
+      "objective": "Identify what GKE uses today: in-cluster MinIO / remote AWS S3 / SeaweedFS / RustFS / other.",
+      "spec": [
+        "kubectl exec inspection of noetl-worker + noetl-server env for NOETL_S3_ENDPOINT / NOETL_S3_ACCESS_KEY / NOETL_TEMPSTORE_*.",
+        "kubectl get pods --all-namespaces for any minio/seaweedfs/rustfs/object-store deployments.",
+        "If in-cluster: identify the deployment name + namespace + image tag.",
+        "If remote AWS: identify the bucket name (sanitize in result file — first 6 chars).",
+        "Document which case applies."
+      ],
+      "verify": "GKE current S3 endpoint named explicitly."
+    },
+
+    "3_deploy_chooser_on_gke": {
+      "objective": "If in-cluster MinIO: replace via the chooser. If remote S3: document and skip.",
+      "spec": [
+        "Case (a) in-cluster MinIO: helm upgrade with `objectStore.kind=seaweedfs`. Watch rollout. Confirm new object-store Service reachable from noetl pods. Clean up old MinIO deployment when SeaweedFS is healthy.",
+        "Case (b) remote AWS S3: no deployment change. Document the distinction in result file.",
+        "Case (c) already on chooser: no change. Confirm and continue."
+      ],
+      "verify": "GKE on chooser (case a), or documented as remote-S3 (case b), or already-on-chooser confirmed (case c)."
+    },
+
+    "4_worker_restart_durability_test_gke": {
+      "objective": "Prove the storage tier survives worker pod restart on GKE.",
+      "spec": [
+        "Pre-stage an object via boto3 inside the worker pod. Capture etag + checksum.",
+        "kubectl rollout restart deployment/noetl-worker. Wait for ready.",
+        "Re-fetch the object. Compare etag + checksum.",
+        "If case b (remote AWS S3): durability is trivially passing — document that.",
+        "If case a/c: hard requirement — match must succeed."
+      ],
+      "verify": "Object durability across worker rollout verified."
+    },
+
+    "5_travel_agent_activities_smoke_gke": {
+      "objective": "Confirm the travel agent activities path works end-to-end on GKE with the new storage backend.",
+      "spec": [
+        "travel --provider openai activities near Times Square — expected: status=completed, app:column widget rendered (real items if Amadeus 200; friendly failure if Amadeus 5xx — both are GREEN states).",
+        "Capture execution_id + audit row (envelope_ok, render_kind).",
+        "Verify spillover artifact exists in the storage backend's bucket if the response was large enough to trigger it.",
+        "Capture screenshot."
+      ],
+      "verify": "Activities path completes; storage backend functional."
+    },
+
+    "6_close_out": {
+      "objective": "Sync issue closure, validation log append, memory entry, ai-meta clean.",
+      "spec": [
+        "Update sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md — close the Path B + MinIO sections; leave cloud-tier-router decision as the only open item.",
+        "Append paragraph to bridge/outbox/codex-spike-green-validation.md.",
+        "Write memory entry at memory/inbox/2026/05/20260511-180000-object-store-chooser-gke-rollout-{green,amber}.md.",
+        "Confirm ai-meta has the noetl pointer bump + memory + sync update staged. Don't push."
+      ],
+      "verify": "All bookkeeping complete; ai-meta has fresh local commits not pushed."
+    }
+  },
+
+  "expected_state": {
+    "description": "GKE storage tier on the chooser (SeaweedFS) OR documented as remote-AWS-S3 + distinction made explicit. Worker-restart durability proven on GKE. Travel agent activities path GREEN. Sync issue closed for the MinIO + in-cluster-S3-replacement scope.",
+    "verify_pattern": "Result file's phase 3 names the GKE case (a/b/c) and any deploy action taken. Phase 4 + 5 both GREEN."
+  },
+
+  "denied_tools": [
+    "Modifying repos/noetl, repos/ops, repos/gui, repos/e2e source — pointer bump + deploy + smoke only",
+    "Adding repos/docs content unless an unexpected ops fix is needed (then 1 small docs PR is permissible)",
+    "Provisioning new GCP buckets — chooser is for in-cluster backends",
+    "Rotating any credentials — Kadyapam owns secrets",
+    "Cutting any release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "kubectl --context=<gke> exec/rollout/get",
+    "helm upgrade / helm history",
+    "boto3 from inside the worker pod via kubectl exec for the durability staging",
+    "noetl status <id> --json | jq for execution-level smoke",
+    "psql via kubectl exec for travel_agent_events audit row inspection",
+    "Browser screenshot for the travel agent smoke"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260511-180000-object-store-chooser-gke-rollout.result.json. Required fields: {id, from: 'codex', to: 'claude-cowork', completed_at, overall_status, phases: {1_bump_noetl_gitlink: {noetl_sha, ai_meta_commit_local}, 2_inspect_gke_s3_endpoint: {case: 'a' | 'b' | 'c', endpoint, in_cluster_backend_name, remote_bucket_prefix}, 3_deploy_chooser_on_gke: {action: 'deployed' | 'skipped_remote_s3' | 'already_on_chooser', helm_revision, rollout_status}, 4_worker_restart_durability_test_gke: {object_etag_pre, object_etag_post, match: bool, durability_proven: bool}, 5_travel_agent_activities_smoke_gke: {execution_id, render_kind, render_type, envelope_ok: bool, audit_row_id, screenshots: []}, 6_close_out: {sync_issue_updated: bool, validation_log_appended: bool, memory_entry_path}}, regressions_found, iterations, verdict, notes, deferred_followups: ['Cloud-tier router decision (GCS vs in-cluster S3 vs remote AWS S3 for durable storage)', 'Travel runtime workaround cleanup once v2.37.8 stable a few more days', 'Ollama bridge deployment on GKE if real Ollama wanted', 'Amadeus production API switch when production-data smokes wanted']}. If verdict GREEN, append paragraph to bridge/outbox/codex-spike-green-validation.md."
+}
