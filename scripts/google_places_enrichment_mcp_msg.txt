@@ -1,0 +1,140 @@
+Codex prompt — Add Google Places + Maps as opt-in enrichment layer for travel agent
+                (Pattern C — hybrid auth: SA OAuth for backend + restricted API key for widget URLs)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260512-030000-google-places-enrichment-mcp.task.json
+Result:        bridge/outbox/20260512-030000-google-places-enrichment-mcp.result.json
+Setup ref:     playbooks/google-maps-platform-setup-pattern-c.md (authoritative Kadyapam setup doc)
+
+User wants to see end-to-end Google Travel UX. Reality: there's no public
+Google flights/hotels search API. Google Places + Maps Static + Routes
+ARE public and free-tier-friendly ($200/month credit ≈ 11K detail
+enrichments / 28K photos / 40K routes per month).
+
+This round adds Google as a SUPPLEMENTARY enrichment layer. NOT a
+replacement for Amadeus. Default behavior stays unchanged. Opt-in via
+`workload.enrich_with_google_places=true` to get photos, ratings, review
+snippets, hours added to locations/hotels/activities widgets.
+
+Auth model — PATTERN C HYBRID
+-----------------------------
+Two distinct credential paths, each with the minimum blast radius
+for what it has to do:
+
+  1. **Backend Places + Routes API calls** (search_text, place_details,
+     nearby_search; plus any Routes API calls if added later) →
+     authenticated via **Workload Identity** on the worker SA
+     (`noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com`).
+     No secret to manage. Same `google.auth.default(scopes=[cloud-platform])`
+     pattern that mcp/vertex-ai.yaml already uses. Sent as
+     `Authorization: Bearer <token>` + `X-Goog-User-Project:
+     noetl-demo-19700101` + `X-Goog-FieldMask: <fields>`.
+
+  2. **Widget-embedded image URLs** (Maps Static API + Place Photos) →
+     authenticated via a **restricted API key** stored in Secret Manager
+     as `google-maps-widget-key`. The key has HTTP-referrer restriction
+     (mestumre.dev/* + gateway.mestumre.dev/*) + API restriction (Maps
+     Static + Places API New only) + per-day quota cap. The worker
+     reads the key from Secret Manager and embeds it in URLs the browser
+     fetches: `...&key=<widget-key>`. SA OAuth doesn't work here because
+     the browser can't carry a SA token; widget keys are unavoidable for
+     image URLs but their blast radius is minimal (referrer-gated, image
+     endpoints only, quota-capped).
+
+User-action-gated pre-handoff (Kadyapam runs — full recipe in playbook):
+
+  See playbooks/google-maps-platform-setup-pattern-c.md for the exact
+  recipe with troubleshooting. Summary:
+
+  Step 1: gcloud services enable places-backend, maps-backend,
+          static-maps-backend, routes (project=noetl-demo-19700101)
+  Step 2: Grant worker SA roles/serviceusage.serviceUsageConsumer
+  Step 3: Verify SA OAuth call to places.googleapis.com returns 200
+          (CRITICAL — must work before bridge round can proceed)
+  Step 4: Cloud Console → create API key with:
+          - Application restrictions: HTTP referrers
+            (mestumre.dev/*, gateway.mestumre.dev/*)
+          - API restrictions: Maps Static + Places API (New) ONLY
+          - Per-day quota cap (5000 requests/day on each)
+  Step 5: gcloud secrets create google-maps-widget-key + grant SA
+          secretAccessor
+
+Codex job (9 phases):
+
+  1. Verify Pattern C pre-handoff:
+     - 4 APIs enabled
+     - SA has roles/serviceusage.serviceUsageConsumer
+     - SA OAuth backend probe returns 200 (via kubectl exec worker pod)
+     - google-maps-widget-key secret exists + SA can read it
+     - Widget key honors HTTP referrer restriction
+     If anything blocks: AMBER + STOP, point Kadyapam at
+     playbooks/google-maps-platform-setup-pattern-c.md.
+
+  2. Author mcp/google-places.yaml with DUAL-PATH AUTH:
+       - search_text — SA OAuth → places:searchText
+       - place_details — SA OAuth → places/{place_id}, capped 10 chained calls
+       - nearby_search — SA OAuth → places:searchNearby
+       - static_map_url — read widget key from Secret Manager, return
+         constructed Maps Static URL (no HTTP call)
+       - place_photo_url — read widget key from Secret Manager, return
+         constructed Places Photos URL (no HTTP call)
+     Document Pattern C in playbook top comment block, cite the setup
+     playbook.
+
+  3. Travel runtime: add enrich_with_google_places workload field
+     (default FALSE). New enrich step (kind: agent → mcp/google-places)
+     between amadeus_via_mcp_<intent> and render_<intent> for
+     locations/hotels/activities. Flights/help skip enrichment.
+     Enrichment failure is non-blocking (best-effort, same pattern as
+     audit side-effect). Backend OAuth failure AND widget key failure
+     are both handled gracefully.
+
+  4. Ops PR: feat(travel-agent): add Google Places + Maps as opt-in
+     enrichment layer (Pattern C hybrid auth).
+
+  5. Docs PR: tutorial 07 new 'Enrichment via Google Places' section
+     under Step 4. Cite playbooks/google-maps-platform-setup-pattern-c.md
+     for setup.
+
+  6. Smoke default OFF: three intents byte-for-byte unchanged.
+
+  7. Smoke enriched ON: three intents return enriched widgets with
+     photos + ratings + reviews.
+     - Verify backend calls use Authorization: Bearer (SA OAuth), NOT
+       X-Goog-Api-Key.
+     - Verify widget image URLs contain key=AIza... query param.
+     - Verify budget ≤ 10 enrichment backend calls per execution.
+
+  8. Smoke graceful degradation for BOTH paths:
+     - Sub-A: revoke serviceUsageConsumer temporarily → enrichment fails,
+       widget renders Amadeus-only. Restore.
+     - Sub-B: corrupt widget key temporarily → backend Places calls
+       succeed, image URLs are absent/null, widget renders without
+       broken images. Restore.
+
+  9. Close out: memory, sync issue, validation log, ai-meta bumps.
+
+Architectural rules:
+  - SUPPLEMENTARY layer, NOT a replacement for Amadeus.
+  - Default OFF (opt-in via workload field).
+  - Per-execution cap: max 10 enrichments.
+  - Enrichment failure is non-blocking — fall back to Amadeus-only widget.
+  - No removal of existing Amadeus paths.
+  - Free-tier disciplined: GCP-level quota cap is the hard ceiling.
+  - **Pattern C is mandatory**: backend tools MUST use SA OAuth; widget
+    URL builders MUST use the widget key. Don't merge the two.
+  - Don't provision the widget API key or modify SA IAM bindings yourself.
+  - No release cut. No git push from ai-meta.
+
+Free-tier budget reference for the playbook + docs:
+  - Place Details Enterprise ~$17/1000 calls → ~11,700 free/month
+  - Place Photos ~$7/1000 calls → ~28,500 free/month
+  - Routes/Distance Matrix ~$5/1000 calls → ~40,000 free/month
+  - Per-execution 10 items × 30 executions/day ≈ 9,000 calls/month
+  - Well within free credit for demo + low-traffic production usage
+
+Expected GREEN: phases 6/7/8 all succeed. Default behavior preserved.
+Enriched mode produces visibly better widgets. Pattern C auth paths
+are demonstrably separate (backend = SA OAuth, widget URLs = embedded
+restricted API key). Failure modes for either path gracefully degrade
+to current behavior.

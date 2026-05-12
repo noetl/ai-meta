@@ -1,0 +1,191 @@
+{
+  "id": "20260512-030000-google-places-enrichment-mcp",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-12T03:00:00Z",
+  "title": "Add Google Places + Maps as supplementary enrichment layer for travel agent (Pattern C hybrid auth, free-tier disciplined)",
+
+  "description": "Travel agent currently shows Amadeus data — IATA codes, lat/long, prices. UX-wise this is functional but spartan. Google Places API (New) + Maps Static + Routes APIs add photos, ratings, reviews, hours, and nearby-attractions enrichment — content Amadeus doesn't carry. This round adds Google as a SUPPLEMENTARY layer (not a replacement for Amadeus): a new mcp/google-places playbook + travel runtime enrichment hook + widget updates surfacing the enriched data. Strictly within Google Maps Platform's $200/month free credit, with per-execution budget caps to prevent runaway burn. Auth model: PATTERN C HYBRID — backend Places/Routes API calls authenticate via Workload Identity on the noetl-worker-mcp service account; widget-embedded image URLs (Maps Static + Place Photos) authenticate via a restricted API key fetched from `google-maps-widget-key` Secret Manager. Cap: 1 ops PR (new playbook + runtime hooks) + 1 docs PR (tutorial 07 enrichment section). User-action-gated on Pattern C setup (see playbooks/google-maps-platform-setup-pattern-c.md).",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "pattern": "Pattern C (hybrid auth). Full step-by-step recipe with troubleshooting lives at `playbooks/google-maps-platform-setup-pattern-c.md`. The summary below mirrors that doc; the playbook is authoritative.",
+    "step_1_enable_apis_in_gcp": "```bash\ngcloud services enable \\\n  places-backend.googleapis.com \\\n  maps-backend.googleapis.com \\\n  static-maps-backend.googleapis.com \\\n  routes.googleapis.com \\\n  --project=noetl-demo-19700101\n```",
+    "step_2_grant_sa_serviceusage_consumer": "Backend calls (Places search/details/nearby, Routes) go via Workload Identity on the worker SA. Grant `serviceUsageConsumer` so the SA can call enabled APIs:\n```bash\ngcloud projects add-iam-policy-binding noetl-demo-19700101 \\\n  --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \\\n  --role=roles/serviceusage.serviceUsageConsumer\n```",
+    "step_3_verify_backend_oauth": "Critical sanity check — exec into a worker pod and call Places searchText with the SA's identity (no API key, OAuth via Workload Identity). Recipe in playbooks/google-maps-platform-setup-pattern-c.md Step 3. Must return STATUS: 200 before proceeding.",
+    "step_4_create_widget_restricted_api_key": "Cloud Console → APIs & Services → Credentials → Create API key. Configure restrictions (NOT NONE — this key is widget-embedded and effectively public):\n  - Application restrictions: HTTP referrers — `https://mestumre.dev/*`, `https://gateway.mestumre.dev/*`\n  - API restrictions: ONLY Maps Static API + Places API (New) [for Place Photos endpoint]\n  - Per-day quota: 5000 requests/day on Maps Static + Places Photos (hard ceiling)\n  - Do NOT include Places search/details/nearby in the API restriction — those go via SA OAuth.",
+    "step_5_store_widget_key_in_secret_manager": "```bash\necho -n '<the-AIza-widget-key>' | gcloud secrets create google-maps-widget-key \\\n  --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n\ngcloud secrets add-iam-policy-binding google-maps-widget-key \\\n  --project=noetl-demo-19700101 \\\n  --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \\\n  --role=roles/secretmanager.secretAccessor\n```",
+    "verification": "Both paths must work:\n  1. SA OAuth backend probe (Step 3) returns 200.\n  2. `gcloud secrets versions access 1 --secret=google-maps-widget-key --project=noetl-demo-19700101 | head -c 8` shows first 8 chars of the AIza widget key.\n  3. `gcloud projects get-iam-policy noetl-demo-19700101 --flatten='bindings[].members' --filter='bindings.members:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com AND bindings.role:roles/serviceusage.serviceUsageConsumer'` returns the role."
+  },
+
+  "design_brief_for_codex": {
+    "what_it_adds": "Photos, ratings, reviews summary, opening hours, types, categories — Google's editorial + user-generated content layer over Amadeus's bookings-grade content. NOT a replacement. NOT a booking source.",
+
+    "enrichment_targets": "Three travel intents benefit from enrichment:\n\n  - **locations** (e.g., 'locations near Boston' → Amadeus returns IATA city codes): enrich with city photo, rating, place type, brief description. Each location → 1 Places API call.\n\n  - **hotels** (e.g., 'hotels in Paris' → Amadeus returns chain codes + IATA + lat/long): enrich with hotel photos, star rating, user review summary, address. Each hotel → 1 Places API call. CAPPED at top-10 hotels per execution.\n\n  - **activities** (e.g., 'activities near Times Square' → Amadeus returns activity name + price + geoCode): enrich with activity photos, rating, hours. Each activity → 1 Places API call. CAPPED at top-10 activities per execution.\n\n  - **flights** — NO enrichment. Flights don't map to places. Skip.\n\n  - **help** — NO enrichment.",
+
+    "playbook_shape": "`repos/ops/automation/agents/mcp/google-places.yaml` — structural shape mirrors `automation/agents/mcp/amadeus.yaml` BUT auth is dual-path Pattern C:\n\n  **Backend tools (SA OAuth via Workload Identity)**:\n\n  1. `search_text` — text search for places. Inputs: `query`, optional `lat`/`lng`/`radius`. Returns list of place_ids + brief details. Uses Places API (New) Text Search endpoint at `https://places.googleapis.com/v1/places:searchText`. Auth: `Authorization: Bearer <SA OAuth token>` + `X-Goog-User-Project: noetl-demo-19700101`. Mirror the `google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])` pattern from mcp/vertex-ai.yaml.\n\n  2. `place_details` — full details by place_id. Inputs: `place_id`. Returns name, photo resource names (NOT keyed URLs — see widget tools below), rating, user_rating_count, opening_hours, types, formatted_address. Uses Places API (New) Place Details. Same SA OAuth auth as search_text.\n\n  3. `nearby_search` — places near lat/long with type filter. Inputs: `lat`, `lng`, `radius`, optional `type`. Returns list of place_ids + brief details. Uses Places API (New) Nearby Search. Same SA OAuth auth.\n\n  **Widget URL builder tools (API key from Secret Manager)**:\n\n  4. `static_map_url` — constructs a Maps Static API URL for lat/lng. Reads `google-maps-widget-key` from Secret Manager and embeds it: `https://maps.googleapis.com/maps/api/staticmap?...&key=<widget-key>`. No API call here; just URL construction. The browser fetches the image with the embedded key; the key's HTTP referrer restriction enforces only `mestumre.dev/*` + `gateway.mestumre.dev/*` can use it.\n\n  5. `place_photo_url` — constructs a Place Photos URL given a photo resource name from `place_details`. Reads `google-maps-widget-key` from Secret Manager. URL shape: `https://places.googleapis.com/v1/<photo-resource>/media?maxWidthPx=400&key=<widget-key>`. Same referrer-protected key.\n\n  **Auth wiring** — keychain section declares two credential sources:\n    - `gcp_workload_identity` (no secret; the worker pod's SA identity is used directly by `google.auth.default`)\n    - `google_maps_widget_key` (reads `google-maps-widget-key` from Secret Manager via the existing GCP keychain provider)\n\n  This matches existing project security posture: backend privileged calls use SA OAuth (same as Vertex AI), publicly-fetched image URLs use a tightly-scoped API key (unavoidable since the browser can't carry a SA token).",
+
+    "budget_caps_in_playbook": "Hard caps inside the playbook to prevent free-tier burn:\n  - Per `tools/call` of `search_text` or `nearby_search`: max 1 backend API call per request.\n  - Per `tools/call` of `place_details`: max 10 chained backend calls in a batch (caller passes up to 10 place_ids; playbook iterates).\n  - `static_map_url` and `place_photo_url` make ZERO backend calls — pure URL construction. Cost is incurred only when the browser fetches the image, and is capped by the widget key's per-day GCP quota.\n  - No retry loops on rate-limit (429) — fail clean and let caller backoff.\n  - The travel runtime enforces enrichment-per-execution caps (next section).",
+
+    "travel_runtime_integration": "`repos/ops/automation/agents/travel/runtime.yaml` gets:\n\n  1. New workload field `enrich_with_google_places: false` (default off — opt-in).\n  2. NEW render-side enrichment step `enrich_with_google_places` (kind: agent, framework: noetl, entrypoint: automation/agents/mcp/google-places) inserted between `amadeus_via_mcp_<intent>` and `render_<intent>` ONLY for locations/hotels/activities. Skipped (passthrough) for flights/help.\n  3. The enrichment step takes the Amadeus envelope, extracts the top-N items (N=10), calls Google Places to enrich each, MERGES the enrichment into the items dict (each item gets `_google` key with photos/rating/hours/etc.), passes the merged envelope to render_<intent>.\n  4. Render steps gracefully degrade: if `item._google` is missing OR `enrich_with_google_places` is false, render the original Amadeus-only widget. If present, render the enriched widget (photo + rating chip + review snippet).\n  5. Enrichment failure (Places API 4xx/5xx or rate-limited) is non-blocking: the merge passes through original Amadeus items unchanged. Same best-effort principle as the render audit side-effect.",
+
+    "widget_enhancements": "Three render steps gain enriched-mode rendering. Widget shape examples:\n\n  **render_hotels (enriched mode)**:\n    - app:title 'Travel agent · {n} hotels in {cityCode}'\n    - For each hotel: app:card with photo URL (built via `place_photo_url` or `static_map_url` — embeds widget API key), title, rating chip (e.g., '4.3 ⭐ · 1,247 reviews'), one-line review snippet, address, geoCode.\n    - Maintains compatibility with non-enriched mode (current recordtable shape) when enrichment off OR fails.\n\n  **render_locations (enriched mode)**:\n    - Similar — each location gets a hero photo URL (place_photo_url for the location's first photo, or static_map_url as fallback) + place type + rating chip.\n\n  **render_activities (enriched mode)**:\n    - Each activity gets photo URL + rating + hours + price.\n\n  **Photo URL handling (Pattern C critical)**: Place details (called via SA OAuth) return photo resource names like `places/ChIJxxxx/photos/AcXSAS...`. To make these renderable in the widget, the playbook constructs `https://places.googleapis.com/v1/<resource>/media?maxWidthPx=400&key=<widget-api-key>` via `place_photo_url`. For city/location hero images we may also use Maps Static API: `https://maps.googleapis.com/maps/api/staticmap?center=<lat,lng>&zoom=13&size=400x300&key=<widget-api-key>` via `static_map_url`. Both URLs render directly in the existing widget renderer's image surfaces (no Authorization header — the embedded `key=` param is what the browser sends, gated by HTTP referrer restrictions on the GCP side).",
+
+    "free_tier_budget_documentation": "Document the budget math in the playbook comments + tutorial:\n  - $200/month Google Maps Platform credit.\n  - At Place Details Enterprise tier ($17 / 1000 calls): ~11,700 detail calls/month free.\n  - At Place Photos ($7 / 1000 calls): ~28,500 photo URLs/month free.\n  - At Routes/Distance Matrix ($5 / 1000 calls): ~40,000 calls/month free.\n  - Per-execution cap of 10 enrichment items × ~30 executions/day = ~9,000 calls/month → well within free tier.\n  - Quota-limited API key at GCP layer is the hard ceiling backstop.",
+
+    "tutorial_07_update": "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — new section 'Enrichment via Google Places' under Step 4 (Widget output). Show:\n  - The `enrich_with_google_places: true` workload field.\n  - Example enriched widget for hotels.\n  - Free-tier budget math.\n  - Opt-in note: enrichment is off by default to keep zero-dependency usage clean.\n  - Pattern C auth note: backend Places/Routes calls use Workload Identity on the worker SA; widget image URLs embed a referrer-restricted API key from Secret Manager. Link the ai-meta setup playbook `playbooks/google-maps-platform-setup-pattern-c.md` for the deployment recipe.",
+
+    "no_changes_to_existing_paths": "Default behavior (enrich_with_google_places=false) is byte-for-byte unchanged from current state. Existing executions, audit rows, render shapes all preserved. Enrichment is purely additive."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm Pattern C setup: APIs enabled, SA OAuth works for Places backend, widget API key in Secret Manager and SA can read it.",
+      "spec": [
+        "gcloud services list --enabled --project=noetl-demo-19700101 | grep -E 'places-backend|maps-backend|static-maps-backend|routes' — confirm all 4 enabled.",
+        "gcloud projects get-iam-policy noetl-demo-19700101 --flatten='bindings[].members' --filter='bindings.members:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com AND bindings.role:roles/serviceusage.serviceUsageConsumer' — confirm role present.",
+        "**Backend OAuth probe (CRITICAL)**: kubectl -n noetl exec a worker pod, run python that calls google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform']), refreshes the token, and POSTs to https://places.googleapis.com/v1/places:searchText with Authorization: Bearer <token> + X-Goog-User-Project: noetl-demo-19700101 + X-Goog-FieldMask: places.displayName + body {textQuery:'restaurants in Paris'}. Must return STATUS 200 with places array. If 403 → IAM not propagated or wrong scope; if 401 → Workload Identity wiring problem on the pod.",
+        "gcloud secrets describe google-maps-widget-key --project=noetl-demo-19700101 — confirm exists.",
+        "kubectl -n noetl exec deploy/noetl-worker -- python -c 'from google.cloud import secretmanager; c=secretmanager.SecretManagerServiceClient(); print(c.access_secret_version(name=\"projects/noetl-demo-19700101/secrets/google-maps-widget-key/versions/latest\").payload.data[:8])' — confirm first 8 chars match AIza prefix.",
+        "**Widget API key probe**: With the widget key value, curl `https://maps.googleapis.com/maps/api/staticmap?center=Paris&zoom=12&size=200x200&key=<widget-key>` with header `Referer: https://mestumre.dev/test` — should return PNG bytes. Without the referer header it should return 403 (proves restrictions are active).",
+        "If any of the above blocks: AMBER + STOP. Point Kadyapam at playbooks/google-maps-platform-setup-pattern-c.md for the exact missing step."
+      ],
+      "verify": "Pattern C verified end-to-end: SA OAuth backend call returns 200; widget key in Secret Manager readable from worker; widget key honors HTTP referrer restriction."
+    },
+
+    "2_author_mcp_google_places_playbook": {
+      "objective": "Create automation/agents/mcp/google-places.yaml with Pattern C dual-path auth.",
+      "spec": [
+        "Mirror the structural shape of automation/agents/mcp/amadeus.yaml for workload/tools/list dispatch BUT borrow the SA OAuth keychain pattern from automation/agents/mcp/vertex-ai.yaml for backend calls.",
+        "Implement 5 tools: search_text, place_details, nearby_search, static_map_url, place_photo_url.",
+        "**Backend tools** (search_text, place_details, nearby_search) authenticate via google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform']), call places.googleapis.com with Authorization: Bearer <token> + X-Goog-User-Project: noetl-demo-19700101 + X-Goog-FieldMask: <appropriate field mask>. NO X-Goog-Api-Key header.",
+        "**URL builder tools** (static_map_url, place_photo_url) read `google-maps-widget-key` from Secret Manager and return constructed URLs with `&key=<widget-key>` embedded. NO actual HTTP call to Google.",
+        "Per-call budget caps (max 10 chained calls in place_details).",
+        "Best-effort error handling: 4xx/5xx from backend tools returns a friendly error envelope, never throws. URL builders return None on missing widget key rather than crashing.",
+        "Document Pattern C in the playbook's top-of-file comment block citing playbooks/google-maps-platform-setup-pattern-c.md as the setup reference.",
+        "Pydantic-validate."
+      ],
+      "verify": "Playbook validates. `cd /mcp/google-places; tools` shows 5 tools. Backend tools demonstrably issue Bearer-token requests; URL builders demonstrably embed widget key in returned URL."
+    },
+
+    "3_travel_runtime_enrichment_hook": {
+      "objective": "Add enrich_with_google_places workload field + enrichment step + render updates.",
+      "spec": [
+        "Add workload field enrich_with_google_places: false (default opt-in off).",
+        "Add new step enrich_with_google_places (kind: agent → automation/agents/mcp/google-places) inserted between amadeus_via_mcp_<intent> and render_<intent> for locations/hotels/activities ONLY.",
+        "Step is conditionally invoked via when: `{{ workload.enrich_with_google_places == true and classify_intent.intent in ['locations', 'hotels', 'activities'] }}`.",
+        "Step output: original Amadeus envelope.data.items merged with `_google` enrichment key per item.",
+        "If enrichment fails: pass-through original items.",
+        "Render steps read item._google when present; render enriched widget. Otherwise fall back to current widget shape.",
+        "Pydantic-validate."
+      ],
+      "verify": "Travel runtime validates. Default behavior unchanged. Enriched mode produces enriched widgets."
+    },
+
+    "4_open_and_merge_ops_pr": {
+      "objective": "Single ops PR for new playbook + travel runtime hooks.",
+      "spec": [
+        "branch kadyapam/google-places-enrichment-mcp",
+        "PR title: feat(travel-agent): add Google Places + Maps as opt-in enrichment layer",
+        "Body: cites the user's request for end-to-end Google Travel UX, free-tier discipline, the additive (not replacement) positioning vs Amadeus.",
+        "Squash-merge."
+      ],
+      "verify": "PR merged."
+    },
+
+    "5_docs_pr": {
+      "objective": "Tutorial 07 'Enrichment via Google Places' section.",
+      "spec": [
+        "branch kadyapam/travel-tutorial-google-places-enrichment",
+        "Add new subsection under Step 4. Show workload field, example enriched widget, free-tier math, pre-handoff recipe.",
+        "npm run build clean.",
+        "PR title: docs(tutorials): note Google Places enrichment for travel agent",
+        "Squash-merge."
+      ],
+      "verify": "Docs PR merged."
+    },
+
+    "6_re_register_and_smoke_default_off": {
+      "objective": "Default state unchanged.",
+      "spec": [
+        "noetl register repos/ops/automation/agents/mcp/google-places.yaml + travel runtime.",
+        "Smoke `travel locations near Paris` with DEFAULT settings (enrich off). Expected: render_locations widget identical to pre-change shape.",
+        "Smoke `travel hotels in Paris on 2026-08-15` default. Expected: render_hotels unchanged.",
+        "Smoke `travel activities near Times Square` default. Expected: render_activities unchanged.",
+        "Audit rows show ai_provider as before, no _google key in payload."
+      ],
+      "verify": "Default behavior byte-for-byte preserved."
+    },
+
+    "7_smoke_enriched_mode": {
+      "objective": "Opt-in enrichment produces enriched widgets with dual-path auth working.",
+      "spec": [
+        "Override workload: enrich_with_google_places=true.",
+        "Smoke `travel locations near Paris` enriched. Expected: render_locations widget includes Google photos + ratings.",
+        "Smoke `travel hotels in Paris on 2026-08-15` enriched. Expected: render_hotels widget includes hotel photos + ratings.",
+        "Smoke `travel activities near Times Square` enriched. Expected: render_activities widget includes activity photos + ratings.",
+        "Verify enrichment step event in execution: tool_kind='agent', entrypoint=automation/agents/mcp/google-places.",
+        "**Pattern C auth verification**: Confirm in execution logs that (a) search_text / place_details / nearby_search calls used Authorization: Bearer + X-Goog-User-Project headers (SA OAuth), NOT X-Goog-Api-Key. (b) The image URLs surfaced in the rendered widget contain `key=AIza...` query params (widget key embedded in URL, not Authorization header).",
+        "Spot-check budget: each execution made ≤10 enrichment backend calls. URL-builder tools (static_map_url, place_photo_url) made 0 backend calls.",
+        "Capture screenshots of enriched widgets. Verify images load successfully when fetched from mestumre.dev (the widget key's allowed referrer)."
+      ],
+      "verify": "Three intents return enriched widgets. Backend uses SA OAuth, widget URLs use restricted key. Budget caps respected."
+    },
+
+    "8_smoke_enrichment_failure_graceful": {
+      "objective": "Enrichment failure falls back to original Amadeus widget — for BOTH auth paths.",
+      "spec": [
+        "Sub-smoke A — backend OAuth path fails: temporarily revoke `roles/serviceusage.serviceUsageConsumer` from the worker SA (or use an override that injects a bad project header). Smoke `travel hotels in Paris` with enrich_with_google_places=true. Expected: enrichment errors logged, widget renders in ORIGINAL Amadeus-only shape. Restore the role after the test.",
+        "Sub-smoke B — widget key path fails: temporarily set `google-maps-widget-key` to an invalid value (or rotate to a temporarily-invalid key) — backend Places calls succeed (SA OAuth path), but URL builders return None/empty. Smoke `travel hotels in Paris` with enrich_with_google_places=true. Expected: data fields (rating, hours) populated from successful Places calls; photo/image fields absent; widget renders without broken images. Restore the secret after the test.",
+        "Audit rows capture both failure modes but neither breaks render."
+      ],
+      "verify": "Graceful degradation works for both Pattern C paths independently."
+    },
+
+    "9_close_out": {
+      "objective": "Memory + sync issue + validation log + ai-meta pointer bumps.",
+      "spec": [
+        "Memory entry documenting the enrichment layer + free-tier budget observations from the smokes.",
+        "Sync issue update — if there isn't one for travel UX enrichment, write one summarizing the addition.",
+        "Validation log append.",
+        "Bump repos/ops + repos/docs gitlinks. Stage, don't push."
+      ],
+      "verify": "Bookkeeping complete."
+    }
+  },
+
+  "expected_state": {
+    "description": "Travel agent has an opt-in Google Places enrichment layer. Default behavior unchanged. Enabled via workload.enrich_with_google_places=true. Free-tier disciplined (per-execution budget caps + GCP-level quota ceiling).",
+    "verify_pattern": "Phase 6 default-mode smokes match pre-round widget shape. Phase 7 enriched-mode smokes show photos + ratings. Phase 8 graceful degradation works."
+  },
+
+  "denied_tools": [
+    "Provisioning the widget API key or modifying its restrictions — Kadyapam owns this (Pattern C setup playbook Steps 4-5)",
+    "Modifying the worker SA's IAM bindings (serviceUsageConsumer) — Kadyapam owns this (Pattern C setup playbook Step 2)",
+    "Routing backend Places search/details/nearby calls through the widget API key — must use SA OAuth via Workload Identity",
+    "Routing widget image URLs through SA OAuth — must use widget API key (browsers can't carry SA tokens)",
+    "Removing Amadeus integration — Google is supplementary, not replacement",
+    "Making enrichment default-on — opt-in to keep zero-friction default and respect users' free-tier budgets",
+    "Removing the per-execution budget caps in the playbook",
+    "Adding more than 5 tools to mcp/google-places in this round (search_text, place_details, nearby_search, static_map_url, place_photo_url) — keep scope tight",
+    "Modifying travel runtime classifier",
+    "Cutting a release",
+    "git push from ai-meta"
+  ],
+
+  "preferred_tools": [
+    "kubectl exec deploy/noetl-worker for SA OAuth probe (mirror the recipe in playbooks/google-maps-platform-setup-pattern-c.md Step 3)",
+    "kubectl exec for Secret Manager probe of google-maps-widget-key",
+    "noetl validate / noetl register / noetl status <id> --json",
+    "Direct curl to https://maps.googleapis.com/maps/api/staticmap with Referer header for widget key referrer-restriction probe",
+    "cd repos/docs && npm install && npm run build",
+    "git/gh PR mechanics",
+    "Browser screenshot for enriched widgets"
+  ],
+
+  "result_file_instructions": "Write bridge/outbox/20260512-030000-google-places-enrichment-mcp.result.json. Required fields: {id, from, to, completed_at, overall_status, phases: {1_verify_pre_handoff: {apis_enabled, sa_serviceusage_consumer_present, sa_oauth_places_probe_status, widget_key_secret_readable, widget_key_referrer_restriction_enforced}, 2_author_mcp_google_places_playbook: {tools_count, validates, backend_tools_use_sa_oauth, widget_tools_use_api_key}, 3_travel_runtime_enrichment_hook: {validates, default_unchanged}, 4_open_and_merge_ops_pr: {pr_url, merged_sha}, 5_docs_pr: {pr_url, merged_sha, build_clean}, 6_re_register_and_smoke_default_off: {locations_widget_unchanged, hotels_widget_unchanged, activities_widget_unchanged}, 7_smoke_enriched_mode: {locations_enriched, hotels_enriched, activities_enriched, screenshots, calls_per_execution, sa_oauth_used_for_backend, widget_key_used_for_image_urls}, 8_smoke_enrichment_failure_graceful: {backend_oauth_failure_fallback, widget_key_failure_fallback}, 9_close_out: {memory_path, validation_log_appended, ops_sha, docs_sha, ai_meta_commit_local}}, verdict, notes, deferred_followups}."
+}
