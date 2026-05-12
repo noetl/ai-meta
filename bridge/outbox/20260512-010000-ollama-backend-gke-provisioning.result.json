@@ -1,0 +1,129 @@
+{
+  "id": "20260512-010000-ollama-backend-gke-provisioning",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-12T04:20:00Z",
+  "overall_status": "GREEN",
+  "phases": {
+    "1_inspect_existing_templates": {
+      "status": "completed",
+      "case": "b_needs_new_template",
+      "existing_templates": [
+        "automation/helm/noetl/templates/ollama-bridge-deployment.yaml",
+        "automation/helm/noetl/templates/ollama-bridge-service.yaml"
+      ],
+      "added_templates": [
+        "automation/helm/noetl/templates/ollama-pvc.yaml",
+        "automation/helm/noetl/templates/ollama-deployment.yaml",
+        "automation/helm/noetl/templates/ollama-service.yaml"
+      ],
+      "image_tag": "ollama/ollama:latest",
+      "port": 11434,
+      "service_dns": "ollama.noetl.svc.cluster.local:11434"
+    },
+    "2_helm_values_enable_or_add": {
+      "status": "completed",
+      "pr_urls": [
+        "https://github.com/noetl/ops/pull/74",
+        "https://github.com/noetl/ops/pull/75"
+      ],
+      "merged_shas": [
+        "c98960a3ec5db0725278d0bcc1468364d15e5b7a",
+        "3587f12ac0e1aaee0185e285b064cfde7703f430"
+      ],
+      "helm_lint_clean": true,
+      "helm_template_clean": true,
+      "server_dry_run_clean_for_ollama_objects": true,
+      "notes": [
+        "ops#74 added the opt-in Ollama Deployment, Service, and PVC.",
+        "Initial 4Gi request / 6Gi limit was too small for gemma3:4b on GKE; Ollama reported model requires about 4.0Gi while only 2.7Gi was free after runtime overhead.",
+        "ops#75 increased the backend to 8Gi request / 10Gi limit."
+      ]
+    },
+    "3_deploy_and_warm_cache": {
+      "status": "completed",
+      "helm_revision": 129,
+      "pod_healthy": true,
+      "deployment": "noetl/ollama",
+      "service": "noetl/ollama",
+      "pvc": "noetl/ollama-data",
+      "resources": {
+        "requests": {
+          "cpu": "500m",
+          "memory": "8Gi"
+        },
+        "limits": {
+          "cpu": "2",
+          "memory": "10Gi"
+        }
+      },
+      "model_pulled": {
+        "name": "gemma3:4b",
+        "digest": "a2af6cc3eb7f",
+        "size": "3.3 GB"
+      },
+      "bridge_can_reach_backend": true,
+      "direct_chat_probe": "pong"
+    },
+    "4_smoke_travel_provider_ollama": {
+      "status": "completed",
+      "help_status": {
+        "execution_id": "624881246190961331",
+        "child_execution_id": "624881262003487439",
+        "status": "completed",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "elapsed_seconds": 78.6,
+        "ollama_child_seconds": 75.299
+      },
+      "flights_status": {
+        "execution_id": "624881921993999156",
+        "child_execution_id": "624881937731027792",
+        "status": "completed",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "elapsed_seconds": 83.3,
+        "ollama_child_seconds": 43.779
+      },
+      "activities_status": {
+        "execution_id": "624885675040440455",
+        "child_execution_id": "624885689158467747",
+        "status": "completed",
+        "effective_provider": "ollama",
+        "provider_fallback_reason": null,
+        "render_type": "app:column",
+        "elapsed_seconds": 112.1,
+        "ollama_child_seconds": 65.85
+      },
+      "all_effective_provider_ollama": true,
+      "avg_smoke_elapsed_seconds": 91.3,
+      "avg_ollama_child_seconds": 61.6,
+      "audit_signal": "worker logs showed log_classification row_count=1 for the Ollama smokes; execution results carry effective_provider=ollama with no fallback",
+      "logs_show_inference": true,
+      "notes": [
+        "An earlier activities attempt, 624882636149752823, overlapped a server rollout and stuck after log_classification when event emission lost the server connection. It was not counted as the final smoke.",
+        "After rollout stability, activities execution 624885675040440455 completed GREEN."
+      ]
+    },
+    "5_close_out": {
+      "status": "completed",
+      "sync_issue_section_closed": "sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md",
+      "validation_log_appended": "bridge/outbox/codex-spike-green-validation.md",
+      "memory_entry_path": "memory/inbox/2026/05/20260512-010000-ollama-backend-gke-provisioning-green.md",
+      "ops_pointer_bumped": true
+    }
+  },
+  "verdict": "GKE now runs the full option B Ollama path: ollama-bridge plus a CPU-only ollama backend with gemma3:4b cached on a persistent PVC. travel --provider ollama help, flights, and activities all completed with effective_provider=ollama and no fallback.",
+  "notes": [
+    "No GPU nodes were provisioned.",
+    "The existing ollama-bridge Service was not modified.",
+    "No storage tier, classifier code, travel runtime, or object-store chooser code was changed.",
+    "CPU inference is slow but functional: the three travel smokes averaged about 91 seconds end-to-end and about 62 seconds for the Ollama child execution."
+  ],
+  "deferred_followups": [
+    "Amadeus production credentials provisioning (last user-gated follow-up)",
+    "Optional future tuning: reduce Ollama latency with a smaller model, more CPU, GPU nodes, or an external Ollama endpoint if the cost/performance tradeoff is justified."
+  ]
+}
