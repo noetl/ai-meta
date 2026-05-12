@@ -1,0 +1,116 @@
+{
+  "id": "20260512-220000-duffel-test-orders",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-12T22:00:00Z",
+  "title": "Add Duffel test-env order creation tools (create_order, get_order, list_orders) to mcp/duffel",
+
+  "description": "Extend `repos/ops/automation/agents/mcp/duffel.yaml` (currently search-only after round 20260512-130000) with three order-management tools, scoped strictly to Duffel's test environment. Test orders are free, synthetic (no real airline ticketing, no real money), and pair with the existing `duffel-api-test` secret. Live orders are explicitly out of scope — gated on Thread 3 (payment + monetization). Cap: 1 ops PR (new tools + tools/list catalog update) + 1 docs PR (tutorial 07 brief section). User-action: no new GCP secret; if the Duffel test wallet balance is < $1000, Kadyapam tops it up via the Duffel dashboard before phase 3.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "context": "Round 20260512-130000 (Duffel search) already provisioned `duffel-api-test` in Secret Manager with `roles/secretmanager.secretAccessor` for `noetl-worker-mcp`. This round reuses that secret — no new credential provisioning.",
+    "step_1_check_duffel_wallet_balance": "Duffel test mode auto-credits the wallet but small balances can run out during heavy smoking. Verify at https://app.duffel.com → switch env to **test** → Dashboard → wallet balance ≥ $1000 USD equivalent. Duffel auto-tops the test balance back to $10000 on request via the dashboard. Live wallet is NOT touched in this round.",
+    "step_2_no_new_secrets": "Confirm `duffel-api-test` still exists and has IAM:\n```bash\ngcloud secrets get-iam-policy duffel-api-test --project=noetl-demo-19700101 \\\n  --flatten='bindings[].members' \\\n  --filter='bindings.members:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com' \\\n  --format='value(bindings.role)'\n```\nExpected: `roles/secretmanager.secretAccessor`."
+  },
+
+  "design_brief_for_codex": {
+    "duffel_orders_api_basics": "Duffel REST API for orders. Base URL `https://api.duffel.com`. Auth + headers identical to round 20260512-130000: `Authorization: Bearer <token>`, `Accept: application/json`, `Duffel-Version: v2`, `Content-Type: application/json` on POST. Endpoints in scope:\n  - `POST /air/orders` — create an order against a previously-found offer. Body shape includes `selected_offers: [<offer_id>]`, `passengers: [...]` (one entry per passenger declared on the offer; passenger `id`s come from the offer), and `payments: [{ type: 'balance', amount: <offer.total_amount>, currency: <offer.total_currency> }]`. `balance` payment type is what Duffel's test wallet uses.\n  - `GET /air/orders/{id}` — retrieve an order by its Duffel-issued id.\n  - `GET /air/orders` — list orders with cursor pagination; supports filter params like `created_at[after]`, `passenger_name`, `booking_reference`. Cap to first-page (50 results) in this round.\n\nReference: https://duffel.com/docs/api/orders. Offers expire ~30 minutes after creation; if `create_order` is called against an expired offer, Duffel returns a clear 422 — surface that to the caller verbatim.",
+
+    "new_tools_to_add_to_mcp_duffel": "`repos/ops/automation/agents/mcp/duffel.yaml` gains three tools. Update `tools/list` catalog to include them. Each tool follows the same HTTP+auth shape as `search_offers` / `get_offer` from the prior round.\n\n  1. **`create_order`** — Inputs: `offer_id` (required), `passengers` (required — array of passenger objects per Duffel schema: id, title, given_name, family_name, born_on, email, phone_number, gender), and optional `payment_amount` + `payment_currency` overrides (default to the offer's `total_amount` / `total_currency` if omitted — fetch the offer via GET /air/offers/{offer_id} first to discover the amount). Endpoint: POST /air/orders. Returns the canonical Duffel order shape: id, booking_reference, total_amount, total_currency, passengers, slices, payments. Result handler MUST NOT log the full payment block beyond amount + currency.\n\n  2. **`get_order`** — Inputs: `order_id` (required). Endpoint: GET /air/orders/{order_id}. Returns the order detail. Pass-through, no normalization.\n\n  3. **`list_orders`** — Inputs: optional `created_at_after` (ISO timestamp), `passenger_name`, `booking_reference`. Endpoint: GET /air/orders with query params. Returns the first-page response with up to 50 orders.\n\nKeep the existing 4 search tools (search_offers, get_offer, search_places, get_airlines) untouched — this round ADDS to the catalog, doesn't replace.",
+
+    "validation_inside_playbook": "Add light input validation before calling Duffel:\n  - `create_order` rejects requests where `passengers` is empty or missing required fields. Surface validation errors as a clear `status: error` envelope so the caller (eventually the itinerary agent) can recover.\n  - `create_order` checks the offer's expiry — fetch the offer first; if `expires_at` is in the past, return `status: error, code: offer_expired` before POSTing to Duffel.\n\nNo retry-on-429 in this round; same pattern as search tools.",
+
+    "no_travel_runtime_wiring": "This round does NOT modify `repos/ops/automation/agents/travel/runtime.yaml`. The travel runtime's flights branch continues to be search-only. When/how to call `create_order` is the itinerary agent's job (Round 4), not the one-shot travel runtime's. Adding wiring here would be premature.",
+
+    "tutorial_07_update": "`repos/docs/docs/tutorials/07-travel-agent-with-widgets.md` — append a short subsection under the existing Duffel section titled 'Test-env orders (Round 1)'. Mention that the playbook exposes `create_order`, `get_order`, `list_orders` against `duffel_env: test`, the live env is gated on payment/monetization decisions, and the per-execution offer cap from round 20260512-130000 still applies. ~150 words. Link the bridge task result for reference.",
+
+    "no_breaking_changes": "Existing `flight_provider: duffel | amadeus` selector is untouched. Existing search-only flow is byte-for-byte unchanged. This round is purely additive."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm Duffel test wallet has balance + the existing secret still works.",
+      "spec": [
+        "`gcloud secrets describe duffel-api-test --project=noetl-demo-19700101` — must exist.",
+        "Per-secret IAM filter for `noetl-worker-mcp` must include `roles/secretmanager.secretAccessor`.",
+        "From worker pod: probe Duffel `GET /air/airlines?limit=1` with the token to confirm 200. Same probe used in round 20260512-130000 phase 1.",
+        "From worker pod: probe Duffel `GET /air/orders?limit=1` — should return 200 (an empty `data: []` if no orders yet is fine). Confirms order endpoints are reachable on the token's permission scope. If this returns 403, the token doesn't have orders permissions and Kadyapam needs to regenerate the Duffel token with order scopes enabled.",
+        "If any check fails: AMBER + STOP."
+      ],
+      "verify": "Secret present + readable, base API reachable, orders endpoint authorized."
+    },
+
+    "2_add_order_tools_to_mcp_duffel": {
+      "objective": "Extend `repos/ops/automation/agents/mcp/duffel.yaml` with create_order, get_order, list_orders.",
+      "spec": [
+        "Add the three tools as new HTTP step branches in the `workflow.steps` block, parallel to the existing search_offers / get_offer / search_places / get_airlines branches.",
+        "Update the `tools/list` step's response to include the three new tool entries with name, description, and inputSchema (JSON Schema).",
+        "Implement the input validation rules described in `design_brief_for_codex.validation_inside_playbook`.",
+        "Header set and auth identical to existing tools (Bearer token from keychain, Duffel-Version: v2).",
+        "Open a PR against repos/ops main: `feat(travel-agent): add Duffel test-env order tools to mcp/duffel`."
+      ],
+      "verify": "Playbook parses; tools/list catalog now has 7 entries; existing 4 search tools still work."
+    },
+
+    "3_direct_mcp_smokes": {
+      "objective": "Verify the order tools work end-to-end against the Duffel test API from inside a worker pod.",
+      "spec": [
+        "Re-register the playbook on GKE.",
+        "Smoke A — tools/list: invoke with method=tools/list. Expect 7 tools.",
+        "Smoke B — search→pick offer: invoke search_offers with `{origin:'JFK', destination:'LAX', departure_date:'2026-07-15'}`. Pick the first offer's id from the response.",
+        "Smoke C — create_order: invoke with the picked offer_id + a single adult passenger `{title:'mr', given_name:'John', family_name:'Doe', born_on:'1990-01-01', email:'noetl-test@example.com', phone_number:'+12025551234', gender:'m'}`. Expected: status=completed, response includes booking_reference + total_amount. Record the order id.",
+        "Smoke D — get_order: invoke with the order_id from Smoke C. Expected: same order detail, status=completed.",
+        "Smoke E — list_orders: invoke with no filters. Expected: at least one order (the one just created), status=completed.",
+        "Smoke F — expired-offer guard: invoke create_order with a known-bad offer_id (or wait for an offer to expire). Expected: status=error, code=offer_expired (validation block) OR Duffel 422 surfaced cleanly.",
+        "Capture all execution IDs for the result file. Never log full payment blocks or token material."
+      ],
+      "verify": "Five primary smokes complete; expired-offer guard returns an error envelope, not a crash."
+    },
+
+    "4_tutorial_docs_update": {
+      "objective": "Add the brief 'Test-env orders' subsection to tutorial 07.",
+      "spec": [
+        "Edit `repos/docs/docs/tutorials/07-travel-agent-with-widgets.md` per `design_brief_for_codex.tutorial_07_update`.",
+        "Open a docs PR: `docs(tutorials): note Duffel test-env order tools`."
+      ],
+      "verify": "Docs PR open; tutorial renders cleanly."
+    },
+
+    "5_close_out": {
+      "objective": "Write the result JSON, append the codex-spike validation log, write a memory entry in muno scope (or ai-meta if muno doesn't exist yet).",
+      "spec": [
+        "Result file: `bridge/outbox/20260512-220000-duffel-test-orders.result.json`. Shape mirrors `bridge/outbox/20260512-130000-duffel-flights-mcp.result.json`.",
+        "Append a one-paragraph follow-up to `bridge/outbox/codex-spike-green-validation.md` (mirrors the prior Duffel close-out entry).",
+        "Memory entry: at this point muno repo likely does not exist yet (Round 6 bootstraps it). Write the outcome memory to `ai-meta/memory/inbox/2026/05/20260512-220000-duffel-test-orders-green.md` (or `-amber.md`). Once muno bootstraps in Round 6, future trip-planner outcome memory entries will land in `muno/memory/inbox/codex/...` per the scoping doc's home-base rule.",
+        "Update no scoping doc status (the round outcome doesn't change scoping decisions)."
+      ],
+      "verify": "Result JSON written, validation log appended, memory entry created."
+    }
+  },
+
+  "architectural_rules": [
+    "Test environment only. Do NOT use `duffel_live_token_path` (it's a placeholder).",
+    "No real money, no real flights ticketed.",
+    "No retry-on-429.",
+    "Travel runtime (`automation/agents/travel/runtime.yaml`) is untouched — orders wiring lives in Round 4 (itinerary agent), not here.",
+    "Tools/list catalog grows from 4 to 7; existing 4 tools are unchanged.",
+    "No release cut. No git push from ai-meta.",
+    "Never log full Duffel payment blocks or token bytes in result JSON or memory.",
+    "If pre-handoff fails OR order endpoints return 403 on the test token: AMBER + STOP, document the gap."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260512-220000-duffel-test-orders.result.json`. Top-level: {id, status, summary, pr_summary, gke_registration {duffel_mcp_version_after}, pre_handoff_checks, smokes: {tools_list, search_offers, create_order, get_order, list_orders, expired_offer_guard}, cleanup, verdict}. Use the round 20260512-130000 result JSON as structural reference. Redact: payment payloads beyond amount+currency; full booking references can stay (they're not credentials).",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md — full trip-planner scoping and home-base decisions",
+    "sync/issues/2026-05-12-duffel-travel-api-integration.md — round 20260512-130000 scoping",
+    "bridge/outbox/20260512-130000-duffel-flights-mcp.result.json — prior round's result shape",
+    "repos/ops/automation/agents/mcp/duffel.yaml — playbook to extend",
+    "https://duffel.com/docs/api/orders — Duffel orders API reference"
+  ]
+}

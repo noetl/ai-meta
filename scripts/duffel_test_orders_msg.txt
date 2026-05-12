@@ -1,0 +1,95 @@
+Codex prompt — Add Duffel test-env order creation tools to mcp/duffel
+                (create_order, get_order, list_orders — test env only, no payment)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260512-220000-duffel-test-orders.task.json
+Result:        bridge/outbox/20260512-220000-duffel-test-orders.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md (trip-planner home base)
+Prior round:   sync/issues/2026-05-12-duffel-travel-api-integration.md (search-only)
+
+Round goal
+----------
+Extend `repos/ops/automation/agents/mcp/duffel.yaml` (currently
+search-only after round 20260512-130000) with three order tools scoped
+strictly to Duffel's test environment. Test orders are free, synthetic,
+and use Duffel's wallet `balance` payment type — no real money, no real
+ticketing. Live orders are explicitly out of scope (Thread 3 gates).
+
+Why now
+-------
+Round 1 of the trip-planner project (Adiona/muno) per the scoping doc.
+Independent of all the new agent/UI architecture: just adds plumbing
+the eventual LLM-driven itinerary agent (Round 4) will use to book
+flights for a user who picked one from the search results. Ships in a
+single Codex pass.
+
+Scope locked
+------------
+- Test environment only. `duffel-api-test` secret is already
+  provisioned (round 20260512-130000); no new GCP secret in this round.
+- Three new tools: create_order, get_order, list_orders. Search tools
+  are unchanged.
+- Travel runtime (`automation/agents/travel/runtime.yaml`) is NOT
+  touched. Orders dispatch is the itinerary agent's responsibility
+  (Round 4), not the one-shot travel runtime's.
+- Tutorial 07 gets a brief subsection mentioning the new tools.
+- Result body is captured but full payment payloads are redacted beyond
+  amount+currency; booking references can be kept (they're not creds).
+
+Tool surface (additions)
+------------------------
+
+  - create_order
+      Inputs: offer_id, passengers[], optional payment_amount/payment_currency.
+      Endpoint: POST /air/orders
+      Payment: { type: "balance", amount: <offer.total_amount>, currency: <offer.total_currency> }
+      Validation: reject empty passengers, reject expired offers
+      (fetch offer first; check expires_at) before POSTing.
+
+  - get_order
+      Inputs: order_id.
+      Endpoint: GET /air/orders/{id}
+      Pass-through.
+
+  - list_orders
+      Inputs (optional): created_at_after, passenger_name, booking_reference.
+      Endpoint: GET /air/orders (cursor pagination, first page only)
+      Returns up to 50 results.
+
+Pre-handoff for Kadyapam
+------------------------
+- Verify Duffel test wallet balance ≥ $1000 USD equivalent at
+  https://app.duffel.com (switch env to **test**). Top up via dashboard
+  if needed; Duffel auto-credits the test wallet.
+- No new GCP secret. The token in `duffel-api-test` from round
+  20260512-130000 should also work for order endpoints; phase 1
+  verifies this with a `GET /air/orders?limit=1` probe.
+
+Phases (5)
+----------
+  1. Pre-handoff verify: secret + IAM (same as round 20260512-130000) +
+     orders endpoint reachable on the test token.
+  2. Author the three tools in mcp/duffel.yaml; update tools/list
+     catalog from 4 to 7 entries. Open ops PR.
+  3. Direct MCP smokes — tools/list, search_offers (pick id),
+     create_order, get_order, list_orders, expired-offer guard.
+     Capture execution IDs.
+  4. Tutorial 07 docs update — brief subsection. Open docs PR.
+  5. Close out — result JSON, codex-spike validation log entry,
+     memory entry (ai-meta/memory/... for now since muno doesn't exist
+     yet; later trip-planner outcomes will land in muno/memory/inbox/codex/).
+
+Architectural rules
+-------------------
+  - Test env only. Live token path remains a placeholder.
+  - No real money. Wallet `balance` payment type only.
+  - Travel runtime is untouched.
+  - No retry-on-429.
+  - Never log full payment blocks or token bytes.
+  - If pre-handoff fails OR `/air/orders?limit=1` returns 403: AMBER +
+    STOP, document the gap (Kadyapam may need to regenerate the Duffel
+    token with order scopes enabled).
+  - No release cut. No git push from ai-meta.
+
+Result file shape mirrors bridge/outbox/20260512-130000-duffel-flights-mcp.result.json.
+Redact payment payloads beyond amount+currency. Booking references can stay.
