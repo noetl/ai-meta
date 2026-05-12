@@ -1,0 +1,116 @@
+{
+  "id": "20260512-220000-duffel-test-orders",
+  "status": "GREEN",
+  "summary": "Duffel test-environment order tools were added to mcp/duffel. The catalog now exposes 7 tools, including create_order, get_order, and list_orders. Travel runtime order dispatch remains untouched.",
+  "pr_summary": {
+    "ops": [
+      {
+        "pr": "https://github.com/noetl/ops/pull/85",
+        "merge_sha": "efbd378",
+        "title": "feat(duffel): add test order tools"
+      }
+    ],
+    "docs": [
+      {
+        "pr": "https://github.com/noetl/docs/pull/65",
+        "merge_sha": "dd44279",
+        "title": "docs(tutorials): note Duffel test order tools"
+      }
+    ]
+  },
+  "gke_registration": {
+    "context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "namespace": "noetl",
+    "duffel_mcp": {
+      "path": "automation/agents/mcp/duffel",
+      "version": 5,
+      "catalog_id": "625453996051792863"
+    }
+  },
+  "pre_handoff_checks": {
+    "secret_present": true,
+    "secret_name": "duffel-api-test",
+    "worker_service_account": "noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+    "worker_can_read": true,
+    "token_prefix_ok": true,
+    "token_length": 55,
+    "duffel_airlines_probe_status": 200,
+    "duffel_orders_probe_status": 200,
+    "duffel_orders_probe_count": 0,
+    "secret_material": "not recorded"
+  },
+  "smokes": {
+    "post_merge_tools_list": {
+      "execution_id": "625454064293118944",
+      "catalog_version": 5,
+      "status": "COMPLETED",
+      "tool_count": 7,
+      "summary": "Duffel MCP - 7 tools available"
+    },
+    "tools_list": {
+      "execution_id": "625452775148618605",
+      "catalog_version": 4,
+      "status": "COMPLETED",
+      "tool_count": 7,
+      "summary": "Duffel MCP - 7 tools available"
+    },
+    "search_offers": {
+      "execution_id": "625452805850923904",
+      "catalog_version": 4,
+      "status": "COMPLETED",
+      "offers_total": 10,
+      "status_code": 201,
+      "summary": "10 Duffel flight offer(s)"
+    },
+    "create_order": {
+      "execution_id": "625452830463099795",
+      "catalog_version": 4,
+      "status": "COMPLETED",
+      "order_id": "ord_0000B6EeISs9tYodkIZlhY",
+      "booking_reference": "XKQAYC",
+      "status_code": 201,
+      "payment_summary_only": true,
+      "summary": "Duffel test order created XKQAYC"
+    },
+    "get_order": {
+      "execution_id": "625452855905747878",
+      "catalog_version": 4,
+      "status": "COMPLETED",
+      "order_id": "ord_0000B6EeISs9tYodkIZlhY",
+      "booking_reference": "XKQAYC",
+      "status_code": 200,
+      "payment_summary_only": true,
+      "summary": "Duffel order XKQAYC fetched"
+    },
+    "list_orders": {
+      "execution_id": "625452878764704697",
+      "catalog_version": 4,
+      "status": "COMPLETED",
+      "orders_total": 2,
+      "status_code": 200,
+      "payment_summary_only": true,
+      "summary": "2 Duffel order(s)"
+    },
+    "expired_offer_guard": {
+      "execution_id": "625452902571574220",
+      "catalog_version": 4,
+      "status": "COMPLETED",
+      "isError": true,
+      "control_status": "error",
+      "status_code": 404,
+      "summary": "Invalid offer id surfaced as a handled Duffel not_found error envelope instead of crashing."
+    }
+  },
+  "fix_forwards": [
+    {
+      "issue": "The initial negative smoke used the shared error envelope with status=error, which made the NoETL execution FAILED.",
+      "fix": "Duffel MCP _error now keeps the NoETL step green with status=ok, isError=true, and control_data.status=error so callers receive a recoverable MCP error envelope."
+    }
+  ],
+  "cleanup": {
+    "travel_runtime_touched": false,
+    "port_forward_stopped": true,
+    "ai_meta_pushed": false
+  },
+  "verdict": "GREEN. Test order creation, retrieval, listing, and handled invalid-offer behavior are validated with the existing Duffel test token. Live orders remain out of scope."
+}
