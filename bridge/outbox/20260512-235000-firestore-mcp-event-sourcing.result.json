@@ -1,0 +1,143 @@
+{
+  "id": "20260512-235000-firestore-mcp-event-sourcing",
+  "status": "GREEN",
+  "summary": "Added a generic Firestore MCP playbook with six tools for document CRUD, collection query, transactional append_event, and replay_events, plus the local scripts/firestore_replay.sh operator helper. GKE Workload Identity auth was verified, the playbook was registered post-merge as catalog version 6, all smoke data was deleted, and Tutorial 7 now notes the Round 3 storage primitive.",
+  "pr_summary": {
+    "ops": [
+      {
+        "pr": "https://github.com/noetl/ops/pull/86",
+        "merge_sha": "8c79d88",
+        "title": "feat(mcp): add Firestore MCP playbook with event-sourcing primitives"
+      }
+    ],
+    "docs": [
+      {
+        "pr": "https://github.com/noetl/docs/pull/66",
+        "merge_sha": "9971be9",
+        "title": "docs(tutorials): note mcp/firestore + event-sourcing primitives"
+      }
+    ]
+  },
+  "gke_registration": {
+    "context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "namespace": "noetl",
+    "mcp_firestore": {
+      "path": "automation/agents/mcp/firestore",
+      "version": 6,
+      "catalog_id": "625474366091821164",
+      "post_merge_tools_list_execution_id": "625474433754333293"
+    }
+  },
+  "pre_handoff_checks": {
+    "firestore_api_enabled": true,
+    "database": "(default)",
+    "database_type": "FIRESTORE_NATIVE",
+    "location": "us-central1",
+    "worker_service_account": "noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+    "datastore_user_role_present": true,
+    "worker_wi_probe": {
+      "status": "ok",
+      "database": "projects/noetl-demo-19700101/databases/(default)",
+      "project": "noetl-demo-19700101"
+    },
+    "secret_material": "not applicable; Workload Identity only"
+  },
+  "smokes": {
+    "tools_list": {
+      "execution_id": "625472355694805440",
+      "catalog_version": 5,
+      "status": "COMPLETED",
+      "tool_count": 6,
+      "tools": [
+        "set_doc",
+        "get_doc",
+        "query_collection",
+        "delete_doc",
+        "append_event",
+        "replay_events"
+      ]
+    },
+    "set_get_roundtrip": {
+      "set_execution_id": "625472368747479507",
+      "get_execution_id": "625472381523329510",
+      "status": "COMPLETED",
+      "assertion": "deep equality after Firestore REST typed encode/decode"
+    },
+    "query_collection": {
+      "execution_id": "625472435915063858",
+      "status": "COMPLETED",
+      "assertion": "score >= 3 ordered desc returned [5, 3]"
+    },
+    "append_event_seq": {
+      "execution_ids": [
+        "625472448716079685",
+        "625472461525484120",
+        "625472474435551851",
+        "625472487312065150",
+        "625472500155024017"
+      ],
+      "status": "COMPLETED",
+      "seq_values": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "transactional_path": "beginTransaction -> runQuery max seq -> commit"
+    },
+    "header_redaction": {
+      "append_execution_id": "625472530664391351",
+      "replay_execution_id": "625472543490573002",
+      "status": "COMPLETED",
+      "authorization": "<REDACTED>",
+      "accept": "application/json"
+    },
+    "replay_type_filter": {
+      "execution_id": "625472595130843926",
+      "status": "COMPLETED",
+      "type_filter": [
+        "tool_call"
+      ],
+      "returned_types": [
+        "tool_call"
+      ]
+    },
+    "delete_cleanup": {
+      "root": "_smoke/round3-firestore-1778629315",
+      "delete_root_execution_id": "625472794226065440",
+      "get_after_delete_execution_id": "625472807178076211",
+      "replay_after_cleanup_execution_id": "625472821463875654",
+      "query_items_after_cleanup_execution_id": "625472834373943385",
+      "root_found": false,
+      "events_count": 0,
+      "items_count": 0
+    }
+  },
+  "replay_script_smoke": {
+    "script": "scripts/firestore_replay.sh",
+    "command": "scripts/firestore_replay.sh events _smoke/round3-firestore-1778629315 --type-filter tool_call",
+    "status": "COMPLETED",
+    "count": 1,
+    "event_type": "tool_call",
+    "output_truncated": true
+  },
+  "cleanup": {
+    "smoke_collection": "_smoke",
+    "remaining_smoke_docs": 0,
+    "partial_fixture_roots_cleaned": [
+      "_smoke/round3-firestore-1778629115",
+      "_smoke/round3-firestore-1778629163",
+      "_smoke/round3-firestore-1778629278"
+    ],
+    "port_forward_stopped": true,
+    "ai_meta_pushed": false
+  },
+  "validation": {
+    "ops_playbook_model_parse": "PASS",
+    "docs_build": "PASS",
+    "bash_n_firestore_replay": "PASS",
+    "post_merge_tools_list": "PASS"
+  },
+  "verdict": "GREEN. Firestore MCP is available on GKE as a generic six-tool MCP playbook, append_event assigns monotonic seq transactionally, header redaction is mandatory and verified, replay_events and the local replay helper work, and all _smoke data was removed."
+}

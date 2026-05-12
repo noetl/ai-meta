@@ -115,9 +115,10 @@ New `mcp/firestore.yaml`. Tools:
   for re-feeding through the agent.
 
 Plus a small bridge-side helper script in `scripts/firestore_replay.sh`
-that walks a thread's event log, replays it through the agent, and
-diffs the resulting agent emissions against the original. Used for
-regression testing after agent prompt or model changes.
+that walks a thread's event log and reads Firestore docs with the
+operator's local `gcloud` credentials. The future agent-diff mode
+(`replay --against-agent`) belongs to Round 4 after the itinerary agent
+exists.
 
 Auth: Workload Identity on `noetl-worker-mcp` SA. Grant the SA
 `roles/datastore.user` on the project (Firestore lives under Datastore
@@ -125,6 +126,13 @@ APIs).
 
 Pre-handoff (Kadyapam, one-time): enable Firestore in Native mode on
 `noetl-demo-19700101` if not already; grant `roles/datastore.user`.
+
+Status 2026-05-12: GREEN via ops#86 and docs#66. GKE registered
+`automation/agents/mcp/firestore` as catalog version 6
+(`625474366091821164`). Smokes passed for tools/list, set/get,
+query_collection, append_event seq `[1,2,3,4,5]`, mandatory header
+redaction, type-filter replay, `scripts/firestore_replay.sh`, and
+cleanup. `_smoke` was verified empty after the run.
 
 ### Round 4 — LLM-driven itinerary agent (hybrid input)
 

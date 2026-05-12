@@ -39,6 +39,7 @@ repos/                           # Git submodules (the actual codebases)
 
 - Add memory: `./scripts/memory_add.sh "<title>" "<summary>" "<tags>"`
 - Compact memory: `./scripts/memory_compact.sh`
+- Replay Firestore MCP events: `./scripts/firestore_replay.sh events <thread_path> [--from N] [--to N] [--type-filter type1,type2]`
 - Submodule status: `git submodule status --recursive`
 - Bump pointer: `git submodule update --remote repos/<name> && git add repos/<name>`
 
