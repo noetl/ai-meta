@@ -1,0 +1,105 @@
+Codex prompt — Firestore MCP + event-sourcing tools + replay helper (trip-planner Round 3)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260512-235000-firestore-mcp-event-sourcing.task.json
+Result:        bridge/outbox/20260512-235000-firestore-mcp-event-sourcing.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+Prior round:   memory/inbox/2026/05/20260512-230000-duffel-stays-unavailable-round-2.md
+
+Round goal
+----------
+Add `repos/ops/automation/agents/mcp/firestore.yaml` — a general-purpose
+Firestore Native mode MCP playbook with CRUD plus event-sourcing
+primitives (append-only events with monotonic seq + mandatory header
+redaction). Plus `ai-meta/scripts/firestore_replay.sh` — an operator
+helper that walks event logs for offline inspection. Round 3 of the
+trip-planner project (Adiona/muno).
+
+Independent of any agent. Round 4 (LLM-driven itinerary agent) will
+consume these primitives — this round just builds the storage layer.
+
+Pre-handoff (done, verified)
+----------------------------
+- Firestore API enabled on `noetl-demo-19700101`.
+- Native mode database `(default)` in `us-central1` (region locked).
+- Worker SA `noetl-worker-mcp` has `roles/datastore.user` at project
+  level.
+- Workload Identity auth — no token secret, no key file.
+
+Tool surface (6 tools)
+----------------------
+
+  - set_doc — write/upsert at a path. Inputs: path, data, optional merge.
+  - get_doc — read a doc. Inputs: path.
+  - query_collection — runQuery with where/order_by/limit clauses.
+  - delete_doc — delete (used for smoke teardown).
+  - append_event — APPEND-ONLY insert into `<thread_path>/events` with
+    transactional monotonic seq. MANDATORY header redaction on the
+    event payload (Authorization, X-Goog-User-Project, x-figma-token,
+    cookies, anything matching `(?i)(token|secret|password|api[-_]?key)`).
+    No skip-redaction flag.
+  - replay_events — read an event range, optionally filtered by type.
+    No agent-diff in this round; that's Round 4 territory.
+
+Generic, NOT trip-planner-specific
+----------------------------------
+The MCP tools CRUD whatever paths the caller hands them. The
+trip-planner-specific `chat_threads/{threadId}/events` hierarchy is a
+CONVENTION the Round 4 agent will follow. Don't bake the convention
+into the playbook — keep the tools reusable for any future agent.
+
+Implementation notes
+--------------------
+- Use Firestore REST API directly. Auth via
+  `google.auth.default(scopes=['https://www.googleapis.com/auth/datastore'])`
+  → SA token from metadata server (Workload Identity). Same pattern
+  mcp/google-places uses.
+- Firestore REST wraps values as `{stringValue: ...}`, `{integerValue: ...}`
+  etc. Hand-roll a small encoder/decoder INSIDE the playbook — do NOT
+  introduce `google-cloud-firestore` as a new Python dep on the worker
+  image without separate approval.
+- `append_event` uses a Firestore transaction (beginTransaction →
+  query for max seq → assign max+1 → write → commit). This is what
+  guarantees no two concurrent appends collide on seq.
+- Header redaction is recursive over the event payload. Sensitive
+  keys are replaced with the literal string `<REDACTED>`. Never
+  recurse INTO redacted values. Smoke E in phase 3 proves this.
+
+scripts/firestore_replay.sh
+---------------------------
+Operator-side helper. Runs locally, uses
+`gcloud auth print-access-token` for the operator's context (NOT the
+worker SA). Three modes:
+  - events <thread_path> [--from N] [--to N] [--type-filter csv]
+  - thread-list [--limit N]
+  - doc <doc_path>
+No agent-diff in this round; Round 4 extends with `replay --against-agent`.
+Add a mention in ai-meta/CLAUDE.md under 'Quick commands (manual)'.
+
+Phases (6)
+----------
+  1. Re-verify pre-handoff: API + db + IAM + worker-pod-can-reach probe.
+  2. Author mcp/firestore.yaml + tools/list (6 entries). Open ops PR.
+  3. Direct MCP smokes A-G — all writes use `_smoke/round3-firestore-{nonce}`
+     paths. Smoke G deletes the entire test subtree. Production
+     Firestore must be EMPTY of test data at end of phase 3.
+  4. Author scripts/firestore_replay.sh. Smoke against the same
+     fixture before phase 3 smoke G tears it down.
+  5. Tutorial 07 brief mention. Open docs PR.
+  6. Close out — result JSON, codex-spike log, memory entry.
+
+Architectural rules
+-------------------
+  - WI auth only. No token secret.
+  - Generic tools — no trip-planner data model baked in.
+  - Mandatory header redaction in append_event. No bypass flag.
+  - Transactional seq assignment. No eventual-consistency hacks.
+  - All smoke writes scoped to `_smoke/...`. Cleaned at end of phase 3.
+  - No new Python dep on worker image (hand-roll Firestore JSON
+    encoding/decoding).
+  - No release cut. No git push from ai-meta.
+  - Never log full doc data beyond ~200 chars per assertion.
+
+Result file shape mirrors bridge/outbox/20260512-220000-duffel-test-orders.result.json.
+If pre-handoff verification fails OR a smoke shows non-transactional seq behaviour
+OR header redaction leaks: AMBER + STOP.

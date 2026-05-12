@@ -1,0 +1,131 @@
+{
+  "id": "20260512-235000-firestore-mcp-event-sourcing",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-12T23:50:00Z",
+  "title": "Firestore MCP + event-sourcing tools + replay helper (trip-planner Round 3)",
+
+  "description": "Add `repos/ops/automation/agents/mcp/firestore.yaml` — a new general-purpose MCP playbook for Firestore Native mode CRUD plus event-sourcing primitives (append-only event log with monotonic seq and header redaction). Plus `ai-meta/scripts/firestore_replay.sh` — a helper that walks a thread's event log for offline inspection and (later, Round 4) agent diff. Round 3 of the trip-planner project (Adiona/muno). Independent of the agent itself — Round 4 consumes these primitives. Cap: 1 ops PR (new MCP playbook + tools/list catalog) + 1 ai-meta change for the replay helper + 1 docs PR. User-action pre-handoff DONE: Firestore Native mode db `(default)` in us-central1 exists; worker SA has `roles/datastore.user`. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` (sections 'Event-sourced storage + replay' and 'Firestore data model').",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "DONE 2026-05-12. Verified by claude-cowork before handoff.",
+    "what_was_done": "1) `gcloud services enable firestore.googleapis.com` on `noetl-demo-19700101`. 2) `gcloud firestore databases create --location=us-central1 --type=firestore-native --project=noetl-demo-19700101` — created `(default)` database in Native mode, region locked to `us-central1`. 3) `gcloud projects add-iam-policy-binding ... --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com --role=roles/datastore.user`. Phase 1 re-verifies all three.",
+    "no_new_secrets": "Firestore auth uses Workload Identity on `noetl-worker-mcp` (same pattern Google Places + Vertex AI use). No Secret Manager involvement."
+  },
+
+  "design_brief_for_codex": {
+    "playbook_shape": "`repos/ops/automation/agents/mcp/firestore.yaml` mirrors the shape of `mcp/google-places.yaml` (Workload Identity, no token secret). Workload fields:\n```yaml\nworkload:\n  gcp_auth: google_oauth\n  gcp_project: noetl-demo-19700101\n  firestore_database: \"(default)\"\n  firestore_api_base: https://firestore.googleapis.com/v1\n  method: tools/list\n  tool: \"\"\n  arguments: {}\n```\nAuth header on every Firestore REST call: `Authorization: Bearer <SA OAuth token>` (refreshed via `google.auth.default(scopes=['https://www.googleapis.com/auth/datastore'])`). Use the REST surface at `projects/{project}/databases/(default)/documents/...`. Reference: https://firestore.googleapis.com/$discovery/rest?version=v1.",
+
+    "tool_surface": "Six tools, mirroring the catalog shape of the existing Duffel / Google Places playbooks:\n\n  1. **`set_doc`** — write or upsert. Inputs: `path` (e.g., `chat_threads/abc123`), `data` (dict), optional `merge: bool` (default false — replace). Calls `PATCH /projects/{proj}/databases/{db}/documents/{path}` with `documentMask.fieldPaths` (when merge=true). Returns the persisted doc.\n\n  2. **`get_doc`** — read. Inputs: `path`. Calls `GET /projects/{proj}/databases/{db}/documents/{path}`. Returns the doc or `status: not_found`.\n\n  3. **`query_collection`** — query. Inputs: `collection_path`, optional `where` (array of `{field, op, value}` clauses; ops: `=`, `<`, `<=`, `>`, `>=`, `in`, `array-contains`), optional `order_by` (`{field, direction: asc|desc}`), optional `limit` (default 50, max 500). Uses `runQuery` with a structured query. Returns matching docs.\n\n  4. **`delete_doc`** — delete. Inputs: `path`. Calls `DELETE /projects/{proj}/databases/{db}/documents/{path}`. Used mainly for test fixture teardown.\n\n  5. **`append_event`** — append-only insert into a `{thread_path}/events` subcollection with a monotonic `seq`. Inputs: `thread_path` (e.g., `chat_threads/abc123`), `event` (dict: `{type, payload, parent_seq?}`). Behaviour: open a Firestore transaction → read the highest existing `seq` in `{thread_path}/events` → assign `seq = max + 1` → REDACT known sensitive header keys in the event payload before write (see 'Header redaction rules' below) → write to `{thread_path}/events/<auto_id>` with `seq`, `server_timestamp`, `type`, redacted `payload`. Returns the new event's path + seq. Transactional so concurrent appends don't collide on seq.\n\n  6. **`replay_events`** — read an event range. Inputs: `thread_path`, optional `seq_from` (default 0), `seq_to` (default infinity), optional `type_filter` (array of event type strings). Calls a structured query over `{thread_path}/events`, ordered by `seq` ascending. Returns the events array. No agent-diff in this round — that integration is Round 4's job. This tool just exposes the event stream for offline inspection.",
+
+    "header_redaction_rules": "In `append_event`, scan the event's `payload` recursively for dicts. For any dict key matching the following case-insensitive set, replace the value with the literal string `<REDACTED>`:\n  - `authorization`\n  - `x-goog-user-project`\n  - `x-goog-api-key`\n  - `x-figma-token`\n  - `x-api-key`\n  - `cookie`\n  - `set-cookie`\n  - any key matching the regex `(?i).*(token|secret|password|api[-_]?key|client[-_]?secret).*` whose value is a string. NEVER recurse into the redacted value (don't try to parse JWT internals etc.).\nThe redaction runs ONLY in `append_event`. `set_doc` writes the data verbatim — caller is responsible for whatever they store there. (We redact at the event-log layer because event logs are the audit trail; arbitrary doc writes might legitimately store hashed credentials etc.)\nUnit-test the redaction logic by appending an event with `payload.request.headers.Authorization = 'Bearer abc123'`, reading back via `replay_events`, and asserting the value is `<REDACTED>`.",
+
+    "tools_list_catalog_shape": "Per the MCP spec — each entry: `{name, description, inputSchema: <JSON Schema>}`. Use `mcp/google-places.yaml`'s tools/list step as the canonical example. The six tools above plus get_token-style debug entries are NOT needed (no token to fetch — WI is implicit).",
+
+    "scripts_firestore_replay_sh": "`ai-meta/scripts/firestore_replay.sh` — a small Bash + Python helper analogous to `figma_fetch.sh`. Reads via the Firestore REST API using the operator's local gcloud creds (NOT the worker SA — this is a debugging tool). Usage:\n```\nfirestore_replay.sh events <thread_path> [--from N] [--to N] [--type-filter type1,type2]\nfirestore_replay.sh thread-list [--limit N]\nfirestore_replay.sh doc <doc_path>\n```\nNo agent integration in this round — the script just prints the event stream and structured doc reads. Round 4's first deliverable extends this with a `replay --against-agent` mode that re-feeds events and diffs the agent's emissions.\nThe script uses `gcloud auth print-access-token` for auth (operator's local context), pipes JSON through `python3 -m json.tool` for readability, never echoes credentials. Add an entry to ai-meta's CLAUDE.md or a new `playbooks/firestore-replay.md` (decide which is more discoverable) referencing the script.",
+
+    "no_data_model_assumption": "The MCP tools are GENERIC — they don't bake in the trip-planner-specific `chat_threads/{threadId}/events` hierarchy. The data model documented in the scoping doc is a CONVENTION the trip-planner agent (Round 4) follows; the Firestore tools just CRUD whatever paths the caller hands them. This keeps the playbook reusable for any future agent."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Re-verify what claude-cowork already confirmed before handoff.",
+      "spec": [
+        "`gcloud services list --enabled --project=noetl-demo-19700101 --filter='name:firestore.googleapis.com'` — must return the service.",
+        "`gcloud firestore databases describe --database='(default)' --project=noetl-demo-19700101 --format='value(type,locationId)'` — must show `FIRESTORE_NATIVE` and `us-central1`.",
+        "`gcloud projects get-iam-policy noetl-demo-19700101 --flatten='bindings[].members' --filter='bindings.members:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com AND bindings.role:roles/datastore.user'` — must return the role.",
+        "Worker pod probe: `kubectl -n noetl exec deploy/noetl-worker -- python -c 'import google.auth, urllib.request, urllib.error; c,_=google.auth.default(scopes=[\"https://www.googleapis.com/auth/datastore\"]); import google.auth.transport.requests as t; c.refresh(t.Request()); r=urllib.request.Request(\"https://firestore.googleapis.com/v1/projects/noetl-demo-19700101/databases/(default)\", headers={\"Authorization\": \"Bearer \" + c.token}); print(urllib.request.urlopen(r,timeout=10).status)'` — must print 200 (database accessible from WI).",
+        "If any check fails: AMBER + STOP."
+      ],
+      "verify": "All four checks pass."
+    },
+
+    "2_author_mcp_firestore_playbook": {
+      "objective": "Implement `repos/ops/automation/agents/mcp/firestore.yaml` with the 6 tools.",
+      "spec": [
+        "Create the playbook file per `design_brief_for_codex.playbook_shape` and `tool_surface`.",
+        "Each tool's HTTP step uses the Firestore REST API. JSON encoding: Firestore REST wraps values in type-tagged dicts (`{stringValue: 'x'}`, `{integerValue: '42'}`, etc.). Write a Python helper inside the playbook to convert plain dicts → Firestore-typed dicts on write, and Firestore-typed → plain on read. Don't reinvent — Firestore's official `google.cloud.firestore` library does this, but to avoid pulling new deps prefer a minimal hand-rolled encoder/decoder.",
+        "`append_event` MUST use a Firestore transaction (POST .../databases/(default):beginTransaction → query for max seq → write → commit). The transaction guarantees no two concurrent appends collide on `seq`.",
+        "Implement header redaction per `design_brief_for_codex.header_redaction_rules`. Reject any attempt to disable it via an `arguments.skip_redaction` flag — there is no such flag; the redaction is always applied in `append_event`.",
+        "Update tools/list to list all 6 tools.",
+        "Open a PR against repos/ops main: `feat(mcp): add Firestore MCP playbook with event-sourcing primitives`."
+      ],
+      "verify": "Playbook parses; tools/list returns 6 entries."
+    },
+
+    "3_direct_mcp_smokes": {
+      "objective": "Verify each tool works against the live Firestore (default) database from inside a worker pod.",
+      "spec": [
+        "Re-register the playbook on GKE.",
+        "Smoke A — tools/list: invoke method=tools/list. Expect 6 tools.",
+        "Smoke B — set_doc + get_doc round-trip: write a synthetic doc at `_smoke/round3-firestore-{nonce}` with payload `{a: 1, b: 'hello', nested: {c: [1,2,3]}}`. Read it back. Assert deep equality after Firestore-typed encode/decode.",
+        "Smoke C — query_collection: write 3 docs at `_smoke/round3-firestore-{nonce}/items/{1,2,3}` with `{score: 1|5|3}`. Query with `where: [{field: score, op: >=, value: 3}]`, `order_by: {field: score, direction: desc}`, `limit: 10`. Expect 2 docs in score order [5, 3].",
+        "Smoke D — append_event monotonic seq: append 5 events to `_smoke/round3-firestore-{nonce}/events` with type `test`. Read back via replay_events. Assert seq values are [1, 2, 3, 4, 5] in order regardless of write order.",
+        "Smoke E — header redaction: append an event with payload `{request: {headers: {Authorization: 'Bearer abc123xyz', Accept: 'application/json'}}, response: {status: 200}}`. Read back via replay_events. Assert `payload.request.headers.Authorization == '<REDACTED>'` and `payload.request.headers.Accept == 'application/json'` (untouched).",
+        "Smoke F — replay_events type filter: append events of types `chat`, `tool_call`, `tool_response` to `_smoke/round3-firestore-{nonce}/events`. Replay with `type_filter: ['tool_call']`. Assert only tool_call events return.",
+        "Smoke G — delete_doc cleanup: delete the entire `_smoke/round3-firestore-{nonce}` subtree (delete docs one by one if no recursive delete). Verify get_doc returns not_found.",
+        "Capture all execution IDs for the result file."
+      ],
+      "verify": "All seven smokes complete; transactional seq holds under concurrent writes (if practical to test); redaction holds; type filter works."
+    },
+
+    "4_scripts_firestore_replay_sh": {
+      "objective": "Add the replay helper to ai-meta.",
+      "spec": [
+        "Create `ai-meta/scripts/firestore_replay.sh` per `design_brief_for_codex.scripts_firestore_replay_sh`. Uses `gcloud auth print-access-token` for the operator's local context.",
+        "Supports: `events <thread_path> [--from N] [--to N] [--type-filter csv]`, `thread-list [--limit N]`, `doc <doc_path>`.",
+        "Smoke the script locally against the `_smoke/round3-firestore-{nonce}` fixture before tearing it down in phase 3 smoke G. Capture an example output in the result JSON (truncated, no sensitive data).",
+        "Add a brief mention in ai-meta/CLAUDE.md under 'Quick commands (manual)' so operators discover it."
+      ],
+      "verify": "Script runs from any user with project-read access; output is readable JSON."
+    },
+
+    "5_tutorial_docs_update": {
+      "objective": "Tutorial 07 brief mention.",
+      "spec": [
+        "Edit `repos/docs/docs/tutorials/07-travel-agent-with-widgets.md` — add a short subsection 'Event-sourced storage (Round 3)' noting that mcp/firestore is now available, the 6-tool surface, and that the trip-planner agent (Round 4) will use it for chat thread + trip event persistence. ~150 words.",
+        "Open docs PR: `docs(tutorials): note mcp/firestore + event-sourcing primitives`."
+      ],
+      "verify": "Docs PR open."
+    },
+
+    "6_close_out": {
+      "objective": "Write result JSON, append codex-spike validation log, write memory entry.",
+      "spec": [
+        "Result file: `bridge/outbox/20260512-235000-firestore-mcp-event-sourcing.result.json`. Shape mirrors round 20260512-220000.",
+        "Append a paragraph to `bridge/outbox/codex-spike-green-validation.md`.",
+        "Memory entry: `ai-meta/memory/inbox/2026/05/<timestamp>-firestore-mcp-event-sourcing-green.md` (muno doesn't exist yet — Round 6 bootstraps it; for now trip-planner outcome memory lands in ai-meta and will be referenced from muno once it exists).",
+        "Verify the `_smoke/...` collection was deleted (no test data left in production Firestore)."
+      ],
+      "verify": "Result + memory + validation log all in place; production Firestore has zero `_smoke/...` collections."
+    }
+  },
+
+  "architectural_rules": [
+    "Workload Identity auth only. No token secret, no service account key file.",
+    "MCP tools are GENERIC. Don't bake in the trip-planner-specific data model (chat_threads, trips, events under threads, etc.) — the agent (Round 4) provides the convention.",
+    "Header redaction is mandatory in append_event. No skip_redaction flag.",
+    "Smokes write to `_smoke/round3-firestore-{nonce}` paths. ALL smoke data is deleted at end of phase 3 (smoke G). Production Firestore is left empty.",
+    "Hand-roll the Firestore-typed JSON encoder/decoder; don't introduce a new Python dep (google-cloud-firestore) on the worker image without separate approval.",
+    "Transactional seq assignment in append_event — no eventual-consistency hacks.",
+    "No release cut. No git push from ai-meta.",
+    "If pre-handoff verification fails (any of the 4 checks): AMBER + STOP."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260512-235000-firestore-mcp-event-sourcing.result.json`. Top-level: {id, status, summary, pr_summary, gke_registration {mcp_firestore_version, catalog_id}, pre_handoff_checks, smokes: {tools_list, set_get_roundtrip, query_collection, append_event_seq, header_redaction, replay_type_filter, delete_cleanup}, replay_script_smoke, cleanup {smoke_collections_deleted}, cleanup, verdict}. Mirror the round 20260512-220000 result shape. Never log full Firestore document data beyond what's needed to prove the assertion (truncate >200 chars).",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md — full trip-planner scoping (Event-sourced storage + replay + Firestore data model sections)",
+    "bridge/outbox/20260512-220000-duffel-test-orders.result.json — prior round's result shape",
+    "repos/ops/automation/agents/mcp/google-places.yaml — WI-auth playbook pattern to mirror (no token secret)",
+    "repos/ops/automation/agents/mcp/duffel.yaml — tools/list catalog shape",
+    "https://firestore.googleapis.com/$discovery/rest?version=v1 — Firestore REST API discovery doc",
+    "https://cloud.google.com/firestore/docs/reference/rest/v1/projects.databases.documents — REST reference",
+    "memory/inbox/2026/05/20260512-230000-duffel-stays-unavailable-round-2.md — Round 2 outcome (Stays unavailable, Round 4 uses Amadeus hotels)"
+  ]
+}
