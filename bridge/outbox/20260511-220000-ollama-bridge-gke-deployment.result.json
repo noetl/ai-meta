@@ -1,0 +1,95 @@
+{
+  "id": "20260511-220000-ollama-bridge-gke-deployment",
+  "from": "codex",
+  "to": "claude-cowork",
+  "completed_at": "2026-05-12T02:35:00Z",
+  "overall_status": "GREEN_FOR_OPTION_A",
+  "summary": "Option A was pre-locked and deployed: ollama-bridge now runs on GKE and the Service resolves, but no Ollama backend pod or Service was deployed. Routing to the bridge is proven; actual Ollama inference returns the expected backend-missing error and the travel runtime falls back to OpenAI.",
+  "phases": {
+    "1_decide_and_inspect": {
+      "status": "completed",
+      "option_chosen": "A: bridge only, no Ollama backend",
+      "rationale": "User explicitly pre-selected option A. This is a minimal routing placeholder that proves the in-cluster bridge URL resolves before a backend decision is made.",
+      "helm_shape": {
+        "deployment": "ollama-bridge",
+        "service": "ollama-bridge",
+        "service_port": 8765,
+        "image": "ghcr.io/noetl/noetl:v2.37.8",
+        "command": "python -m noetl.tools.ollama_bridge",
+        "OLLAMA_URL": "http://ollama.noetl.svc.cluster.local:11434",
+        "OLLAMA_BRIDGE_PORT": "8765"
+      },
+      "local_kind_reference": {
+        "image": "ghcr.io/noetl/noetl:v2.35.9",
+        "service": "ollama-bridge.noetl.svc.cluster.local:8765",
+        "OLLAMA_URL": "http://ollama.noetl.svc.cluster.local:11434"
+      }
+    },
+    "2_deploy_to_gke": {
+      "status": "completed",
+      "method": "helm upgrade noetl automation/helm/noetl --reuse-values with ollamaBridge.enabled=true and bridge image pinned to ghcr.io/noetl/noetl:v2.37.8",
+      "helm_revision": 126,
+      "pods_healthy": true,
+      "model_loaded": false,
+      "backend_deployed": false,
+      "deployment": {
+        "namespace": "noetl",
+        "deployment": "ollama-bridge",
+        "pod": "ollama-bridge-6ddd59bd85-pbnm7",
+        "image": "ghcr.io/noetl/noetl:v2.37.8",
+        "ready": "1/1"
+      },
+      "service": {
+        "name": "ollama-bridge",
+        "type": "ClusterIP",
+        "cluster_ip": "34.118.227.193",
+        "port": "8765/TCP"
+      },
+      "backend_service": {
+        "name": "ollama",
+        "present": false,
+        "expected_for_option_a": true
+      }
+    },
+    "3_smoke": {
+      "status": "completed_as_expected_for_option_a",
+      "bridge_routing": {
+        "worker_to_bridge_tools_list": "HTTP 200 from http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc",
+        "bridge_logs": "POST /jsonrpc HTTP/1.1 200 OK entries observed from worker/source pods"
+      },
+      "travel_ollama_help": {
+        "execution_id": "624832446000792195",
+        "status": "COMPLETED",
+        "requested_provider": "ollama",
+        "effective_provider": "openai",
+        "intent": "help",
+        "render_step": "render_help",
+        "render_type": "app:column",
+        "provider_fallback_reason": "{\"code\":-32030,\"message\":\"ollama /api/chat failed: Cannot connect to host ollama.noetl.svc.cluster.local:11434 ssl:default [Name or service not known]\",\"data\":{\"upstream_url\":\"http://ollama.noetl.svc.cluster.local:11434/api/chat\"}}",
+        "ollama_mcp_status": "error",
+        "expected_for_option_a": true
+      },
+      "audit_rows": {
+        "travel_agent_events": "classify_intent row recorded for execution 624832446000792195 with ai_provider=openai and intent=help after fallback"
+      },
+      "all_effective_provider_ollama": false
+    },
+    "4_close_out": {
+      "status": "completed",
+      "sync_issue_updated": true,
+      "memory_entry_path": "memory/inbox/2026/05/20260511-220000-ollama-bridge-gke-option-a-green.md",
+      "validation_log_appended": true,
+      "ops_gitlink_bump": "not_needed; deployment used existing merged Helm templates and values"
+    }
+  },
+  "verdict": "GREEN_FOR_OPTION_A_ROUTING_ONLY",
+  "notes": [
+    "This is not native Ollama inference GREEN. With no backend deployed, --provider ollama must fall back to OpenAI after the bridge reports the missing upstream Ollama service.",
+    "The useful proof from this round is that the GKE bridge Service exists, resolves from worker pods, accepts JSON-RPC requests, and is reached by the travel runtime's Ollama provider path."
+  ],
+  "deferred_followups": [
+    "Provision Ollama backend (CPU pod or external endpoint) — option B or C from the original Round B design when the time is right.",
+    "Cloud-tier router decision",
+    "Amadeus production API switch"
+  ]
+}

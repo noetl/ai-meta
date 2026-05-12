@@ -223,3 +223,35 @@ The `travel_agent_events` table in the `pg_k8s` target database contains both th
 The item #11 engine fix is still doing the right work after the object-store rollout: the worker logged a local disk-cache miss for the child result reference, then recovered the bounded child data through the terminal-event/control-data path and rendered the parent widget. In other words, object-store durability is now present for the configured S3 backend, and the agent-result hydration fallback is still the immediate correctness path for this travel activities execution.
 
 Round status: GREEN with one note. Backend/API evidence is complete, but no Cloudflare GUI screenshot was captured because the available browser surface was `https://mestumre.dev/login`.
+
+## Follow-Up: Ollama Bridge On GKE, Option A
+
+Date: 2026-05-11
+
+Option A was selected explicitly: deploy `ollama-bridge` to GKE without an Ollama backend. This is a routing placeholder, not a native Ollama inference deployment.
+
+The Helm-managed bridge is now live:
+
+```text
+namespace: noetl
+deployment: ollama-bridge
+image: ghcr.io/noetl/noetl:v2.37.8
+service: ollama-bridge.noetl.svc.cluster.local:8765
+OLLAMA_URL=http://ollama.noetl.svc.cluster.local:11434
+```
+
+No `ollama` backend Service exists, by design for option A.
+
+Routing proof:
+
+- A NoETL worker pod successfully called `http://ollama-bridge.noetl.svc.cluster.local:8765/jsonrpc`.
+- `tools/list` returned HTTP 200 with the bridge tool catalog.
+- Bridge logs showed `POST /jsonrpc HTTP/1.1 200 OK` from the worker/source pods.
+
+Travel smoke:
+
+| Check | Execution | Result |
+| --- | --- | --- |
+| `travel --provider ollama help` | `624832446000792195` | `COMPLETED`; rendered `app:column`; expected fallback to `effective_provider=openai`; fallback reason says the bridge could not connect to `ollama.noetl.svc.cluster.local:11434` |
+
+This closes the earlier "bridge service absent" part of the Ollama-on-GKE item. The remaining item is backend provisioning: either deploy a CPU Ollama pod or point the bridge at an external Ollama endpoint when real `effective_provider=ollama` inference is needed.
