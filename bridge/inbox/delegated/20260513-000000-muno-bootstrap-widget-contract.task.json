@@ -1,0 +1,150 @@
+{
+  "id": "20260513-000000-muno-bootstrap-widget-contract",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T00:00:00Z",
+  "title": "Bootstrap muno repo: widget contract schemas + frontend skeleton + project home base (trip-planner Round 4a/6a)",
+
+  "description": "Bootstrap `git@github.com:noetl/muno.git` (currently empty) as the trip-planner project's home base. Single Codex round that produces: (a) the canonical widget-contract JSON Schemas at `muno/playbooks/widget-contract/*.schema.json` (18 templates per the scoping doc), (b) the architecture doc explaining schema versioning and render-fallback rules, (c) the React 18 + TS + Vite + MUI frontend skeleton with schema-validating widget renderer infrastructure (stubs that render payload-as-JSON for now; Round 6b implements the real Material components), (d) all project meta — docs/architecture, docs/deployment, docs/auth, docs/tutorial, docs/runbooks skeletons; memory/ skeleton with claude/ + codex/ subdirs; .claude/ config; project-scoped scripts (memory_add.sh, memory_compact.sh, figma_fetch.sh mirror), AGENTS.md, CLAUDE.md, README.md, Dockerfile, nginx.conf. After the initial muno commit lands on its main, add `repos/muno` as a submodule under ai-meta. After this round, Rounds 4b (itinerary agent itself) and 6b (real widget Material rendering) run as independent parallel Codex rounds. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` (sections 'muno is the home base', 'Pre-templated widgets', 'Initial muno repo shape').",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 21600,
+  "max_iterations": 12,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "DONE — `noetl/muno` repo exists, empty, default branch not yet created. claude-cowork verified via `gh repo view noetl/muno`.",
+    "what_codex_inherits": "An empty GitHub repo at `git@github.com:noetl/muno.git`. No README, no default branch. The first push of this round creates `main` and seeds everything.",
+    "no_new_secrets": "Reuses existing `duffel-api-test`, `google-maps-widget-key`, `figma-access-token`. No new GCP setup."
+  },
+
+  "design_brief_for_codex": {
+    "round_split_context": "This is round 4a/6a — the combined widget-contract + bootstrap deliverable. After this lands:\n  - Round 4b: implement `muno/playbooks/itinerary-planner.yaml` — the actual LLM-driven hybrid-input agent that consumes the schemas + mcp/firestore + mcp/duffel + mcp/google-places + mcp/amadeus.\n  - Round 6b: implement the real Material widget components in `muno/src/components/widgets/*.tsx` replacing the JSON stubs.\nBoth 4b and 6b code against the contract this round freezes.",
+
+    "widget_catalogue_to_emit": "Eighteen templates per the scoping doc 'Pre-templated widgets' section. One JSON Schema file per template in `muno/playbooks/widget-contract/`:\n\n  1. `bot_text.schema.json` — bot bubble. Fields: text (string, markdown allowed), timestamp (ISO).\n  2. `user_text.schema.json` — user echo bubble. Fields: text, timestamp, user_avatar_url.\n  3. `typing_indicator.schema.json` — `AdionaBot is typing...`. Fields: agent_name.\n  4. `date_range_picker.schema.json` — interactive. Fields: min_date (ISO date), max_date, default_from?, default_to?, locale. Variant: `compact | full`. CTA: `submit`. Submitted value: { from, to, nights }.\n  5. `party_picker.schema.json` — interactive. Fields: rooms_max, adults_max, children_max, allow_child_ages (bool). Submitted value: { rooms, adults, children: [{age}] }.\n  6. `place_autocomplete_input.schema.json` — interactive. Fields: placeholder, suggestions (array of `{label, id, kind: airport|city|landmark}`), submit_on_select (bool). Submitted value: { label, id, kind }.\n  7. `flight_list.schema.json` — list of flight_card payloads. Fields: title, items (array of flight_card payload), emphasis_offer_id?, total_count, currency. Variants: `default`.\n  8. `flight_card.schema.json` — single offer. Fields: offer_id, price {total, currency}, itineraries[], carriers[], duration, stops, validating_airline. Variants: `compact | full | in_popover`. CTAs: `view_details | book_this`. ai_adjustments: `emphasis` (highlights the card), `annotations[]`.\n  9. `hotel_list.schema.json` — list of hotel_card payloads. Fields: title, items, total_count, filter_summary, upsell_banner? {text, action_label, action_id}. Variants: `default`.\n  10. `hotel_card.schema.json` — single property. Fields: hotel_id, name, location, star_rating, score, score_count, thumb_up_count, thumb_down_count, photos[] (urls), amenities[] (icon ids), price_per_night, currency, rooms_matching, available_rooms?, address, distance_from_center?. Variants: `compact | full | in_popover | map_marker`. CTAs: `watch_in_detail | show_numbers`. ai_adjustments: `emphasis`, `annotations[]`, `upsell_banner` (optional override of list-level banner).\n  11. `hotel_compare.schema.json` — two hotel_card payloads side-by-side. Fields: items (array, length 2), comparison_facets[] (field names to highlight). Variant: `side_by_side`. (Optional in v1 — Kadyapam-locked deferral check; emit the schema anyway so it exists when needed.)\n  12. `place_list.schema.json` — list of place_card payloads. Fields: title, items.\n  13. `place_card.schema.json` — single place. Fields: place_id, name, types[], photos[], rating, rating_count, opening_hours?, address. Variants: `compact | full`. CTAs: `view_details | add_to_itinerary`.\n  14. `action_chooser.schema.json` — illustrated CTA row. Fields: prompt_text, options (array of `{label, action_id, illustration_url?}`). Submitted value: { action_id }.\n  15. `map_view.schema.json` — full-bleed map. Fields: center {lat, lng}, zoom, markers[] (array of `{lat, lng, label, hotel_id?, state: normal|selected|viewed}`), selected_marker_id?, filter_state {star_rating[], budget_min, budget_max, guest_rating_min}.\n  16. `filter_panel.schema.json` — right-pane interactive. Fields: hotel_category_options[], budget_range {min, max, currency}, guest_rating_options[], applied {hotel_category[], budget_min, budget_max, guest_rating_min}. CTA: `clear_all | apply`.\n  17. `property_block.schema.json` — right-pane slot accumulator. Fields: slots (ordered array of `{label, value, edit_action_id, missing: bool}`). Each slot becomes a row with an edit pencil if `edit_action_id` is set.\n  18. `itinerary_summary.schema.json` — end-of-flow review. Fields: destination, dates, traveller_party, picked_flight (flight_card payload), picked_hotel (hotel_card payload), total_cost?, notes?. CTA: `confirm | edit`.\n\nAlso include these utility templates (5 more — call them v1 essentials):\n  19. `order_confirmation.schema.json` — Duffel test order receipt. Fields: order_id, booking_reference, total_amount, total_currency, passengers[], slices[]. CTA: `view_full | new_search`.\n  20. `notification.schema.json` — toast (`mes_notification` Figma component). Fields: kind (info|warning|error|success), text, dismissible.\n  21. `error_card.schema.json` — graceful failure surface. Fields: title, description, retry_action_id?, contact_support? (bool).\n  22. `clarify_question.schema.json` — bot asks back when ambiguous. Fields: question_text, options (array of `{label, action_id}`).\n  23. `loading_card.schema.json` — placeholder while async tool runs. Fields: tool_name, started_at, expected_duration_seconds?.\n\nTotal: 23 schemas. (The scoping doc said 18 — adding 5 utility ones — clarify, loading, error, notification, order_confirmation — keeps the agent's life easier with no v1 cost.)",
+
+    "common_schema_wrapper": "Each widget payload is wrapped at the agent → renderer boundary in a common envelope:\n```json\n{\n  \"widget_type\": \"<one of the 23>\",\n  \"variant\": \"<template-specific variant id>\",\n  \"payload\": <per the template's schema>,\n  \"ai_adjustments\": {\n    \"emphasis\": \"<template-defined emphasis slot, optional>\",\n    \"annotations\": [<bounded annotation objects, optional>],\n    \"conditional_fields\": {<template-defined flag map, optional>}\n  },\n  \"schema_version\": 1\n}\n```\nThis envelope itself has a schema at `muno/playbooks/widget-contract/_envelope.schema.json`. All 23 template schemas describe ONLY the `payload` sub-schema; the envelope wraps them.",
+
+    "widget_contract_doc": "`muno/docs/architecture/widget-contract.md` — explains:\n  - The envelope shape.\n  - The closed-catalogue principle (AI emits one of the 23; unknown types fall back to bot_text).\n  - Schema versioning: bump `schema_version` when a breaking change to a template's payload schema lands; the renderer keeps both N and N-1 implementations during the migration window.\n  - The ai_adjustments contract: AI can adjust within the schema's declared knobs (variant pick, emphasis, conditional banners, annotations) but cannot invent new fields.\n  - The render-fallback rule: if the renderer can't validate or render, surface a `bot_text` widget with the AI's natural-language description (the agent's LLM step always produces a description alongside the widget, so the fallback is graceful).\n  - The build-time TS type generation: `npm run build` runs `json-schema-to-typescript` over `playbooks/widget-contract/*.schema.json` and emits `src/contracts/widgets.ts`. The agent (Round 4b) consumes the JSON schemas; the frontend (Round 6b) consumes the TS types.",
+
+    "muno_repo_structure": "Implement the full structure documented in the scoping doc's 'Initial muno repo shape' section, with these specific stack choices:\n  - React: 18.x latest\n  - TypeScript: 5.5+\n  - Vite: 7.x (match repos/gui)\n  - MUI: 6.x (Material UI v6+ for Material Design 3)\n  - React Router: 6.x\n  - Axios for NoETL server API calls\n  - ajv (JSON Schema validation at render boundary)\n  - json-schema-to-typescript (devDep, runs in `npm run build`)\n  - react-i18next for the `EN` / `RU` toggle\n  - Firebase JS SDK for live Firestore listening (frontend reads only; writes go through NoETL mcp/firestore)\n  - Node target: 20 LTS\n\nKey files to create with non-trivial content (not just stubs):\n  - `package.json` with all deps + scripts (dev, build, type-check, test, lint).\n  - `vite.config.ts` mirroring repos/gui's pattern with MUI + i18n setup.\n  - `tsconfig.json` and `tsconfig.node.json`.\n  - `src/main.tsx` — React entry with MUI ThemeProvider and i18n init.\n  - `src/App.tsx` — three-column shell skeleton (Sidebar, ChatThread, RightPane).\n  - `src/theme.ts` — placeholder MUI theme with Adiona blue (#1976D2 placeholder; Round 6b feeds real Figma tokens once `file_variables:read` scope is available).\n  - `src/locales/en.json` and `src/locales/ru.json` — placeholders with greeting strings.\n  - `src/api/noetlClient.ts` — axios wrapper with base URL from env.\n  - `src/api/firestoreClient.ts` — Firebase JS SDK init + live listener helper.\n  - `src/contracts/widgets.ts` — GENERATED FILE (committed) from the build step.\n  - `src/components/widgets/*.tsx` — 23 stub components, one per template. Each stub takes the validated payload and renders `<pre>{JSON.stringify(payload, null, 2)}</pre>` inside an MUI Card. Round 6b replaces these.\n  - `src/components/WidgetRenderer.tsx` — central renderer that takes a wire envelope, validates against ajv + the schemas, dispatches to the right stub or falls back to `bot_text`.\n  - `Dockerfile` mirroring repos/gui's pattern (multi-stage: node builder → nginx serve).\n  - `nginx.conf` mirroring repos/gui.\n\nMeta-files:\n  - `README.md` — one-pager: what muno is, how to run dev, link to scoping doc.\n  - `AGENTS.md` — shared AI entry point (read this + memory + scoping).\n  - `CLAUDE.md` — Claude Code entry point (mirror ai-meta's pattern, scoped to muno).\n  - `.gitignore` — node_modules, dist, .env, etc.\n  - `.claude/settings.json` — permission allowlist for npm/vite/tsc/vitest. Use ai-meta's settings.json as the template.\n  - `.claude/rules/` — empty for now; v2 can symlink shared rules from ai-meta.\n  - `.claude/skills/` — empty for now.\n\nDocs skeleton (one stub README per subdirectory + ARCHITECTURE.md at root of docs):\n  - `docs/architecture/event-sourcing.md` — copy the relevant section from the scoping doc.\n  - `docs/architecture/widget-contract.md` — the doc described above (full content this round).\n  - `docs/architecture/agent-design.md` — stub (Round 4b fleshes out).\n  - `docs/architecture/data-model.md` — copy the Firestore data model from the scoping doc.\n  - `docs/deployment/kind-setup.md` — stub.\n  - `docs/deployment/gke-setup.md` — stub.\n  - `docs/deployment/figma-pat-setup.md` — copy the recipe from ai-meta scoping.\n  - `docs/auth/firebase-setup.md` — stub (later).\n  - `docs/auth/guest-mode.md` — stub.\n  - `docs/tutorial/end-to-end.md` — stub (Round 7 cap-stone).\n  - `docs/runbooks/replay-a-session.md` — pointer to ai-meta/scripts/firestore_replay.sh and Round 3 memory entry.\n\nMemory skeleton:\n  - `memory/current.md` — bootstrapped with 'Trip-planner muno project initialized 2026-05-13'.\n  - `memory/inbox/claude/2026/05/.gitkeep`\n  - `memory/inbox/codex/2026/05/.gitkeep`\n  - `memory/compact/.gitkeep`\n\nScripts:\n  - `scripts/memory_add.sh` — adapted from ai-meta/scripts/memory_add.sh, writes to muno/memory/inbox/claude/ by default (subdir selectable via --kind=claude|codex flag).\n  - `scripts/memory_compact.sh` — adapted similarly.\n  - `scripts/figma_fetch.sh` — exact copy of ai-meta's helper (uses the same `figma-access-token` GCP secret).\n  - `scripts/build_widget_contracts.sh` — invokes json-schema-to-typescript to regenerate src/contracts/widgets.ts.",
+
+    "no_real_widget_rendering": "The stub components in `src/components/widgets/*.tsx` render `<pre>` JSON. This is INTENTIONAL — Round 6b's job is the real Material rendering. The schema validation + dispatch infrastructure is real and works; the visual layer is the stub. This unblocks Round 4b (agent emits real wire envelopes, renderer validates and routes, stubs prove the contract end-to-end).",
+
+    "submodule_wiring_in_ai_meta": "After muno's initial commit lands on its main branch:\n  ```bash\n  cd /Volumes/X10/projects/noetl/ai-meta\n  git submodule add git@github.com:noetl/muno.git repos/muno\n  git commit -m 'chore(sync): add repos/muno submodule for trip-planner project home base'\n  ```\nThe submodule add is part of this round's close-out — the result JSON should record the ai-meta commit SHA that adds the submodule. ai-meta is NOT pushed by Codex per the standing rule; Kadyapam handles the ai-meta push after reviewing."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm muno repo is empty and the codex environment can push to it.",
+      "spec": [
+        "`gh repo view noetl/muno --json name,defaultBranchRef,isEmpty -q '.isEmpty'` → must be `true`.",
+        "Confirm Codex has push access to `git@github.com:noetl/muno.git` (will be exercised in phase 5).",
+        "No GCP pre-flight needed — bootstrapping is pure code; live API calls happen only in later rounds.",
+        "If repo is non-empty: AMBER + STOP (don't overwrite existing content)."
+      ],
+      "verify": "muno is empty; push access exists."
+    },
+
+    "2_author_widget_contract": {
+      "objective": "Produce all 23 widget schemas + the envelope schema + the architecture doc.",
+      "spec": [
+        "Author `muno/playbooks/widget-contract/_envelope.schema.json` (JSON Schema draft-07) describing the common wrapper with `widget_type`, `variant`, `payload`, `ai_adjustments`, `schema_version`.",
+        "Author the 23 individual template schemas per `design_brief_for_codex.widget_catalogue_to_emit`. Each schema: draft-07, `$id` matching its file path, descriptive `title` and `description`, explicit `required` arrays, `additionalProperties: false` to keep the surface tight.",
+        "Author `muno/docs/architecture/widget-contract.md` per `design_brief_for_codex.widget_contract_doc` — covers envelope, closed-catalogue principle, schema versioning, ai_adjustments contract, render-fallback rule, build-time TS type generation."
+      ],
+      "verify": "All 24 schema files validate as valid JSON Schema draft-07 (use `ajv compile` to check). widget-contract.md renders cleanly as markdown."
+    },
+
+    "3_author_muno_frontend_skeleton": {
+      "objective": "Build the React 18 + TS + Vite + MUI scaffold + schema-validating widget renderer with JSON stubs.",
+      "spec": [
+        "Run `npm install` (or `pnpm install`) clean against `package.json` to confirm deps resolve.",
+        "`npm run type-check` passes against the skeleton.",
+        "`npm run build` succeeds and emits `dist/`. The build step also regenerates `src/contracts/widgets.ts` from the schemas.",
+        "Implement `src/components/WidgetRenderer.tsx`: takes an envelope, validates against the 23 schemas via ajv, dispatches to the matching stub OR falls back to a bot_text widget describing the validation failure.",
+        "Each of the 23 stub components is roughly 20-30 lines: MUI Card wrapper + `<pre>{JSON.stringify(payload, null, 2)}</pre>` + a TODO comment referencing Round 6b.",
+        "Three-column App shell with Sidebar, ChatThread, RightPane stubs. ChatThread uses WidgetRenderer to render an array of envelopes.",
+        "i18n init: `useTranslation` available, en/ru locale files seeded with placeholder strings (`app_name`, `sidebar.guest`, `sidebar.orders`, `sidebar.searches`, `chat.start_search_again`, `chat.send`, etc.).",
+        "Dockerfile + nginx.conf mirroring repos/gui's pattern. `docker build .` succeeds locally (verify in Codex sandbox)."
+      ],
+      "verify": "npm install, type-check, build, and docker build all succeed. The schema validator dispatches to all 23 stubs correctly given a sample envelope per template."
+    },
+
+    "4_author_meta_files_and_skeletons": {
+      "objective": "Lay down docs, memory, .claude, scripts, and project meta files.",
+      "spec": [
+        "Author README, AGENTS.md, CLAUDE.md, .gitignore at repo root.",
+        "Author all `docs/{architecture,deployment,auth,tutorial,runbooks}/*.md` files per the design brief — full content for widget-contract.md, event-sourcing.md, data-model.md, figma-pat-setup.md (copied from existing sources); stubs for the rest with a header + 'TBD by Round X' note.",
+        "Author memory skeleton — `memory/current.md` bootstrapped with init note, `memory/inbox/{claude,codex}/2026/05/.gitkeep`, `memory/compact/.gitkeep`.",
+        "Author `.claude/settings.json` with permission allowlists (npm, vite, tsc, vitest, docker) modelled on ai-meta's settings. Empty `.claude/rules/` and `.claude/skills/` dirs with .gitkeep.",
+        "Author scripts: `memory_add.sh`, `memory_compact.sh` (adapted from ai-meta with `--kind=claude|codex` flag), `figma_fetch.sh` (exact copy from ai-meta), `build_widget_contracts.sh` (invokes json-schema-to-typescript)."
+      ],
+      "verify": "Tree structure matches the scoping doc's 'Initial muno repo shape' section. All scripts are executable."
+    },
+
+    "5_first_commit_and_push_to_noetl_muno": {
+      "objective": "Push the initial commit to the empty `noetl/muno` repo, creating `main`.",
+      "spec": [
+        "From within the muno workspace: `git init`, `git add .`, then `git commit -m 'chore: bootstrap muno (trip-planner chat app + widget contract + playbooks + docs + memory + .claude)'`.",
+        "`git branch -M main`.",
+        "`git remote add origin git@github.com:noetl/muno.git`.",
+        "`git push -u origin main`.",
+        "Open NO pull request — this is the initial bootstrap commit, lands directly on main per Kadyapam's stated workflow (`git push -u origin main` from the empty-repo instructions in the scoping doc).",
+        "Capture the merge SHA for the result JSON."
+      ],
+      "verify": "noetl/muno main HEAD points at the bootstrap commit; `gh repo view noetl/muno --json defaultBranchRef -q '.defaultBranchRef.name'` returns `main`."
+    },
+
+    "6_add_submodule_to_ai_meta": {
+      "objective": "Register `repos/muno` as a submodule under ai-meta and stage the change for Kadyapam to push.",
+      "spec": [
+        "`cd ai-meta && git submodule add git@github.com:noetl/muno.git repos/muno`.",
+        "Commit the submodule add: `git commit -m 'chore(sync): add repos/muno submodule for trip-planner project home base (Round 4a/6a)'`.",
+        "Do NOT push ai-meta — leave the commit local per the standing rule.",
+        "Record the ai-meta commit SHA in the result JSON."
+      ],
+      "verify": "ai-meta has a clean commit adding repos/muno as a submodule; submodule status shows the muno tip SHA matching phase 5."
+    },
+
+    "7_close_out": {
+      "objective": "Result JSON, codex-spike validation log, memory entry, scoping-doc update.",
+      "spec": [
+        "Result file: `bridge/outbox/20260513-000000-muno-bootstrap-widget-contract.result.json`. Mirrors prior round result shapes. Required fields: id, status, summary, muno_initial_commit_sha, ai_meta_submodule_add_sha, schemas_count (24 = 1 envelope + 23 templates), build_smoke {npm_install, type_check, vite_build, docker_build}, widget_renderer_dispatch_smoke, cleanup {no_secrets_committed}, verdict.",
+        "Append a paragraph to `bridge/outbox/codex-spike-green-validation.md`.",
+        "Outcome memory: this lands at the boundary where muno exists. Per the scoping doc rule, Codex outcome memory for trip-planner work goes to `muno/memory/inbox/codex/2026/05/<timestamp>-muno-bootstrap-widget-contract-green.md`. Since muno is just being created in this round, this entry is part of the bootstrap commit (i.e., it lands in muno itself). Place a cross-link entry at `ai-meta/memory/inbox/2026/05/<timestamp>-muno-bootstrap-widget-contract-green.md` that points at the muno-side entry.",
+        "Update `ai-meta/sync/issues/2026-05-12-trip-planner-app-scoping.md` adding a 'Round 4a/6a GREEN' note under the Round 6 section."
+      ],
+      "verify": "Result JSON written, validation log appended, memory cross-link in place, scoping doc updated."
+    }
+  },
+
+  "architectural_rules": [
+    "Single Codex round. Do NOT split into multiple smaller rounds.",
+    "muno repo initial push lands directly on `main`. No PR. The repo is empty; this IS the initial commit.",
+    "All 23 widget templates + envelope schema land in this round. No 'TBD' template schemas.",
+    "Widget components in `src/components/widgets/*.tsx` are STUBS rendering `<pre>` JSON. Round 6b replaces them. Do NOT invent a real Material rendering in this round.",
+    "Build pipeline must produce `src/contracts/widgets.ts` from the schemas at `npm run build` time. The generated file IS committed (for IDE go-to-definition support).",
+    "i18n is wired but only with placeholder strings.",
+    "Theme uses placeholder Material colors. Real Figma-variable-driven theme comes in Round 6b once `file_variables:read` scope is added to the Figma PAT.",
+    "Schema validation library: ajv. Schema → TS types: json-schema-to-typescript. Both in package.json.",
+    "ai-meta submodule add is committed locally but NOT pushed by Codex. Kadyapam pushes ai-meta.",
+    "No new GCP secrets in this round.",
+    "Never commit secrets, .env files, or node_modules. .gitignore covers them.",
+    "If muno repo is not empty: AMBER + STOP (don't overwrite)."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-000000-muno-bootstrap-widget-contract.result.json`. Top-level: {id, status, summary, muno_repo_url, muno_initial_commit_sha, ai_meta_submodule_add_sha, schemas_count, frontend_smokes: {npm_install_ok, type_check_ok, vite_build_ok, docker_build_ok, widget_renderer_dispatch_ok}, file_count_breakdown: {schemas, src_components, docs, scripts, configs, total}, cleanup, verdict}.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md — full trip-planner scoping; sections 'muno is the home base', 'Pre-templated widgets', 'Initial muno repo shape', 'Memory entries — where each one lives'",
+    "memory/inbox/2026/05/20260512-235900-firestore-mcp-event-sourcing-green.md — Round 3 outcome; the storage substrate the agent will use",
+    "memory/inbox/2026/05/20260512-230000-duffel-stays-unavailable-round-2.md — Round 4 hotels source locked to Amadeus",
+    "repos/gui/package.json — reference toolchain for React + TS + Vite versions",
+    "repos/gui/Dockerfile + nginx.conf — packaging pattern to mirror",
+    "https://json-schema.org/draft-07/schema — JSON Schema draft-07 spec",
+    "https://github.com/bcherny/json-schema-to-typescript — schema → TS types generator",
+    "https://ajv.js.org/ — runtime validation library",
+    "https://mui.com/material-ui/getting-started/ — MUI v6 docs"
+  ]
+}

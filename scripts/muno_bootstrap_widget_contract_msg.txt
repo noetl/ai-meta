@@ -1,0 +1,126 @@
+Codex prompt — Bootstrap muno repo: widget contract schemas + frontend skeleton + project home base
+                (trip-planner Round 4a/6a — combined widget contract freeze + monorepo bootstrap)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-000000-muno-bootstrap-widget-contract.task.json
+Result:        bridge/outbox/20260513-000000-muno-bootstrap-widget-contract.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+
+Round goal
+----------
+Bootstrap `git@github.com:noetl/muno.git` (currently empty) as the
+trip-planner project's home base. Single Codex round produces:
+
+  (a) 23 widget template schemas + 1 envelope schema as canonical
+      JSON Schema draft-07 files at
+      `muno/playbooks/widget-contract/*.schema.json`.
+
+  (b) `muno/docs/architecture/widget-contract.md` — the architecture
+      doc explaining the envelope shape, closed-catalogue principle,
+      schema versioning, ai_adjustments contract, render fallback,
+      and build-time TS type generation.
+
+  (c) React 18 + TS + Vite + MUI v6 frontend skeleton with a
+      schema-validating widget renderer. The 23 widget components are
+      STUBS rendering payload-as-JSON inside an MUI Card. Round 6b
+      replaces them with real Material components later.
+
+  (d) Full project home-base meta — docs (architecture, deployment,
+      auth, tutorial, runbooks); memory skeleton (claude + codex
+      subdirs); .claude config; project-scoped scripts (memory_add,
+      memory_compact, figma_fetch mirror, build_widget_contracts);
+      AGENTS.md, CLAUDE.md, README.md, Dockerfile, nginx.conf.
+
+  (e) Single initial commit pushed directly to noetl/muno main
+      (the repo is empty; no PR for the bootstrap).
+
+  (f) ai-meta gains `repos/muno` as a submodule. Codex commits the
+      submodule-add locally; Kadyapam pushes ai-meta after review.
+
+After this round:
+  - Round 4b implements `muno/playbooks/itinerary-planner.yaml` —
+    the LLM-driven hybrid agent. Codes against the schemas + mcp/firestore.
+  - Round 6b replaces the JSON stubs in `muno/src/components/widgets/*.tsx`
+    with real Material components. Codes against the TS types
+    generated from the schemas.
+  - 4b and 6b run as INDEPENDENT PARALLEL Codex rounds.
+
+Stack (locked)
+--------------
+  - React 18 (latest)
+  - TypeScript 5.5+
+  - Vite 7.x (matches repos/gui)
+  - MUI v6 (Material Design 3)
+  - React Router v6
+  - Axios for NoETL server calls
+  - ajv for schema validation at the render boundary
+  - json-schema-to-typescript (devDep) generates src/contracts/widgets.ts
+    at `npm run build` time. The generated file IS committed.
+  - react-i18next (EN / RU placeholder locales)
+  - Firebase JS SDK for live Firestore reads only — writes go through
+    NoETL mcp/firestore so the browser never carries Firebase SA creds.
+  - Node 20 LTS target
+
+Widget catalogue (23 templates + 1 envelope)
+--------------------------------------------
+Plain text: bot_text, user_text, typing_indicator, clarify_question.
+Interactive inputs: date_range_picker, party_picker,
+                    place_autocomplete_input, action_chooser.
+Lists: flight_list, hotel_list, place_list.
+Cards: flight_card, hotel_card, hotel_compare, place_card.
+Layout: map_view, filter_panel, property_block.
+Lifecycle: loading_card, error_card, notification.
+Closure: itinerary_summary, order_confirmation.
+
+Each template's schema explicitly enumerates:
+  - Required + optional payload fields.
+  - Available `variant` ids (e.g., compact | full | in_popover).
+  - CTAs that the renderer should wire up (e.g., watch_in_detail).
+  - ai_adjustments knobs (emphasis slots, conditional banners,
+    annotation array).
+
+Envelope (`_envelope.schema.json`):
+```
+{ widget_type, variant, payload, ai_adjustments?, schema_version }
+```
+
+Pre-handoff (DONE, verified)
+----------------------------
+- `noetl/muno` repo exists, empty. claude-cowork verified via gh CLI.
+- No new GCP secrets. Existing duffel/google-maps/figma secrets unchanged.
+
+Phases (7)
+----------
+  1. Verify pre-handoff: muno empty + Codex push access.
+  2. Author the 24 schemas + widget-contract.md.
+  3. Author muno frontend skeleton (React+TS+Vite+MUI+ajv).
+     Verify: npm install, type-check, vite build, docker build,
+     widget renderer dispatch smoke (give it one envelope of each
+     widget_type, confirm each routes to the right stub OR fallback
+     to bot_text on invalid payload).
+  4. Author meta: docs/, memory/, .claude/, scripts/, README,
+     AGENTS.md, CLAUDE.md, Dockerfile, nginx.conf.
+  5. Initial git commit + push to noetl/muno main (directly, no PR).
+  6. Submodule wire: `cd ai-meta && git submodule add repos/muno`,
+     local commit, DO NOT PUSH ai-meta.
+  7. Close out: result JSON, codex-spike log entry, memory cross-link
+     in ai-meta + outcome entry in muno/memory/inbox/codex/.
+
+Architectural rules
+-------------------
+  - Single round. No splitting.
+  - Initial push to noetl/muno main is direct (repo is empty).
+  - All 23 templates + envelope ship in this round. No 'TBD' schemas.
+  - Widget components are STUBS rendering `<pre>` JSON. Round 6b
+    handles the real Material rendering.
+  - Build emits src/contracts/widgets.ts (committed) from schemas.
+  - i18n + theme placeholders only — real Figma-driven theme is Round 6b.
+  - ai-meta submodule add is committed locally; Kadyapam pushes.
+  - No new GCP secrets.
+  - No secrets / .env / node_modules committed.
+  - If muno repo is non-empty: AMBER + STOP (don't overwrite).
+
+Result file shape mirrors bridge/outbox/20260512-235000-firestore-mcp-event-sourcing.result.json.
+Required: muno_initial_commit_sha, ai_meta_submodule_add_sha,
+schemas_count (24), frontend_smokes (install/type-check/build/docker/dispatch),
+file_count_breakdown, cleanup, verdict.
