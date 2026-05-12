@@ -54,7 +54,7 @@ Four tools, MCP `tools/list` + `tools/call` dispatch shape mirroring
 
 Duffel auth — single bearer token
 ---------------------------------
-- Kadyapam provisions `duffel-test-token` in GCP Secret Manager out-of-band
+- Kadyapam provisions `duffel-api-test` in GCP Secret Manager out-of-band
   (recipe in bridge task's `pre_handoff_for_kadyapam.step_2`).
 - The mcp/duffel playbook reads the token via the keychain pattern that
   mcp/amadeus already uses for its OAuth credentials — but here the secret
@@ -91,7 +91,7 @@ for the normalized envelope is in the bridge task under
 
 Phases (8)
 ----------
-  1. Verify pre-handoff: `duffel-test-token` secret exists, worker SA has
+  1. Verify pre-handoff: `duffel-api-test` secret exists, worker SA has
      `secretmanager.secretAccessor`, worker pod can read it, and the token
      authenticates against the Duffel API (`GET /air/airlines?limit=1`
      returns 200).

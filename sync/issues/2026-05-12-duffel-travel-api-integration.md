@@ -100,7 +100,7 @@ Travel runtime patch (`repos/ops/automation/agents/travel/runtime.yaml`):
 
 - Add `flight_provider: duffel` to `workload` defaults (new default; `amadeus` is the explicit opt-out).
 - Add `duffel_env: test` (test is the only value we'll wire initially).
-- Add `duffel_token_path: projects/.../secrets/duffel-test-token/versions/1`
+- Add `duffel_token_path: projects/.../secrets/duffel-api-test/versions/1`
   pointing at a GCP Secret Manager secret holding the test bearer token.
 - The flights step gets a parallel branch alongside the existing
   Amadeus-MCP hop: when `flight_provider == 'duffel'`, hop into the new
@@ -116,16 +116,16 @@ Duffel auth is a single bearer token per environment. Provision in GCP Secret
 Manager out-of-band, same pattern Amadeus production used:
 
 ```bash
-echo -n '<duffel-test-token-from-dashboard>' | gcloud secrets create duffel-test-token \
+echo -n '<duffel-test-token-from-dashboard>' | gcloud secrets create duffel-api-test \
   --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-
 
-gcloud secrets add-iam-policy-binding duffel-test-token \
+gcloud secrets add-iam-policy-binding duffel-api-test \
   --project=noetl-demo-19700101 \
   --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \
   --role=roles/secretmanager.secretAccessor
 ```
 
-Live token (`duffel-live-token`) is provisioned only when the booking path
+Live token (`duffel-api-live`) is provisioned only when the booking path
 opens up in a later round.
 
 Token in the worker pod: read via the existing keychain pattern (the same

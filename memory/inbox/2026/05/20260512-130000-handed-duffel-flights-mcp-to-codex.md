@@ -27,7 +27,7 @@ Per Kadyapam's call on 2026-05-12 after the scoping doc
 
 - Static bearer token per environment.
 - Test token (`duffel_test_*` prefix) provisioned in GCP Secret Manager
-  as `duffel-test-token`. Worker SA `noetl-worker-mcp@...` gets
+  as `duffel-api-test`. Worker SA `noetl-worker-mcp@...` gets
   `roles/secretmanager.secretAccessor`.
 - Same `api.duffel.com` base URL for both test and live; token prefix
   determines the env.
@@ -36,16 +36,16 @@ Per Kadyapam's call on 2026-05-12 after the scoping doc
 Pre-handoff recipe (Kadyapam runs before firing):
 
 ```bash
-echo -n '<paste-duffel_test_-token>' | gcloud secrets create duffel-test-token \
+echo -n '<paste-duffel_test_-token>' | gcloud secrets create duffel-api-test \
   --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-
 
-gcloud secrets add-iam-policy-binding duffel-test-token \
+gcloud secrets add-iam-policy-binding duffel-api-test \
   --project=noetl-demo-19700101 \
   --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \
   --role=roles/secretmanager.secretAccessor
 ```
 
-Verify with `gcloud secrets versions access latest ... | head -c 12` →
+Verify with `gcloud secrets versions access latest --secret=duffel-api-test ... | head -c 12` →
 should print `duffel_test_`.
 
 ## Architecture
@@ -63,7 +63,7 @@ should print `duffel_test_`.
 
 ## Phases (8)
 
-1. Verify Kadyapam's `duffel-test-token` secret + worker SA can read +
+1. Verify Kadyapam's `duffel-api-test` secret + worker SA can read +
    token authenticates Duffel API (`GET /air/airlines?limit=1` → 200).
 2. Author `mcp/duffel.yaml` (draft PR against repos/ops).
 3. Direct MCP smokes (`tools/list`, `search_offers`, `search_places`,
