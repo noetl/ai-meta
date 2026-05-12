@@ -1,0 +1,49 @@
+{
+  "task_id": "20260512-060000-ollama-gke-stop-cost-control",
+  "status": "GREEN",
+  "summary": "Stopped the high-resource GKE Ollama backend after the option B proof while keeping the service and PVC available for controlled re-enablement.",
+  "actions": [
+    {
+      "phase": "scale_down",
+      "result": "deployment/ollama scaled to 0 replicas in namespace noetl"
+    },
+    {
+      "phase": "durable_helm_state",
+      "result": "Helm release noetl revision 130 has ollama.enabled=true and ollama.replicas=0"
+    },
+    {
+      "phase": "chart_fix",
+      "result": "Merged noetl/ops#76 so replicas=0 is respected instead of being replaced by Helm default 1"
+    },
+    {
+      "phase": "documentation",
+      "result": "Added stop/re-provision runbook to the GKE deployment drift and storage tier audit issue"
+    }
+  ],
+  "gke_state": {
+    "context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "namespace": "noetl",
+    "helm_release": "noetl",
+    "helm_revision": 130,
+    "ollama_deployment": "0/0",
+    "ollama_pods": 0,
+    "service_retained": true,
+    "pvc_retained": true,
+    "bridge_retained": true
+  },
+  "expected_behavior_while_stopped": {
+    "travel_provider_ollama": "falls back to OpenAI through the existing provider fallback path",
+    "reason": "ollama-bridge remains available but the backend pod is intentionally absent"
+  },
+  "re_enable_summary": [
+    "helm upgrade noetl automation/helm/noetl --reuse-values --set ollama.enabled=true --set ollama.replicas=1 --set ollama.resources.requests.memory=8Gi --set ollama.resources.limits.memory=10Gi",
+    "wait for deployment/ollama rollout",
+    "confirm or pull gemma3:4b",
+    "smoke travel --provider ollama help and travel --provider ollama activities near Times Square"
+  ],
+  "artifacts": {
+    "ops_pr": "https://github.com/noetl/ops/pull/76",
+    "sync_issue": "sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md",
+    "memory": "memory/inbox/2026/05/20260512-060000-ollama-gke-stopped-cost-control.md"
+  }
+}
