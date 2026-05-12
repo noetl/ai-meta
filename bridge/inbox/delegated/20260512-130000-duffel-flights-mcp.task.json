@@ -1,0 +1,149 @@
+{
+  "id": "20260512-130000-duffel-flights-mcp",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-12T13:00:00Z",
+  "title": "Add Duffel as the new default flights provider for the travel agent (search-only, test env, bearer-token auth)",
+
+  "description": "Add Duffel (https://duffel.com) as a second flights provider behind a `flight_provider: duffel | amadeus` selector on the travel runtime. New default is `duffel`. Search-only first cut: `search_offers`, `get_offer`, `search_places`, `get_airlines`. Booking, payment, and live-airline content are explicitly out of scope (gated on Thread 3 — payment + monetization). Test environment only (`duffel_env: test`). Bearer-token auth via Secret Manager (`duffel-test-token`). Amadeus remains a working alternative — operators flip back per-workload by setting `flight_provider: amadeus`. Cap: 1 ops PR (new mcp/duffel.yaml + travel runtime selector) + 1 docs PR (tutorial 07 section). User-action-gated on Duffel test-token provisioning in GCP Secret Manager (recipe below). Full scoping doc: `sync/issues/2026-05-12-duffel-travel-api-integration.md`.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "context": "Duffel uses a static bearer token per environment (no OAuth dance, unlike Amadeus). Test tokens are free; live tokens require commercial onboarding + KYC. This round only uses the test token.",
+    "step_1_mint_duffel_test_token": "Sign up at https://duffel.com → Dashboard → Developers → Access tokens → 'New access token'. Pick the **test** environment. Copy the token (starts with `duffel_test_...`). One-time, ~5 minutes.",
+    "step_2_provision_gcp_secret": "```bash\necho -n '<paste-duffel_test_-token-here>' | gcloud secrets create duffel-test-token \\\n  --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n\ngcloud secrets add-iam-policy-binding duffel-test-token \\\n  --project=noetl-demo-19700101 \\\n  --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \\\n  --role=roles/secretmanager.secretAccessor\n```",
+    "step_3_verify": "```bash\ngcloud secrets versions access latest --secret=duffel-test-token --project=noetl-demo-19700101 | head -c 12 && echo ...\n```\nExpected: prints `duffel_test_` (the first 12 chars). If you see anything else, the wrong token went into the secret.",
+    "do_not_provision_live_token": "Do NOT create `duffel-live-token` in this round. Live mode requires KYC + commercial agreement and is deferred to Thread 3. The MCP playbook should treat the live-secret path as a placeholder; resolving it should not be exercised by any phase in this round."
+  },
+
+  "design_brief_for_codex": {
+    "duffel_api_basics": "Duffel REST API. Base URL `https://api.duffel.com` for BOTH test and live (the token determines environment). Auth: `Authorization: Bearer <token>`. Required headers on every call: `Authorization`, `Accept: application/json`, `Duffel-Version: v2`, `Content-Type: application/json` (on POST). Reference: https://duffel.com/docs/api. Rate limit on test: ~60 req/min; expect 429 if exceeded. Offers expire ~30 min after creation.",
+
+    "tool_surface": "Four search-only tools, mirroring `automation/agents/mcp/amadeus.yaml`'s `tools/list` + `tools/call` MCP dispatch shape:\n\n  1. **`search_offers`** — flight search. Inputs: `origin` (IATA or city code), `destination`, `departure_date` (YYYY-MM-DD), optional `return_date`, optional `adults` (default 1), optional `cabin_class` (default economy). Endpoint: `POST /air/offer_requests?return_offers=true` with body `{ \"data\": { \"slices\": [{ \"origin\": ..., \"destination\": ..., \"departure_date\": ... }], \"passengers\": [{ \"type\": \"adult\" }, ...], \"cabin_class\": \"economy\" }}`. Returns the synchronous offers list. Cap result count to 10 offers in the playbook's response shape so the travel runtime's flights widget renders cleanly.\n\n  2. **`get_offer`** — full details for one offer. Inputs: `offer_id`. Endpoint: `GET /air/offers/{id}`. Returns the canonical offer with all slices/segments/fares.\n\n  3. **`search_places`** — airport/city autocomplete for flight origin/destination. Inputs: `query` (free text), optional `types` (defaults to `[airport, city]`). Endpoint: `GET /places/suggestions?query=<query>`. Returns suggestion list with IATA codes. **Scope locked: this tool is only for flight origin/destination autocomplete. The travel runtime's `locations` widget continues to use Amadeus `search_locations` — do NOT plumb Duffel places into the locations intent.**\n\n  4. **`get_airlines`** — reference data, used by the renderer to show airline names/logos. Endpoint: `GET /air/airlines?limit=200`. Cache-friendly (data rarely changes); the playbook can return the raw page-1 response. Pagination is not required in this round.",
+
+    "playbook_shape": "`repos/ops/automation/agents/mcp/duffel.yaml` mirrors `automation/agents/mcp/amadeus.yaml` BUT auth is simpler (static bearer token, not OAuth client-credentials). Shape:\n\n  - `metadata`: name `duffel_mcp`, path `automation/agents/mcp/duffel`, agent: true, exposes_as_mcp: true, version 1.0, tags `[mcp, duffel, travel, flights, ai-os]`, terminal scope `/mcp/duffel`.\n\n  - `workload`:\n    ```yaml\n    workload:\n      gcp_auth: google_oauth\n      duffel_env: test\n      duffel_test_token_path: projects/1014428265962/secrets/duffel-test-token/versions/1\n      duffel_live_token_path: projects/1014428265962/secrets/duffel-live-token/versions/1  # placeholder; not provisioned in this round\n      duffel_api_base: https://api.duffel.com\n      duffel_api_version: v2\n      method: tools/list\n      tool: \"\"\n      arguments: {}\n    ```\n\n  - `keychain`:\n    ```yaml\n    keychain:\n      - name: duffel_token\n        kind: secret_manager\n        provider: gcp\n        scope: global\n        auth: \"{{ gcp_auth }}\"\n        map:\n          token: \"{{ duffel_live_token_path if duffel_env == 'live' else duffel_test_token_path }}\"\n    ```\n    Important: keychain Jinja templates resolve workload fields via BARE references (per the same caveat in mcp/amadeus.yaml's keychain comments). Verify both env values bind cleanly before relying on it.\n\n  - `workflow.steps`: dispatch step (Python: parses method/tool/arguments same as amadeus.yaml), then a branch step per tool name. Each tool's HTTP step uses headers `Authorization: Bearer {{ keychain.duffel_token.token }}`, `Accept: application/json`, `Duffel-Version: {{ duffel_api_version }}`, `Content-Type: application/json` (on POST). `tools/list` returns the four-tool catalog as a JSON object — copy the catalog shape from mcp/amadeus.yaml's tools/list step.\n\n  - `tools/list` payload structure must match the MCP spec — each tool entry has `name`, `description`, `inputSchema` (JSON Schema for arguments). Use `automation/agents/mcp/amadeus.yaml` as the canonical example.",
+
+    "travel_runtime_integration": "`repos/ops/automation/agents/travel/runtime.yaml` changes:\n\n  1. **New workload field `flight_provider: duffel`** (default `duffel`; valid values `duffel | amadeus`). Place adjacent to `amadeus_env`. The field is read in the flights branch.\n\n  2. **Workload field `duffel_env: test`** plumbed through to the duffel MCP hop (parallel to `amadeus_env`).\n\n  3. **Keychain entry** — add `duffel_credentials` reading `duffel-test-token` (parallel to the existing `amadeus_credentials` entry). The MCP hop into duffel.yaml will use its own keychain too; the travel runtime needs the entry only if it makes direct Duffel calls (it doesn't — it hops). **Actually, the keychain entry in travel/runtime.yaml is NOT needed since the runtime always hops into mcp/duffel.yaml which has its own keychain. Skip adding it to travel/runtime.yaml.**\n\n  4. **Flights step branching** — locate the existing flights branch that hops into `mcp/amadeus` with tool `search_flights`. Wrap it in a conditional:\n     - `when: workload.flight_provider == 'amadeus'` → hop into `mcp/amadeus` with `tool: search_flights` (existing behavior, now opt-in).\n     - `when: workload.flight_provider == 'duffel'` → hop into `mcp/duffel` with `tool: search_offers`. Map travel-runtime inputs (`origin`, `destination`, `departure_date`, `passengers`, `cabin_class`) into Duffel's arguments shape.\n\n  5. **Flights renderer compatibility** — Duffel's offer shape differs from Amadeus's. The travel runtime's `render_flights` step needs to handle both shapes. Two options: (a) the duffel MCP playbook normalizes Duffel offers into the existing Amadeus-style envelope before returning, (b) `render_flights` gains conditional logic. **Option (a) is locked**: do the normalization inside `mcp/duffel.yaml` so `render_flights` stays Amadeus-shaped. Spec: a Duffel offer becomes `{ price: {total: <amount>, currency: <iso>}, itineraries: [{ duration, segments: [{ departure: {iataCode, at}, arrival: {iataCode, at}, carrierCode, number, duration, numberOfStops }] }], validatingAirlineCodes: [<iata>] }` — same shape Amadeus search_flights emits.\n\n  6. **Capabilities list** — append `mcp:duffel` to the runtime's `metadata.capabilities`.\n\n  7. **No changes to non-flights branches** — locations, hotels, activities continue routing exclusively to Amadeus regardless of `flight_provider`. Flights is the only intent touched by this round.",
+
+    "tutorial_07_update": "`repos/docs/docs/tutorials/07-travel-agent-with-widgets.md` — new section 'Choosing a flights provider' under the existing workload-fields section. Show:\n  - `flight_provider: duffel | amadeus` (default `duffel`).\n  - One-line cost note: Duffel test search is $0, Amadeus production search is per-call. See `sync/issues/2026-05-12-duffel-travel-api-integration.md` for the full decision rationale.\n  - Provider-flip example: `travel --workload-override '{\"flight_provider\": \"amadeus\"}' flights ...`\n  - Note that booking is not yet wired for either provider (scoping-doc breadcrumb).",
+
+    "no_breaking_changes": "Existing executions that don't set `flight_provider` get the new default (`duffel`). That IS a behavior change — flights go to Duffel instead of Amadeus. The other intents (locations/hotels/activities/help) are unchanged. Operators wanting the previous default can set `flight_provider: amadeus`."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm Kadyapam's Duffel test token is provisioned and worker SA can read it.",
+      "spec": [
+        "`gcloud secrets describe duffel-test-token --project=noetl-demo-19700101` — must exist.",
+        "`gcloud secrets get-iam-policy duffel-test-token --project=noetl-demo-19700101 --flatten='bindings[].members' --filter='bindings.members:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com'` — must return `roles/secretmanager.secretAccessor`.",
+        "Worker pod probe: `kubectl -n noetl exec deploy/noetl-worker -- python -c 'from google.cloud import secretmanager; c=secretmanager.SecretManagerServiceClient(); v=c.access_secret_version(name=\"projects/noetl-demo-19700101/secrets/duffel-test-token/versions/latest\").payload.data.decode(); print(v[:12])'` — must print `duffel_test_`. Never echo the full token.",
+        "Direct Duffel API probe from worker pod (read-only sanity): GET `https://api.duffel.com/air/airlines?limit=1` with `Authorization: Bearer <token>` + `Duffel-Version: v2` + `Accept: application/json`. Must return 200 with at least one airline entry.",
+        "If any check fails: AMBER + STOP. Document which step is missing in result JSON."
+      ],
+      "verify": "Test token in Secret Manager, worker SA can read it, and Duffel API authenticates the token (200 on /air/airlines)."
+    },
+
+    "2_author_mcp_duffel_playbook": {
+      "objective": "Add `repos/ops/automation/agents/mcp/duffel.yaml` per the design brief shape. tools/list returns the four-tool catalog; tools/call dispatches to search_offers, get_offer, search_places, get_airlines.",
+      "spec": [
+        "Create the playbook file with metadata, workload, keychain, workflow as described in `design_brief_for_codex.playbook_shape` above.",
+        "Each tool's HTTP step uses the bare Duffel REST endpoint. POST search_offers uses `?return_offers=true` for synchronous results.",
+        "search_offers result handler MUST normalize Duffel offers into the Amadeus-style envelope (see `design_brief_for_codex.travel_runtime_integration` item 5). Result shape: `{ data: { offers: [<normalized>], meta: { count, source: 'duffel', currency } } }`.",
+        "get_offer returns the canonical Duffel offer shape (consumers asking for an offer by ID want the raw detail).",
+        "search_places returns the Duffel suggestions array verbatim.",
+        "get_airlines returns the page-1 response (no pagination in this round).",
+        "Open a draft PR against repos/ops main with the playbook only (no runtime changes yet). PR title: `feat(travel-agent): add Duffel flights MCP playbook (search-only, test env)`."
+      ],
+      "verify": "Playbook file parses (`noetl playbook validate` if available, otherwise `python -c 'import yaml; yaml.safe_load(open(...))'`). PR open."
+    },
+
+    "3_direct_mcp_smoke": {
+      "objective": "Verify the duffel MCP playbook works against the live Duffel test API from inside a worker pod.",
+      "spec": [
+        "Register the playbook (`noetl catalog register automation/agents/mcp/duffel` or whatever the established command is — see how google-places was registered in the prior round).",
+        "tools/list smoke: invoke `noetl playbook execute automation/agents/mcp/duffel --workload '{\"method\": \"tools/list\"}'`. Expected: tools array with 4 entries (search_offers, get_offer, search_places, get_airlines).",
+        "search_offers smoke: invoke with `{method:'tools/call', tool:'search_offers', arguments:{origin:'JFK', destination:'LAX', departure_date:'2026-07-15'}}`. Expected: status=completed, offers array non-empty, each offer has the normalized Amadeus-style shape.",
+        "search_places smoke: invoke with `{method:'tools/call', tool:'search_places', arguments:{query:'Paris'}}`. Expected: suggestions array with CDG, ORY, etc.",
+        "get_airlines smoke: invoke with `{method:'tools/call', tool:'get_airlines'}`. Expected: airlines array.",
+        "Capture all execution IDs for the result file."
+      ],
+      "verify": "All four smokes return completed status with the expected envelope shape."
+    },
+
+    "4_wire_travel_runtime_selector": {
+      "objective": "Add `flight_provider` selector to `repos/ops/automation/agents/travel/runtime.yaml` with default `duffel`. Hop into mcp/duffel for flights when selected.",
+      "spec": [
+        "Per `design_brief_for_codex.travel_runtime_integration`: add workload fields `flight_provider: duffel`, `duffel_env: test`. Add `mcp:duffel` to capabilities. Branch the flights step on `workload.flight_provider`.",
+        "Map travel-runtime flight inputs into Duffel arguments. Reuse the input parsing the Amadeus branch already does (origin/destination/departure_date/passengers/cabin_class).",
+        "Open a second PR against repos/ops main: `feat(travel-agent): add flight_provider selector, default Duffel`. Merge after phase 3 PR or as a follow-up PR depending on review preference."
+      ],
+      "verify": "Runtime parses cleanly. Both `flight_provider` values are valid branches."
+    },
+
+    "5_travel_runtime_smoke_duffel_default": {
+      "objective": "Confirm the travel runtime hops to Duffel by default and renders flights end-to-end.",
+      "spec": [
+        "Re-register the travel runtime on GKE (same kubectl-exec / port-forward dance the prior rounds used).",
+        "Smoke: `travel --provider openai flights from SFO to JFK on 2026-07-15 for 1 adult` (no `flight_provider` override → default `duffel`).",
+        "Expected: completed, `render_flights` widget with non-empty offers from Duffel.",
+        "Capture execution_id, child execution_id (the Duffel MCP hop), offer count, and a sample offer for the result file.",
+        "If 429 (rate-limit) → wait 90s and re-run once. If still 429, document and mark this phase AMBER (not blocking)."
+      ],
+      "verify": "Default-Duffel flights smoke returns offers and renders without errors."
+    },
+
+    "6_travel_runtime_smoke_amadeus_override": {
+      "objective": "Sanity-check that `flight_provider: amadeus` still works — Amadeus is the opt-out path, not a broken path.",
+      "spec": [
+        "Smoke: same prompt as phase 5 but with `--workload-override '{\"flight_provider\": \"amadeus\"}'`.",
+        "Expected: completed (or AMBER if the known Amadeus test API 5xx hits — that's the pre-existing flake, not a regression from this round).",
+        "Capture execution_id and render outcome for the result file. If Amadeus test API 5xx → note it explicitly; do NOT mark the round failed."
+      ],
+      "verify": "Amadeus override either renders or AMBERs on the known upstream 5xx. Either is acceptable; only a wiring failure (e.g., 'no branch matched flight_provider=amadeus') is a regression to fix."
+    },
+
+    "7_tutorial_docs_update": {
+      "objective": "Add the `flight_provider` section to tutorial 07.",
+      "spec": [
+        "Edit `repos/docs/docs/tutorials/07-travel-agent-with-widgets.md` per `design_brief_for_codex.tutorial_07_update`.",
+        "Open docs PR: `docs(tutorials): document flight_provider selector and Duffel default`."
+      ],
+      "verify": "Docs PR open; tutorial renders without markdown errors."
+    },
+
+    "8_close_out": {
+      "objective": "Write the result JSON, append the codex-spike validation log, and write a memory entry.",
+      "spec": [
+        "Result file: `bridge/outbox/20260512-130000-duffel-flights-mcp.result.json`. Required fields: id, status (GREEN|AMBER), summary, pr_summary {ops: [{pr, merge_sha, title}], docs: [...]}, gke_registration {duffel_mcp: {path, version, catalog_id}, travel_runtime: {path, version, catalog_id}}, pre_handoff_checks {secret_present, worker_can_read, duffel_api_probe_status}, smokes {direct_duffel_list, direct_duffel_search_offers, direct_duffel_search_places, direct_duffel_get_airlines, travel_flights_duffel_default, travel_flights_amadeus_override}, fix_forwards: [], cleanup {worker_scale_restored, port_forward_stopped, ai_meta_pushed: false}, verdict.",
+        "Append a one-paragraph follow-up to `bridge/outbox/codex-spike-green-validation.md` (same style as the Pattern C entry on 2026-05-12).",
+        "Write `memory/inbox/2026/05/20260512-130000-duffel-flights-mcp-green.md` (or `-amber.md`) summarizing the round, registrations, smokes, PRs, and any deferred follow-ups.",
+        "Update `sync/issues/2026-05-12-duffel-travel-api-integration.md` status header to reflect the landed state."
+      ],
+      "verify": "Result JSON written, validation log appended, memory entry created."
+    }
+  },
+
+  "architectural_rules": [
+    "Search-only. NO `create_order`, `confirm_order`, `get_seat_maps`, or any booking/payment-adjacent tool in this round.",
+    "Test environment only. Do NOT exercise `duffel_live_token_path`; it is a placeholder.",
+    "Default `flight_provider: duffel`. Amadeus remains a working opt-out.",
+    "Locations/hotels/activities branches stay on Amadeus. `search_places` is for flight origin/destination autocomplete only.",
+    "No release cut. No git push from ai-meta. PRs against ops/docs main only.",
+    "Per-execution offer cap: 10. Enforced in the duffel playbook's search_offers result handler.",
+    "If Duffel test-token secret is missing OR Amadeus comparison smoke regresses: AMBER + STOP, document the gap."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260512-130000-duffel-flights-mcp.result.json`. Top-level: {id, status, summary, pr_summary, gke_registration, pre_handoff_checks, smokes, fix_forwards, cleanup, verdict}. Use the Pattern C result JSON (`bridge/outbox/20260512-030000-google-places-enrichment-mcp.result.json`) as the structural reference. Never include the Duffel token value or any 8+ characters of it.",
+
+  "references": [
+    "sync/issues/2026-05-12-duffel-travel-api-integration.md — full scoping rationale and locked decisions",
+    "repos/ops/automation/agents/mcp/amadeus.yaml — structural template",
+    "repos/ops/automation/agents/mcp/google-places.yaml — Pattern C MCP example with workload-bound secret-manager keychain",
+    "repos/ops/automation/agents/travel/runtime.yaml — flights branch + ai_provider selector pattern to mirror",
+    "https://duffel.com/docs/api — Duffel API reference (offer requests, offers, places, airlines)"
+  ]
+}

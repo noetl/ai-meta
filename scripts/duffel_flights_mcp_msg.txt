@@ -1,0 +1,127 @@
+Codex prompt — Add Duffel as the new default flights provider for the travel agent
+                (search-only, test env, bearer-token auth — non-breaking opt-out to Amadeus)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260512-130000-duffel-flights-mcp.task.json
+Result:        bridge/outbox/20260512-130000-duffel-flights-mcp.result.json
+Scoping doc:   sync/issues/2026-05-12-duffel-travel-api-integration.md (locked decisions live here)
+
+Round goal
+----------
+Add Duffel (https://duffel.com) as the new default flights provider on the
+travel agent. Introduce a `flight_provider: duffel | amadeus` selector on
+the travel runtime so operators can flip back to Amadeus per-workload. New
+default is `duffel`. Search-only first cut; booking/payment deferred to
+Thread 3 (payment + monetization).
+
+Why Duffel over Amadeus as default
+----------------------------------
+- Duffel search is $0 in both test and live environments.
+- Amadeus test API has a persistent 5xx flake (sync/issues/2026-05-11-amadeus-test-api-500s.md)
+  that surfaced again as the locations/hotels AMBER on the Pattern C round.
+- Duffel auth is a single static bearer token per env — much simpler than
+  Amadeus's OAuth client-credentials dance with per-env credentials.
+- 200+ airline coverage via NDC + direct connections + selective GDS.
+
+Locations / hotels / activities remain on Amadeus regardless of
+`flight_provider`. Only the flights intent is touched.
+
+Scope locked
+------------
+- Search-only. NO create_order, NO seat maps, NO payment tools.
+- Test environment only. `duffel_live_token_path` is a placeholder; do not
+  exercise it.
+- Default `flight_provider: duffel`. Amadeus stays as opt-out via
+  `flight_provider: amadeus`.
+- `search_places` is flight origin/destination autocomplete only. The
+  locations widget keeps using Amadeus `search_locations`.
+
+Tool surface (mcp/duffel.yaml)
+------------------------------
+Four tools, MCP `tools/list` + `tools/call` dispatch shape mirroring
+`automation/agents/mcp/amadeus.yaml`:
+
+  - **search_offers**: POST /air/offer_requests?return_offers=true.
+    Synchronous flight search. Normalize result into the Amadeus-style
+    envelope so `render_flights` doesn't need shape-aware branching.
+
+  - **get_offer**: GET /air/offers/{id}. Canonical offer detail.
+
+  - **search_places**: GET /places/suggestions?query=. Airport/city
+    autocomplete for flight inputs.
+
+  - **get_airlines**: GET /air/airlines?limit=200. Reference data.
+
+Duffel auth — single bearer token
+---------------------------------
+- Kadyapam provisions `duffel-test-token` in GCP Secret Manager out-of-band
+  (recipe in bridge task's `pre_handoff_for_kadyapam.step_2`).
+- The mcp/duffel playbook reads the token via the keychain pattern that
+  mcp/amadeus already uses for its OAuth credentials — but here the secret
+  IS the bearer token (no token-exchange step).
+- Every HTTP call carries:
+    Authorization: Bearer <token>
+    Accept: application/json
+    Duffel-Version: v2
+    Content-Type: application/json   (on POST)
+- Test/live env is determined by which token sits behind the secret. Both
+  envs hit the SAME `https://api.duffel.com` base URL — only the token
+  prefix differs (`duffel_test_*` vs `duffel_live_*`). The `duffel_env`
+  workload field selects which secret path to read; it does NOT switch
+  the base URL.
+
+Travel runtime integration
+--------------------------
+`repos/ops/automation/agents/travel/runtime.yaml`:
+
+  1. New workload field `flight_provider: duffel` (valid values:
+     `duffel | amadeus`; default `duffel`).
+  2. Workload field `duffel_env: test` (default test; live is a future
+     placeholder).
+  3. Flights step branches on `workload.flight_provider`:
+     - `duffel` → hop into `mcp/duffel` with `tool: search_offers`.
+     - `amadeus` → hop into `mcp/amadeus` with `tool: search_flights`
+       (existing behavior).
+  4. `mcp:duffel` appended to capabilities.
+
+The Duffel MCP playbook normalizes Duffel offers into the Amadeus-style
+shape inside `search_offers`, so `render_flights` stays unchanged. Spec
+for the normalized envelope is in the bridge task under
+`design_brief_for_codex.travel_runtime_integration.5`.
+
+Phases (8)
+----------
+  1. Verify pre-handoff: `duffel-test-token` secret exists, worker SA has
+     `secretmanager.secretAccessor`, worker pod can read it, and the token
+     authenticates against the Duffel API (`GET /air/airlines?limit=1`
+     returns 200).
+  2. Author `mcp/duffel.yaml` (open a draft PR against repos/ops).
+  3. Direct MCP smokes — `tools/list`, `search_offers`, `search_places`,
+     `get_airlines` from inside a worker pod. Capture all execution IDs.
+  4. Wire travel runtime `flight_provider` selector (second PR or follow-up
+     commit, ops/main).
+  5. Travel runtime smoke with default Duffel: `travel ... flights from
+     SFO to JFK ...` — expect Duffel offers in the rendered widget.
+  6. Travel runtime smoke with Amadeus override:
+     `--workload-override '{"flight_provider":"amadeus"}'` — confirms the
+     opt-out works. AMBER (not failure) acceptable if Amadeus test API
+     5xx hits its known flake.
+  7. Tutorial 07 update — document `flight_provider` (docs PR).
+  8. Close out — write result JSON, append codex-spike-green-validation.md,
+     write memory entry, bump scoping-doc status.
+
+Architectural rules
+-------------------
+  - Search-only. No booking/payment tools.
+  - Test env only. Live token is a placeholder.
+  - Default `flight_provider: duffel`.
+  - Locations/hotels/activities continue on Amadeus.
+  - No release cut. No git push from ai-meta.
+  - 10-offer cap in `search_offers` result handler.
+  - If Duffel test token missing: AMBER + STOP, document the gap.
+  - If Amadeus opt-out smoke shows a wiring regression (not the known 5xx
+    flake): fix-forward; if it shows the known 5xx, document and continue.
+
+Result file: bridge/outbox/20260512-130000-duffel-flights-mcp.result.json
+shape mirrors the Pattern C result (20260512-030000-google-places-enrichment-mcp.result.json).
+Never include the Duffel token value or any 8+ characters of it.
