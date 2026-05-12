@@ -1,0 +1,33 @@
+Codex prompt — Deploy ollama-bridge to GKE for native --provider ollama
+=========================================================================
+
+Bridge task: bridge/inbox/delegated/20260511-220000-ollama-bridge-gke-deployment.task.json
+Result:      bridge/outbox/20260511-220000-ollama-bridge-gke-deployment.result.json
+
+GKE has no ollama-bridge or ollama deployment. `travel --provider ollama`
+falls back to OpenAI on GKE. This round deploys the bridge + Ollama so
+the chooser is fully populated across all four providers.
+
+Decision before implementing (phase 1):
+  (A) Bridge only           — cheapest, but errors on actual inference
+  (B) Bridge + CPU Ollama   — matches local kind (gemma3:4b on CPU)
+                              — ~$30-50/month for an always-on pod
+                              — DEFAULT recommendation
+  (C) Bridge + GPU node pool — full inference, GPU cost
+                              — AMBER + STOP for Kadyapam approval
+
+Codex job (4 phases):
+  1. Decide A/B/C; inspect existing helm templates + local kind setup.
+  2. Deploy chosen config. For (B): ollama + bridge pods + warm model cache.
+  3. Smoke `travel --provider ollama` help / flights / activities on GKE.
+     Expected: effective_provider='ollama' (not OpenAI fallback).
+  4. Close out: memory + sync issue + validation log.
+
+Architectural rules:
+  - If option (C) GPU node pool: AMBER + STOP, get Kadyapam approval first.
+  - Don't touch storage tier or other unrelated infra.
+  - No release cut. No git push from ai-meta.
+
+Helm templates to read for reference:
+  - repos/ops/automation/helm/noetl/templates/ollama-bridge-deployment.yaml
+  - repos/ops/automation/helm/noetl/templates/ollama-bridge-service.yaml

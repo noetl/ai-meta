@@ -1,0 +1,43 @@
+Codex prompt — Cloud-tier router decision (design-first round, NOT implementation)
+====================================================================================
+
+Bridge task: bridge/inbox/delegated/20260511-235000-cloud-tier-router-decision.task.json
+Result:      bridge/outbox/20260511-235000-cloud-tier-router-decision.result.json
+Output:      sync/issues/2026-05-11-cloud-tier-router-decision.md
+
+Surfaced as Path B from the GKE parity-sync round. The audit found:
+NOETL_DEFAULT_STORAGE_TIER=kv, spillover → worker-local disk (ephemeral),
+router cloud tier configured as S3 (not GCS), GCS configured but inactive.
+
+The MinIO elimination round addressed the IN-CLUSTER object store
+(SeaweedFS now). This round addresses the orthogonal question: what
+should the cloud tier be for cross-pod/cross-cluster durable spillover?
+
+Three options to evaluate:
+  (1) GCS — matches GCP project, Workload Identity already wired
+  (2) In-cluster S3 (SeaweedFS) — already deployed, cheap, not cross-region
+  (3) Remote AWS S3 — durable cross-region but cross-cloud egress + odd in GCP
+
+DESIGN ONLY this round. The implementation round is a separate follow-up
+once the decision is made.
+
+Codex job (4 phases):
+  1. Inspect GKE storage tier env + router introspection. Document
+     current state.
+  2. Workload analysis — query travel_agent_events + temp_ref (if exists)
+     for spillover frequency + size. Order-of-magnitude.
+  3. Write sync/issues/2026-05-11-cloud-tier-router-decision.md with
+     three-option matrix (cost / complexity / durability / cross-region /
+     ops burden) + recommendation + implementation sketch.
+  4. Close out: memory entry, validation log paragraph, deferred
+     implementation round named.
+
+Architectural rules:
+  - NO IMPLEMENTATION. Decision doc only.
+  - Don't provision GCS buckets.
+  - Don't modify the storage router code.
+  - Don't modify the in-cluster object-store chooser.
+  - No release cut. No git push from ai-meta.
+
+Deliverable: a clear recommendation Kadyapam can either approve (then a
+follow-up implementation round) or push back on with new constraints.

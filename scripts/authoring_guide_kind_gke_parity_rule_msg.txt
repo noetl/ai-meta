@@ -1,0 +1,31 @@
+Codex prompt — Authoring guide: 14th rule (kind→GKE parity process lesson)
+===========================================================================
+
+Bridge task: bridge/inbox/delegated/20260511-210000-authoring-guide-kind-gke-parity-rule.task.json
+Result:      bridge/outbox/20260511-210000-authoring-guide-kind-gke-parity-rule.result.json
+
+Three rediscoveries this session surfaced the same drift — local-GREEN
+doesn't mean GKE-GREEN. Pin it as the 14th rule.
+
+Result files showing the drift:
+  - 20260511-110000-gke-parity-sync.result.json (catalog drift)
+  - 20260511-130000-gateway-terminal-surface-and-gui-bump.result.json (GUI surface unknown)
+  - 20260511-150000-eliminate-minio-add-seaweedfs-rustfs-chooser.result.json (infra drift)
+
+Rule shape (match the existing 13 rules' style):
+  Heading: `### Every kind deploy needs a chained GKE-parity round`
+  Section: new `## Deployment parity` or extend a fitting existing one.
+  Body: two paragraphs.
+  Good block: bridge task includes explicit GKE phase OR queues a chained round.
+  Bad block: round assumes local GREEN = success.
+  Evidence: 3 result-file pointers.
+
+Codex job (3 phases):
+  1. Apply edit. npm run build clean.
+  2. Docs PR: `docs(reference): add 14th rule — every kind deploy needs a chained GKE-parity round`. Squash-merge.
+  3. Bump repos/docs gitlink in ai-meta. Stage, don't push.
+
+Architectural rules:
+  - Docs only. Don't touch the 13 existing rules.
+  - Don't reorder sections beyond inserting the new one cleanly.
+  - No release cut. No git push from ai-meta.

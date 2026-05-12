@@ -1,0 +1,34 @@
+Codex prompt — Amadeus production API switch (workload field + limited smoke)
+==============================================================================
+
+Bridge task: bridge/inbox/delegated/20260511-230000-amadeus-production-api-switch.task.json
+Result:      bridge/outbox/20260511-230000-amadeus-production-api-switch.result.json
+
+Item #7 confirmed Amadeus test API has persistent 5xx flake. Production API
+behaves better. Add `amadeus_env: test | production` workload field to
+mcp/amadeus, switch endpoint URLs based on it, smoke production with
+tightly limited scope (cost control).
+
+Codex job (6 phases):
+  1. Audit test endpoint URLs in mcp/amadeus.yaml.
+  2. Add amadeus_env workload field; Jinja-switch URLs.
+  3. Add amadeus_production_{key,secret}_path workload fields; keychain
+     conditionally picks the right secret based on amadeus_env.
+  4. Document production secret provisioning recipe for Kadyapam (gcloud
+     secrets create ... amadeus-production-key in noetl-demo-19700101).
+  5. LIMITED smoke if production secrets exist:
+       - cd /mcp/amadeus; call get_token (production endpoint)
+       - travel --provider openai locations near Paris (1 call)
+       - travel --provider openai flights from SFO to JFK on 2026-07-15 (1 call)
+     Production API costs per call. NO mass smoking.
+  6. Memory + sync issue + validation log + ai-meta pointer bump.
+
+Architectural rules:
+  - Default amadeus_env=test preserves current behavior. Production is opt-in.
+  - Don't provision Amadeus production credentials — Kadyapam owns secret manager.
+  - Single-digit production calls maximum.
+  - Don't modify the travel runtime's classifier (mcp/amadeus only).
+  - No release cut. No git push from ai-meta.
+
+If production secrets aren't provisioned: code change lands GREEN, smoke is
+AMBER + STOP with the gcloud provisioning recipe documented for Kadyapam.
