@@ -1,0 +1,107 @@
+{
+  "id": "20260512-130000-duffel-flights-mcp",
+  "status": "GREEN",
+  "summary": "Duffel is now the default search-only flights provider for the travel agent on GKE, with Amadeus preserved as an explicit flight_provider=amadeus opt-out.",
+  "pr_summary": {
+    "ops": [
+      {
+        "pr": "https://github.com/noetl/ops/pull/84",
+        "merge_sha": "a92d752",
+        "title": "feat(travel-agent): add Duffel flights MCP default"
+      }
+    ],
+    "docs": [
+      {
+        "pr": "https://github.com/noetl/docs/pull/64",
+        "merge_sha": "5c394c3",
+        "title": "docs(tutorials): document Duffel flight provider default"
+      }
+    ]
+  },
+  "gke_registration": {
+    "context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "namespace": "noetl",
+    "duffel_mcp": {
+      "path": "automation/agents/mcp/duffel",
+      "version": 2,
+      "catalog_id": "625385140687995289"
+    },
+    "travel_runtime": {
+      "path": "automation/agents/travel/runtime",
+      "version": 16,
+      "catalog_id": "625385144664195482"
+    }
+  },
+  "pre_handoff_checks": {
+    "secret_present": true,
+    "secret_name": "duffel-api-test",
+    "worker_service_account": "noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com",
+    "worker_can_read": true,
+    "token_prefix_ok": true,
+    "token_length": 55,
+    "duffel_api_probe_status": 200,
+    "duffel_api_probe_endpoint": "GET /air/airlines?limit=1",
+    "secret_material": "not recorded"
+  },
+  "smokes": {
+    "direct_duffel_list": {
+      "execution_id": "625385479898137107",
+      "status": "COMPLETED",
+      "tool_count": 4,
+      "summary": "Duffel MCP - 4 tools available"
+    },
+    "direct_duffel_search_offers": {
+      "execution_id": "625385503302353446",
+      "status": "COMPLETED",
+      "offers_total": 10,
+      "first_offer_source": "duffel",
+      "cap_enforced": true,
+      "summary": "10 Duffel flight offer(s)"
+    },
+    "direct_duffel_search_places": {
+      "execution_id": "625385527889363513",
+      "status": "COMPLETED",
+      "places_total": 20,
+      "summary": "20 Duffel place suggestion(s)"
+    },
+    "direct_duffel_get_airlines": {
+      "execution_id": "625385551536849484",
+      "status": "COMPLETED",
+      "airlines_total": 5,
+      "summary": "5 Duffel airline(s)"
+    },
+    "travel_flights_duffel_default": {
+      "execution_id": "625385246619337115",
+      "status": "COMPLETED",
+      "render_node": "render_flights",
+      "offers_total": 10,
+      "effective_flight_provider": "duffel",
+      "child_execution_id": "625385281130070503",
+      "child_status": "ok",
+      "summary": "10 flight offer(s) returned"
+    },
+    "travel_flights_amadeus_override": {
+      "execution_id": "625385670604751455",
+      "status": "COMPLETED",
+      "render_node": "render_amadeus_failure",
+      "outcome": "amadeus_failure",
+      "upstream_status_code": 500,
+      "child_execution_id": "625385703118996139",
+      "child_status": "ok",
+      "summary": "The travel provider's search service is temporarily unavailable. Please try again.",
+      "note": "This is the known Amadeus test API 5xx flake. The override branch matched and executed; no selector wiring regression was observed."
+    }
+  },
+  "fix_forwards": [
+    {
+      "issue": "The first successful flights render exposed helper-to-helper Python scoping in render_flights: _offer_card called _seg, but NoETL executes Python with separate globals/locals.",
+      "fix": "Republished _seg and _offer_card through globals().update(...) before building flight cards."
+    }
+  ],
+  "cleanup": {
+    "worker_scale_restored": "unchanged",
+    "port_forward_stopped": true,
+    "ai_meta_pushed": false
+  },
+  "verdict": "GREEN. Duffel test auth, direct MCP tools, default travel flights rendering, and Amadeus opt-out routing are all validated. Amadeus itself still returns the known upstream test API 500, which is documented as non-regression."
+}

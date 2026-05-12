@@ -1,7 +1,7 @@
 # Duffel travel API integration — scoping
 
 Date: 2026-05-12
-Status: scoping locked — bridge round queued at `bridge/inbox/delegated/20260512-130000-duffel-flights-mcp.task.json`
+Status: GREEN — shipped via ops#84 and docs#64; GKE registered Duffel MCP v2 and travel runtime v16
 
 ## Decision (locked)
 
@@ -15,6 +15,27 @@ Default `flight_provider` is **`duffel`** (search is $0 in test env, persistent
 test-API 5xx flake on Amadeus is the operational pain motivating the switch).
 Operators can revert any workload to Amadeus by setting `flight_provider:
 amadeus`.
+
+## Shipped State
+
+Merged PRs:
+
+- noetl/ops#84 (`a92d752`) — `automation/agents/mcp/duffel` plus travel runtime `flight_provider` selector.
+- noetl/docs#64 (`5c394c3`) — Tutorial 07 selector documentation.
+
+GKE registrations:
+
+- `automation/agents/mcp/duffel` version 2, catalog `625385140687995289`
+- `automation/agents/travel/runtime` version 16, catalog `625385144664195482`
+
+Validation:
+
+- Worker service account read the `duffel-api-test` secret and Duffel accepted it on `GET /air/airlines?limit=1`.
+- Direct MCP `tools/list`, `search_offers`, `search_places`, and `get_airlines` completed.
+- Default travel flights rendered 10 Duffel offers: execution `625385246619337115`.
+- Amadeus override routed correctly and hit the known Amadeus test API 500 friendly-failure path: execution `625385670604751455`.
+
+Result file: `bridge/outbox/20260512-130000-duffel-flights-mcp.result.json`.
 
 The other three scoping questions in this doc are locked to their recommended
 defaults — see the "Open questions" section below for the decisions.
