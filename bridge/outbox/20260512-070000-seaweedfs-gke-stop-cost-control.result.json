@@ -1,0 +1,51 @@
+{
+  "task_id": "20260512-070000-seaweedfs-gke-stop-cost-control",
+  "status": "GREEN",
+  "summary": "Stopped the in-cluster SeaweedFS object-store pod on GKE after confirming the active cloud spill tier is GCS.",
+  "actions": [
+    {
+      "phase": "chart_fix",
+      "result": "Merged noetl/ops#77 adding objectStore.replicas for SeaweedFS and RustFS"
+    },
+    {
+      "phase": "scale_down",
+      "result": "Helm release noetl revision 131 set objectStore.replicas=0"
+    },
+    {
+      "phase": "verification",
+      "result": "deployment/seaweedfs is 0/0, no app=seaweedfs pods are running, service/object-store and pvc/object-store-data remain present"
+    },
+    {
+      "phase": "active_tier_check",
+      "result": "noetl-worker config still uses NOETL_STORAGE_CLOUD_TIER=gcs with NOETL_GCS_BUCKET=noetl-demo-output"
+    },
+    {
+      "phase": "documentation",
+      "result": "Added re-provision and stop-again runbook to the GKE deployment drift and storage tier audit issue"
+    }
+  ],
+  "gke_state": {
+    "context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "object_store_namespace": "object-store",
+    "helm_release": "noetl",
+    "helm_revision": 131,
+    "object_store_kind": "seaweedfs",
+    "object_store_replicas": 0,
+    "seaweedfs_deployment": "0/0",
+    "seaweedfs_pods": 0,
+    "service_retained": true,
+    "pvc_retained": true,
+    "active_noetl_cloud_tier": "gcs"
+  },
+  "re_enable_summary": [
+    "helm upgrade noetl automation/helm/noetl --reuse-values --set objectStore.enabled=true --set objectStore.kind=seaweedfs --set objectStore.replicas=1",
+    "wait for deployment/seaweedfs rollout",
+    "if routing cloud spillover back to S3, set worker/server NOETL_STORAGE_CLOUD_TIER=s3 and restart NoETL",
+    "run object-store durability smoke"
+  ],
+  "artifacts": {
+    "ops_pr": "https://github.com/noetl/ops/pull/77",
+    "sync_issue": "sync/issues/2026-05-11-gke-deployment-drift-and-storage-tier-audit.md",
+    "memory": "memory/inbox/2026/05/20260512-070000-seaweedfs-gke-stopped-cost-control.md"
+  }
+}
