@@ -256,6 +256,19 @@ Firestore replay walkthrough, and names the remaining v1 polish gaps
 instead of overselling the demo. With this round, the trip-planner
 project is feature-complete for the tutorial arc.
 
+### Round 8 — Auth0 + muno.mestumre.dev deployment
+
+Status 2026-05-13: AMBER at pre-handoff verification. Codex confirmed
+GKE access on `gke_noetl-demo-19700101_us-central1_noetl-cluster`, but
+the expected Auth0 Secret Manager entries were not present:
+`muno-auth0-domain`, `muno-auth0-client-id`, and
+`muno-auth0-audience` all returned `NOT_FOUND`. A related
+`auth0_client` secret exists, but the bridge task expects the normalized
+three-secret surface. The `travel-agent-widget-key` API key also lacks
+the required `https://muno.mestumre.dev/*` HTTP referrer. No Muno or ops
+code was changed; rerun Round 8 after those pre-handoff items are
+complete.
+
 ## UI patterns extracted from the Figma
 
 Observations from the 5 PNG exports + 1 SVG asset:

@@ -1,0 +1,70 @@
+{
+  "id": "20260513-040000-muno-auth0-deploy",
+  "status": "AMBER",
+  "phase_reached": 1,
+  "summary": "Stopped at phase 1 pre-handoff verification. GKE access is available, but the expected Auth0 Secret Manager entries and Google Maps widget-key referrer are not in the state required by the bridge task.",
+  "muno_pr_url": null,
+  "muno_merge_sha": null,
+  "ops_pr_url": null,
+  "ops_merge_sha": null,
+  "ai_meta_submodule_pointer_bump_shas": [],
+  "image_uri": null,
+  "ingress_ip": null,
+  "dns_instructions_for_kadyapam": null,
+  "dns_added_at_iso": null,
+  "live_url_curl_status": null,
+  "cert_issuer": null,
+  "browser_auth0_smoke_described": false,
+  "phase_1_checks": {
+    "gke_context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
+    "gcp_account": "alexis.k@cybx.io",
+    "project_id": "noetl-demo-19700101",
+    "project_number": "1014428265962",
+    "expected_auth0_secrets": {
+      "muno-auth0-domain": "NOT_FOUND",
+      "muno-auth0-client-id": "NOT_FOUND",
+      "muno-auth0-audience": "NOT_FOUND"
+    },
+    "visible_related_secrets": [
+      "auth0_client",
+      "google-maps-widget-key"
+    ],
+    "google_maps_widget_key_referrers": [
+      "https://mestumre.dev/*",
+      "https://gateway.mestumre.dev/*",
+      "https://*.pages.dev/*"
+    ],
+    "required_missing_referrer": "https://muno.mestumre.dev/*",
+    "cert_manager_certificate_crd_present": false,
+    "gateway_api_present": true,
+    "ingress_api_present": true,
+    "current_gateway_service": {
+      "namespace": "gateway",
+      "name": "gateway",
+      "type": "LoadBalancer",
+      "external_ip": "34.46.180.136"
+    },
+    "cloudflare_tunnel_present": true
+  },
+  "blockers": [
+    "Create or map the expected secrets `muno-auth0-domain`, `muno-auth0-client-id`, and `muno-auth0-audience` in project `noetl-demo-19700101`.",
+    "Grant the worker service account `noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com` `roles/secretmanager.secretAccessor` on those secrets.",
+    "Add `https://muno.mestumre.dev/*` to the `travel-agent-widget-key` allowed HTTP referrers without removing the existing referrers.",
+    "Clarify deployment TLS topology: the cluster has Gateway API and ManagedCertificate resources, but no cert-manager `Certificate` CRD. The Round 8 deploy should mirror the existing gateway/Cloudflare pattern rather than assume cert-manager Ingress objects."
+  ],
+  "manual_fix_commands_for_kadyapam": [
+    "echo -n '<auth0-domain>' | gcloud secrets create muno-auth0-domain --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
+    "echo -n '<auth0-client-id>' | gcloud secrets create muno-auth0-client-id --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
+    "echo -n 'https://api.muno.mestumre.dev' | gcloud secrets create muno-auth0-audience --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
+    "for s in muno-auth0-domain muno-auth0-client-id muno-auth0-audience; do gcloud secrets add-iam-policy-binding \"$s\" --project=noetl-demo-19700101 --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor; done",
+    "In Google Cloud Console, edit the API key `travel-agent-widget-key` and add the HTTP referrer `https://muno.mestumre.dev/*`."
+  ],
+  "cleanup": {
+    "code_changes_made": false,
+    "muno_touched": false,
+    "ops_touched": false,
+    "secrets_logged": false,
+    "ai_meta_pushed": false
+  },
+  "verdict": "AMBER. The round intentionally stopped before code or deploy changes because required pre-handoff checks failed. Once the three Auth0 secrets and Maps referrer are present, rerun Round 8 from phase 1."
+}
