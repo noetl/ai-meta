@@ -1,0 +1,149 @@
+{
+  "id": "20260513-160000-travel-property-block-full-slots",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T16:00:00Z",
+  "title": "Travel right-pane PropertyBlock — surface all collected slots (Round 11)",
+
+  "description": "Second post-Round-9 UX iteration. Knocks down the 'Full property block right-pane surfacing' nit from tutorial 08's 'What's NOT covered'. Today the right pane shows only Destination + Dates even though the agent has collected more (party, star rating, budget, bed type, amenities). Agent should emit a `property_block` widget with EVERY slot it has captured so far, and `PropertyBlock.tsx` should render them all (with the existing edit-pencil pattern per slot). Slots not yet collected are either hidden or shown with a muted '—' placeholder. Pure repos/travel work + small tutorial 08 trim. Single travel PR. No infra changes. Cloudflare Pages auto-deploys on merge. Live smoke is Kadyapam-side. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` (UI patterns section's property-block field table) and tutorial 08's 'What's NOT covered' list.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "NONE required. All upstream rounds GREEN. No new secrets, no new IAM, no new schemas, no new GCP setup.",
+    "what_codex_inherits": "travel main at the post-Round-10-hotfix SHA (`7a1902f` per the GREEN handover). The PropertyBlock component already exists from Round 6b/Round 4b; the agent's emission of property_block envelopes already exists. Round 11 just makes both ends richer.",
+    "note_on_pending_round_10_smoke": "Kadyapam's Round 10 browser smoke is still pending GREEN confirmation. Round 11 work is independent (touches PropertyBlock + the agent's property_block emit path, not the photo/party/booking-ref code paths from Round 10). Codex can land Round 11 in parallel; if Round 10 smoke turns up a regression, it gets fixed separately."
+  },
+
+  "design_brief_for_codex": {
+    "property_block_slot_catalogue": "Per the scoping doc's UI patterns section, the property_block right-pane displays these slots when the agent has captured them. List drawn from the Figma observation table:\n\n  - **Region** — string (Country, City [, Subdivision]). From destination text input + Google Places autocomplete.\n  - **Check in / Check out / nights** — date strings + derived int. From date_range_picker submit.\n  - **Rooms and Guests** — multi-line summary string. From party_picker submit (formatted via the `formatParty` helper added in Round 10 — REUSE it here, don't reimplement).\n  - **Star rating** — string like '5 star hotels'. From a star-rating filter widget the agent emits when narrowing hotels. (Filter widget itself comes in a later round — this round just renders the slot value if present.)\n  - **Budget** — currency-aware range string, e.g. '$110-$1800'. From budget filter.\n  - **Bed Type** — string like 'Twin bed'. From bed-type filter.\n  - **Other Amenities** — comma-separated string, e.g. 'Breakfast included, Fitness center, Meeting rooms'. From amenity-multi-select filter.\n\nThe Region / Dates / Party are collected by the existing wizard widgets. The latter four (Star rating, Budget, Bed Type, Amenities) come from the filter-narrowing widgets that haven't been built yet — that's a future round. Round 11 just makes PropertyBlock RENDER all seven slot types whenever they're present in the payload. The agent emits the latter four only when slot_state actually has values for them (typically zero at first; populated when the user later narrows the search via free-form chat like 'only 4-star hotels under $200').",
+
+    "agent_emission_changes": "Today the agent's chat step probably emits a property_block with only the slots it just updated (destination + dates). The fix is to emit ALL slots currently present in `slot_state`, not just the ones updated in the current turn.\n\n  - Inspect `repos/travel/playbooks/itinerary-planner.yaml` chat step + `playbooks/agent/system_prompt_chat.md`.\n  - Find where the agent constructs the `property_block` envelope.\n  - Change it to read the FULL current slot_state and emit one row per non-null slot field. Rows are ordered per the Figma's progressive-capture order (region first, then dates, then party, then filter-style slots).\n  - For each slot, include an `edit_action_id` that the UI uses to re-open the matching collector widget when the user clicks the pencil:\n    - region → `edit_region` (re-opens place_autocomplete_input)\n    - check_in_date / check_out_date / nights → `edit_dates` (re-opens date_range_picker; treat as a single grouped slot in the UI but the payload can have all three)\n    - party → `edit_party` (re-opens party_picker)\n    - star_rating → `edit_star_rating` (will re-open filter widget once built)\n    - budget → `edit_budget` (same)\n    - bed_type → `edit_bed_type`\n    - amenities → `edit_amenities`\n  - Update `playbooks/agent/widget_envelope_examples.md` with a fully-populated property_block sample so the LLM has a concrete example.\n\nDon't change the property_block schema — it already declares `slots: [{label, value, edit_action_id, missing}]` (per the Round 4a/6a catalogue). Adding more entries to that array is purely additive.",
+
+    "ui_render_changes_in_PropertyBlock": "`muno/travel/src/components/widgets/PropertyBlock.tsx`:\n\n  - Render every slot present in `payload.slots[]` (not just the first two).\n  - Each slot: MUI `<ListItem>` with `<ListItemText>` showing the label as `primary`, the value as `secondary`. Pencil icon `<IconButton>` on the right (only if `edit_action_id` is set).\n  - For slots with `missing: true`, render the label with `secondary: '—'` (em-dash) styled muted. Today these probably aren't sent at all; in this round they STAY hidden unless the agent explicitly marks them missing. (Future filter-narrowing round may flip behaviour to 'show missing slots as ghost rows the user can click to add'.)\n  - Empty state (zero slots): show a small Material illustration + 'No trip details yet — tell Adiona where you want to go.' Reuse existing empty-state pattern from CalendarView if there's one.\n  - Click on a slot's pencil icon: emit `widget_cta_click` event with `{slot_id: edit_action_id, action: 'edit'}` via the WidgetRenderer callback. The agent's existing handler picks this up and re-opens the corresponding collector widget (this routing should already exist for the destination + dates edit flow that's currently visible).\n  - Use the `formatParty` helper from Round 10 for the party slot value.\n\nAdd vitest fixtures:\n  - PropertyBlock with one slot (region only).\n  - PropertyBlock with three slots (region, dates, party — the post-wizard state).\n  - PropertyBlock with all seven slots populated (mock the filter-slot values).\n  - PropertyBlock empty.\n  - Click on a slot's pencil → callback receives the right `{slot_id, action}`.",
+
+    "tutorial_08_trim": "Update `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md` 'What's NOT covered' section: STRIKE the 'Full property block right-pane surfacing' bullet. Leave the remaining nits (filter narrowing widgets, date consistency, mobile responsive, security hardening) intact.",
+
+    "no_breaking_changes": "Property_block schema unchanged. Existing payloads with just region + dates still render correctly (PropertyBlock just renders 2 rows). No agent system-prompt rewrites — only payload-construction logic. No new widget types. No new MCP tools.",
+
+    "what_NOT_to_do": "  - DO NOT change the property_block schema.\n  - DO NOT build the filter-narrowing widgets themselves in this round (star rating slider, budget range, etc.) — that's a separate, larger round.\n  - DO NOT change PartyPicker, DateRangePicker, or PlaceAutocompleteInput components — only PropertyBlock.\n  - DO NOT touch auth, gateway, Firestore wiring.\n  - DO NOT change the agent's per-turn loop. Only the payload-construction logic for property_block envelopes.\n  - DO NOT echo any tokens / credentials.\n  - DO NOT touch the still-untouched Amadeus handoff files in ai-meta (they belong to a different track)."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Baseline GREEN against the Round 10 + hotfix state.",
+      "spec": [
+        "Pull repos/travel main; confirm at `7a1902f` or later.",
+        "`npm install` clean.",
+        "`npm run smoke:widgets`, `npm run test`, `npm run type-check`, `npm run build` all pass.",
+        "Inspect the current property_block.schema.json — confirm `slots[]` array shape with `label`, `value`, `edit_action_id`, `missing` fields. If different from the brief: AMBER + STOP, surface for review."
+      ],
+      "verify": "Baseline GREEN; schema matches expectations."
+    },
+
+    "2_agent_payload_construction": {
+      "objective": "Make the agent emit a property_block with every slot currently in slot_state.",
+      "spec": [
+        "Locate the agent's chat step that emits property_block (in `playbooks/itinerary-planner.yaml` and the supporting prompt in `playbooks/agent/system_prompt_chat.md`).",
+        "Refactor the payload-construction logic to walk the full slot_state and emit one slot row per non-null field, in the order documented in the brief.",
+        "Use formatParty from Round 10 for the party slot value (the helper lives at `muno/travel/src/utils/formatParty.ts` — if it's not accessible to the playbook directly, mirror the formatter logic in the system prompt's instructions so the LLM produces the same string shape).",
+        "Update `playbooks/agent/widget_envelope_examples.md` with a fully-populated property_block sample.",
+        "Strengthen the chat system prompt so the LLM emits property_block AT THE END of every turn that updated any slot, AND includes every currently-populated slot (not just the ones updated this turn)."
+      ],
+      "verify": "Agent emits envelopes containing all currently-populated slot fields. AJV validation passes against the existing schema."
+    },
+
+    "3_ui_render_changes": {
+      "objective": "Render every slot in PropertyBlock with edit pencils + handle empty state.",
+      "spec": [
+        "Per `design_brief_for_codex.ui_render_changes_in_PropertyBlock`.",
+        "Add the empty-state UI when zero slots are present.",
+        "Wire the pencil-click handler to emit `widget_cta_click` with `{slot_id, action: 'edit'}` through the existing WidgetRenderer callback.",
+        "Add vitest fixtures for: 1-slot, 3-slot, 7-slot, empty, and pencil-click scenarios."
+      ],
+      "verify": "`npm run smoke:widgets` and `npm run test` pass with the new fixtures. Manual `npm run dev` eyeball: typing a destination shows region in the right pane; submitting dates adds dates; submitting party adds party — all visible in real time."
+    },
+
+    "4_tutorial_08_trim": {
+      "objective": "Strike the 'Full property block right-pane surfacing' bullet from tutorial 08.",
+      "spec": [
+        "Edit `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md`. Find the 'What's NOT covered' section and strike that single bullet. Leave the remaining bullets intact (filter narrowing widgets, date consistency, mobile responsive, photo polish gaps, security hardening, etc.).",
+        "Optional: add a brief note to the same tutorial's walkthrough showing the right-pane progressively filling as the user answers questions (a sentence under step 3 or 4 — only if it fits naturally without bloating the section)."
+      ],
+      "verify": "Docs PR open; tutorial renders cleanly."
+    },
+
+    "5_open_pr_and_verify_preview_deploy": {
+      "objective": "Open the travel PR; verify Pages preview build; merge to main.",
+      "spec": [
+        "Open PR: `feat(ui): surface all collected slots in PropertyBlock right pane`.",
+        "Cloudflare Pages auto-deploys the preview URL.",
+        "Poll/verify the preview URL returns 200 and the bundle contains the new render code paths.",
+        "Self-review the diff. Confirm CI checks pass.",
+        "Merge to main. Pages auto-deploys to travel.mestumre.dev."
+      ],
+      "verify": "Preview GREEN; main merge triggers prod deploy."
+    },
+
+    "6_live_smoke_handoff_to_kadyapam": {
+      "objective": "Kadyapam-side browser smoke.",
+      "spec": [
+        "Document the smoke checklist in the result JSON:",
+        "  1. Open `https://travel.mestumre.dev/` in incognito (or hard-refresh).",
+        "  2. Sign in.",
+        "  3. Prompt: 'Trip to Paris'. Region slot appears in right pane.",
+        "  4. Submit a date range. Dates slot appears.",
+        "  5. Submit party (e.g. 2 adults / 1 child age 3). Party slot appears (formatted as '2 adults · 1 child (3 yrs)' from Round 10).",
+        "  6. Click the pencil next to Region. The destination collector widget reopens in the chat.",
+        "  7. Click the pencil next to Dates. The date_range_picker reopens.",
+        "  8. (Optional, only if a filter widget exists yet — likely no for this round) free-form 'only 4-star hotels' → star_rating slot should NOT yet appear because filter widgets aren't built yet. AMBER acceptable.",
+        "Codex marks the round AMBER pending Kadyapam confirmation; flips GREEN after Kadyapam reports steps 1-7 pass."
+      ],
+      "verify": "Smoke checklist documented; round AMBERs pending Kadyapam."
+    },
+
+    "7_close_out": {
+      "objective": "Memory entry + scoping doc update + result JSON + ai-meta pointer bumps (local-only).",
+      "spec": [
+        "Memory entry at `ai-meta/memory/inbox/2026/05/<timestamp>-travel-property-block-full-slots-pending.md` (AMBER until Kadyapam confirms; flip to a GREEN entry once they do).",
+        "Update `ai-meta/sync/issues/2026-05-12-trip-planner-app-scoping.md` adding a 'Round 11' section.",
+        "Result file: `bridge/outbox/20260513-160000-travel-property-block-full-slots.result.json` with travel PR URL + merge SHA, docs PR URL + merge SHA, Pages preview + prod deploy run IDs, Kadyapam smoke checklist, slot_count_rendered (target 1-7 depending on user state), tutorial_08_nit_struck (the 'Full property block right-pane surfacing' bullet), cleanup, verdict.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "Bump `repos/travel` and `repos/docs` submodule pointers locally. Do NOT push ai-meta."
+      ],
+      "verify": "All artefacts written; PRs merged; pointers bumped locally."
+    }
+  },
+
+  "architectural_rules": [
+    "Lives in repos/travel + repos/docs (tutorial 08 trim) only.",
+    "NO repos/ops or repos/noetl changes.",
+    "NO auth/gateway/Firestore changes.",
+    "NO new widget schemas. Property_block schema unchanged.",
+    "NO new collector widgets (filter narrowing is a separate round).",
+    "Reuse formatParty from Round 10; don't reimplement.",
+    "Edit-pencil click → widget_cta_click event with {slot_id, action: 'edit'}. Agent re-opens the matching collector.",
+    "Cloudflare Pages auto-deploys preview + prod. Codex verifies the preview before merging.",
+    "Kadyapam-side browser smoke is the GREEN gate.",
+    "Round 10 smoke is still pending; Round 11 is independent and can land in parallel.",
+    "No tokens / credentials in stdout, memory, or result JSON.",
+    "Do NOT touch the still-untouched Amadeus handoff files in ai-meta."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-160000-travel-property-block-full-slots.result.json`. Required: id, status, summary, travel_pr_url, travel_merge_sha, docs_pr_url, docs_merge_sha, ai_meta_submodule_pointer_bump_shas, pages_preview_deploy_run_id, pages_prod_deploy_run_id, slot_types_rendered (list — region, dates, party, etc.), tutorial_08_nits_struck (the one bullet), kadyapam_smoke_checklist, kadyapam_smoke_confirmation (initially empty), cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md (UI patterns section, property-block field table)",
+    "memory/inbox/2026/05/20260513-100000-handed-travel-v1-ux-polish-to-codex.md (Round 10 handoff)",
+    "memory/inbox/2026/05/20260513-144500-travel-shell-submit-menu-hotfix-green.md (Round 10 hotfix)",
+    "repos/travel/src/components/widgets/PropertyBlock.tsx (component to extend)",
+    "repos/travel/src/utils/formatParty.ts (reusable formatter from Round 10)",
+    "repos/travel/playbooks/widget-contract/property_block.schema.json",
+    "repos/travel/playbooks/itinerary-planner.yaml",
+    "repos/travel/playbooks/agent/system_prompt_chat.md",
+    "repos/docs/docs/tutorials/08-trip-planner-end-to-end.md ('What's NOT covered' section)"
+  ]
+}

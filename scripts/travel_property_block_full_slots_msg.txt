@@ -1,0 +1,108 @@
+Codex prompt — Travel right-pane PropertyBlock full slot surfacing (Round 11)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-160000-travel-property-block-full-slots.task.json
+Result:        bridge/outbox/20260513-160000-travel-property-block-full-slots.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+Round 10 handover: scripts/travel_gateway_session_auth_green_handoff_to_claude_msg.txt + the Round 10 + hotfix memories
+
+Round goal
+----------
+Second post-Round-9 UX iteration. The right-pane PropertyBlock today
+only shows Destination + Dates even when the agent has captured more.
+Fix it to surface EVERY slot the agent has collected — region,
+dates, party, star rating, budget, bed type, amenities — with the
+existing edit-pencil pattern per slot.
+
+Knocks the 'Full property block right-pane surfacing' bullet from
+tutorial 08's 'What's NOT covered' list. Pure repos/travel work +
+small repos/docs trim. Single travel PR. No infra changes. No new
+GCP setup.
+
+Filter-narrowing widgets themselves (star rating slider, budget
+range, amenities chips) are a SEPARATE round. This round just makes
+PropertyBlock render those slot VALUES when they're present in the
+payload — it doesn't build the widgets that collect them.
+
+Pre-handoff: NONE. travel main at 7a1902f (post-Round-10-hotfix).
+Round 10 browser smoke is still pending; Round 11 is independent of
+the photo/party/booking-ref code paths and can land in parallel.
+
+Scope
+-----
+**Agent side** (playbooks/itinerary-planner.yaml +
+playbooks/agent/system_prompt_chat.md):
+
+  - Change the property_block payload construction to walk the FULL
+    current slot_state and emit one row per non-null field.
+  - Order: region → check_in/check_out/nights → party → star_rating
+    → budget → bed_type → amenities.
+  - Each row carries an `edit_action_id` like `edit_region`,
+    `edit_dates`, `edit_party`, etc. that the UI uses to emit
+    `widget_cta_click` on pencil click.
+  - Use formatParty from Round 10 for the party slot value (mirror
+    its logic in the prompt instructions so the LLM produces the
+    same string shape).
+  - Strengthen the chat prompt so PropertyBlock is emitted at the END
+    of every turn that updated any slot, AND includes every
+    currently-populated slot (not just this turn's updates).
+  - Update playbooks/agent/widget_envelope_examples.md with a
+    fully-populated property_block sample.
+
+**UI side** (src/components/widgets/PropertyBlock.tsx):
+
+  - Render every slot in `payload.slots[]`, not just the first two.
+  - Each row: MUI `<ListItem>` + label + value + pencil
+    `<IconButton>` (only if edit_action_id is set).
+  - Empty state: MUI illustration + 'No trip details yet — tell
+    Adiona where you want to go.'
+  - Pencil click emits `widget_cta_click` with
+    `{slot_id: edit_action_id, action: 'edit'}`. Agent re-opens the
+    matching collector.
+  - Use formatParty for the party slot value.
+
+**Docs**: strike the 'Full property block right-pane surfacing'
+bullet from tutorial 08 'What's NOT covered'. Leave other bullets.
+
+Vitest fixtures
+---------------
+  - PropertyBlock with 1 slot (region only)
+  - PropertyBlock with 3 slots (region, dates, party — post-wizard)
+  - PropertyBlock with all 7 slots populated (mock filter values)
+  - PropertyBlock empty
+  - Pencil click → callback receives {slot_id, action: 'edit'}
+
+Architectural rules
+-------------------
+  - repos/travel + repos/docs only.
+  - NO schema changes. NO new widget types. NO new collector widgets.
+  - NO auth/gateway/Firestore changes.
+  - Reuse formatParty from Round 10 — don't reimplement.
+  - Cloudflare Pages auto-deploys preview + prod. Verify preview
+    before merging to main.
+  - Kadyapam-side browser smoke is the GREEN gate.
+  - No tokens or credentials echoed.
+  - Round 10 smoke is still pending; Round 11 is independent and can
+    land in parallel. If Round 10 reveals a regression, fix
+    separately.
+
+Phases (7)
+----------
+  1. Baseline GREEN verify (npm scripts; schema spot-check).
+  2. Agent payload construction (full slot_state → property_block).
+  3. UI render (PropertyBlock renders all slots + empty state +
+     pencil callbacks + fixtures).
+  4. Tutorial 08 nit-struck.
+  5. Open PR + verify preview deploy + merge.
+  6. AMBER pending Kadyapam smoke (7-step checklist in result JSON).
+  7. Close out: memory + scoping doc Round 11 section + result JSON +
+     ai-meta pointer bumps local-only.
+
+Result file shape mirrors prior round result JSONs. Required:
+travel PR + merge SHA, docs PR + merge SHA, Pages run IDs,
+Kadyapam smoke checklist, slot_types_rendered list,
+tutorial_08_nits_struck (one bullet),
+kadyapam_smoke_confirmation (initially empty).
+
+If schema doesn't match the expected slots[]/edit_action_id shape:
+AMBER + STOP, surface for review.
