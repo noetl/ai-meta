@@ -1,70 +1,95 @@
 {
   "id": "20260513-040000-muno-auth0-deploy",
-  "status": "AMBER",
-  "phase_reached": 1,
-  "summary": "Stopped at phase 1 pre-handoff verification. GKE access is available, but the expected Auth0 Secret Manager entries and Google Maps widget-key referrer are not in the state required by the bridge task.",
-  "muno_pr_url": null,
-  "muno_merge_sha": null,
-  "ops_pr_url": null,
-  "ops_merge_sha": null,
-  "ai_meta_submodule_pointer_bump_shas": [],
-  "image_uri": null,
-  "ingress_ip": null,
-  "dns_instructions_for_kadyapam": null,
+  "status": "AMBER_PENDING_DNS",
+  "phase_reached": 7,
+  "summary": "Muno Auth0 SPA integration, container image, GKE manifests, and GKE deployment are live. The round is paused at the intended DNS handoff: Kadyapam needs to add the Cloudflare A record for muno.mestumre.dev, then the GKE managed certificate can finish provisioning and the live Auth0 browser smoke can run.",
+  "muno_pr_url": "https://github.com/noetl/muno/pull/13",
+  "muno_merge_sha": "74075c75c75d5f7f3913ead07639436073e0e072",
+  "ops_pr_url": "https://github.com/noetl/ops/pull/87",
+  "ops_merge_sha": "e56aee60abd22b4015d603d297fa847779a701c2",
+  "ai_meta_submodule_pointer_bump_shas": [
+    "repos/muno -> 74075c75c75d5f7f3913ead07639436073e0e072",
+    "repos/ops -> e56aee60abd22b4015d603d297fa847779a701c2"
+  ],
+  "image_uri": "ghcr.io/noetl/muno:20260513-auth0-amd64-050223",
+  "image_digest": "ghcr.io/noetl/muno@sha256:a76959c25a623c2ec7068534220d256e9eab45241d35bf764ede552736a408da",
+  "image_size_bytes": 51858093,
+  "ingress_ip": "35.190.7.25",
+  "dns_instructions_for_kadyapam": {
+    "type": "A",
+    "name": "muno",
+    "content": "35.190.7.25",
+    "recommended_sequence": [
+      "Create the Cloudflare DNS record for muno.mestumre.dev pointing at 35.190.7.25.",
+      "For first issuance of the GKE ManagedCertificate, use DNS-only if certificate provisioning stalls behind the Cloudflare proxy.",
+      "Wait until `kubectl -n muno get managedcertificate muno` reports `Active`.",
+      "Enable the Cloudflare orange-cloud proxy and keep SSL/TLS mode Full (Strict).",
+      "Tell Codex `DNS added` to resume phase 8 live smoke."
+    ]
+  },
   "dns_added_at_iso": null,
   "live_url_curl_status": null,
-  "cert_issuer": null,
+  "cert_issuer": "GKE ManagedCertificate",
   "browser_auth0_smoke_described": false,
   "phase_1_checks": {
     "gke_context": "gke_noetl-demo-19700101_us-central1_noetl-cluster",
     "gcp_account": "alexis.k@cybx.io",
     "project_id": "noetl-demo-19700101",
     "project_number": "1014428265962",
-    "expected_auth0_secrets": {
-      "muno-auth0-domain": "NOT_FOUND",
-      "muno-auth0-client-id": "NOT_FOUND",
-      "muno-auth0-audience": "NOT_FOUND"
-    },
-    "visible_related_secrets": [
-      "auth0_client",
-      "google-maps-widget-key"
-    ],
-    "google_maps_widget_key_referrers": [
-      "https://mestumre.dev/*",
-      "https://gateway.mestumre.dev/*",
-      "https://*.pages.dev/*"
-    ],
-    "required_missing_referrer": "https://muno.mestumre.dev/*",
+    "auth0_secret": "auth0_client",
+    "auth0_secret_shape": "JSON payload with .data.domain, .data.client_id, .data.audience; client_secret ignored by Muno",
+    "google_maps_widget_key_referrer_added": "https://muno.mestumre.dev/*",
     "cert_manager_certificate_crd_present": false,
+    "gke_managed_certificate_crd_present": true,
     "gateway_api_present": true,
-    "ingress_api_present": true,
-    "current_gateway_service": {
-      "namespace": "gateway",
-      "name": "gateway",
-      "type": "LoadBalancer",
-      "external_ip": "34.46.180.136"
-    },
-    "cloudflare_tunnel_present": true
+    "ingress_api_present": true
   },
-  "blockers": [
-    "Create or map the expected secrets `muno-auth0-domain`, `muno-auth0-client-id`, and `muno-auth0-audience` in project `noetl-demo-19700101`.",
-    "Grant the worker service account `noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com` `roles/secretmanager.secretAccessor` on those secrets.",
-    "Add `https://muno.mestumre.dev/*` to the `travel-agent-widget-key` allowed HTTP referrers without removing the existing referrers.",
-    "Clarify deployment TLS topology: the cluster has Gateway API and ManagedCertificate resources, but no cert-manager `Certificate` CRD. The Round 8 deploy should mirror the existing gateway/Cloudflare pattern rather than assume cert-manager Ingress objects."
-  ],
-  "manual_fix_commands_for_kadyapam": [
-    "echo -n '<auth0-domain>' | gcloud secrets create muno-auth0-domain --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
-    "echo -n '<auth0-client-id>' | gcloud secrets create muno-auth0-client-id --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
-    "echo -n 'https://api.muno.mestumre.dev' | gcloud secrets create muno-auth0-audience --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-",
-    "for s in muno-auth0-domain muno-auth0-client-id muno-auth0-audience; do gcloud secrets add-iam-policy-binding \"$s\" --project=noetl-demo-19700101 --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor; done",
-    "In Google Cloud Console, edit the API key `travel-agent-widget-key` and add the HTTP referrer `https://muno.mestumre.dev/*`."
+  "implementation": {
+    "muno": [
+      "Optional Auth0 SPA provider with guest-mode fallback.",
+      "Auth0 callback route at /callback.",
+      "Bearer token injection for NoETL API requests when signed in.",
+      "Auth0 user sub forwarded as user_uid in playbook workloads.",
+      "Build-time Vite args for Auth0, Google Maps, and NoETL API base URL.",
+      "Container build script reads auth0_client and google-maps-widget-key without logging values.",
+      "Docs added for Auth0 setup and muno.mestumre.dev deployment."
+    ],
+    "ops": [
+      "Namespace, Deployment, ClusterIP Service with NEG, GKE ManagedCertificate, and GKE Ingress for muno.mestumre.dev.",
+      "Deployment references the cluster-local ghcr-pull imagePullSecret because the GHCR package is private.",
+      "Pinned amd64 image tag so GKE Autopilot nodes do not hit Mac-built arm64 images."
+    ]
+  },
+  "validation": {
+    "muno_local": [
+      "npm run type-check",
+      "npm run test",
+      "npm run smoke:widgets",
+      "npm run build"
+    ],
+    "container": [
+      "podman build/push ghcr.io/noetl/muno:20260513-auth0-amd64-050223",
+      "podman image inspect confirmed architecture=amd64, os=linux, size=51858093"
+    ],
+    "gke": [
+      "kubectl apply --dry-run=client -f ci/manifests/muno/",
+      "kubectl apply -f ci/manifests/muno/",
+      "kubectl -n muno rollout status deployment/muno succeeded",
+      "kubectl -n muno get deployment/pods shows 1/1 available on ghcr.io/noetl/muno:20260513-auth0-amd64-050223",
+      "curl -H 'Host: muno.mestumre.dev' http://35.190.7.25/ returned the Muno index.html"
+    ]
+  },
+  "known_notes": [
+    "The first image tag was built for the Mac host architecture and crashed on GKE with `exec format error`; the build script now defaults to PLATFORM=linux/amd64 and the deployment uses the corrected amd64 tag.",
+    "The cluster needed a Kubernetes ghcr-pull imagePullSecret because anonymous GHCR pulls returned 401.",
+    "The GKE ManagedCertificate is still Provisioning, expected until DNS points muno.mestumre.dev at the Ingress and Google can validate the domain.",
+    "Live Auth0 browser smoke is intentionally deferred until DNS and certificate are ready."
   ],
   "cleanup": {
-    "code_changes_made": false,
-    "muno_touched": false,
-    "ops_touched": false,
     "secrets_logged": false,
-    "ai_meta_pushed": false
+    "ai_meta_pushed": false,
+    "muno_branch_merged": true,
+    "ops_branch_merged": true
   },
-  "verdict": "AMBER. The round intentionally stopped before code or deploy changes because required pre-handoff checks failed. Once the three Auth0 secrets and Maps referrer are present, rerun Round 8 from phase 1."
+  "verdict": "AMBER_PENDING_DNS. Code, image, PRs, and GKE origin deployment are complete. Waiting on Cloudflare DNS/certificate activation before phase 8 live URL and Auth0 sign-in smoke."
 }
