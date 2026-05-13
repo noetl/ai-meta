@@ -1,0 +1,68 @@
+{
+  "id": "20260513-020000-firestore-calendar-view",
+  "status": "GREEN",
+  "summary": "Muno Round 5 shipped a Firestore-only calendar view: the widget catalogue grew from 23 to 24 templates with calendar_view, the Material CalendarView renderer supports static display_events and live Firestore events_path reads, and the itinerary agent can extract a calendar note, render calendar_view, and write the calendar event through mcp/firestore. No Google Calendar API or ICS export was added.",
+  "muno_pr_url": "https://github.com/noetl/muno/pull/3",
+  "muno_followup_pr_urls": [
+    "https://github.com/noetl/muno/pull/4",
+    "https://github.com/noetl/muno/pull/5",
+    "https://github.com/noetl/muno/pull/6",
+    "https://github.com/noetl/muno/pull/7",
+    "https://github.com/noetl/muno/pull/8",
+    "https://github.com/noetl/muno/pull/9",
+    "https://github.com/noetl/muno/pull/10",
+    "https://github.com/noetl/muno/pull/11",
+    "https://github.com/noetl/muno/pull/12"
+  ],
+  "muno_merge_sha": "96759b8e4d2f2f6fa8d2f8ea973d91acb035016e",
+  "ai_meta_submodule_pointer_bump_sha": "this ai-meta commit (self-referential field; see git log HEAD)",
+  "schemas_count_after": 24,
+  "firebase_sdk_was_added": false,
+  "baseline_smokes": {
+    "npm_install": "passed",
+    "npm_run_smoke_widgets": "passed for 24 widget envelopes",
+    "npm_run_test": "passed: 2 files, 3 tests",
+    "npm_run_type_check": "passed",
+    "npm_run_build": "passed",
+    "noetl_dry_run": "passed for playbooks/itinerary-planner.yaml",
+    "gke_firestore_native_check": "FIRESTORE_NATIVE in us-central1"
+  },
+  "calendar_view_modes": {
+    "static_render_ok": true,
+    "live_render_ok": true,
+    "notes": "Static and live modes are covered by CalendarView tests. Live mode subscribes only when display_events is absent; without Firebase web config it renders the configured empty state safely."
+  },
+  "agent_calendar_writes_smoke": {
+    "gke_catalog_version": 10,
+    "execution_id": "625590045860168070",
+    "user_note_writes_1_event": true,
+    "written_path": "chat_threads/_smoke-calendar-1778643344/trip/current/events/note_c02f7361e9",
+    "rendered_widget_type": "calendar_view",
+    "rendered_variant": "full",
+    "flight_order_confirm_writes_2_or_4_events": "implemented for generated flight events; not live-smoked in this round to avoid a paid/test-order flow",
+    "hotel_pick_confirm_writes_2_events": "implemented for picked_hotel_id; not live-smoked in this round because the direct user-note calendar path was the narrow Firestore write proof"
+  },
+  "firestore_rules": {
+    "authored": true,
+    "deployed": false,
+    "mode": "demo-permissive unauthenticated reads; browser writes disabled"
+  },
+  "container_build": {
+    "status": "passed",
+    "image": "noetl-muno:r5-smoke",
+    "image_size_bytes": 53073090,
+    "image_size_mb": 53.07,
+    "http_200_confirmed": true
+  },
+  "cleanup": {
+    "port_forward_stopped": true,
+    "smoke_firestore_docs_deleted": true,
+    "deleted_paths": [
+      "chat_threads/_smoke-calendar-1778643344/trip/current/events/note_c02f7361e9",
+      "chat_threads/_smoke-calendar-1778643344/slot_state/current",
+      "chat_threads/_smoke-calendar-1778643344/events/2fa4a361f9fe4b3ea6dfdfb4a05e6277",
+      "chat_threads/_smoke-calendar-1778643344/events/8aa058ff74ed4d0dbc5196241c627471"
+    ]
+  },
+  "verdict": "GREEN. The durable deliverable landed in Muno and the GKE smoke proved the Firestore-only calendar_view/user_note write path end-to-end. Additional fix-forward PRs were needed after live smoke exposed NoETL Python scoping and templated-input edge cases; those are merged on main."
+}
