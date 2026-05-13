@@ -1,0 +1,124 @@
+Codex prompt — Travel v1 UX polish: photos + party display + real Duffel booking ref (Round 10)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-100000-travel-v1-ux-polish.task.json
+Result:        bridge/outbox/20260513-100000-travel-v1-ux-polish.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+Round 9 GREEN handover: scripts/travel_gateway_session_auth_green_handoff_to_claude_msg.txt
+
+Round goal
+----------
+First post-Round-9 UX iteration. Three documented v1 polish nits from
+tutorial 08 'What's NOT covered':
+
+  1. Photo wiring — Google Places photo URLs threaded to PlaceCard;
+     Amadeus hotel photos threaded to HotelCard. Today both render
+     grey placeholders.
+  2. Party display polish — `{adults: 2, children: [{age: 3}]}`
+     formatted to '2 adults · 1 child (3 yrs)' wherever party is
+     shown. Today renders as raw JSON.
+  3. Real Duffel booking reference — OrderConfirmation widget shows
+     the actual `booking_reference` from the create_order response
+     (e.g. `XKQAYC`) instead of the synthetic `ABC123` placeholder.
+
+Pure repos/travel work + tutorial 08 update. No infra. No new GCP
+setup. No auth/gateway/Firestore changes. Single repos/travel PR.
+
+Pre-handoff (Codex verifies, you don't need to do anything new)
+---------------------------------------------------------------
+Phase 1 verifies:
+  - travel main at the post-Round-9 SHA (currently 09694e2).
+  - Maps widget key referrer allowlist includes
+    `https://travel.mestumre.dev/*` AND `http://localhost:5173/*`.
+    If missing, AMBER + STOP (photo URLs would 403 in browsers).
+    Add via Cloud Console → Credentials → travel-agent-widget-key.
+  - All baseline npm scripts green.
+
+Photo wiring
+------------
+**Agent side**: itinerary-planner playbook chat step gains
+`photo_url` on place_card payloads (built via
+`mcp/google-places.place_photo_url`) and `photos: []` on hotel_card
+payloads (Amadeus `media[]`). Update widget_envelope_examples.md.
+Confirm schemas accept the optional fields (additive only — no
+schema_version bump).
+
+**UI side**: PlaceCard + HotelCard render the photo via MUI CardMedia
+with onError fallback to a Material Skeleton placeholder (NOT a grey
+box). HotelCard renders the first photo + a 'View all N photos'
+badge; carousel implementation is deferred. Add vitest fixtures for
+photo / no-photo / broken-photo paths.
+
+Party formatter
+---------------
+Add `muno/travel/src/utils/formatParty.ts` with a function that takes
+`{ adults, children: [{age}], rooms }` and returns a string like
+`2 adults · 1 child (3 yrs)`. Pluralization + age formatting per the
+brief in the task JSON. Apply in ItinerarySummary, PropertyBlock, and
+any other component that displays party. Vitest covers empty, single
+adult, multiple adults, children with/without ages, missing rooms,
+null input.
+
+Real Duffel booking reference
+-----------------------------
+Today the agent chat step emits OrderConfirmation with a hardcoded
+`booking_reference: 'ABC123'` (or similar synthetic). Trace + fix:
+- inspect itinerary-planner.yaml + system_prompt_chat.md
+- find where the OrderConfirmation envelope is constructed after a
+  successful mcp/duffel.create_order tool response
+- thread the real fields (`booking_reference`, `total_amount`,
+  `total_currency`, passenger names) verbatim from the latest
+  agent_tool_response event
+- strengthen the system prompt to REQUIRE pulling fields verbatim
+  from the most recent successful tool response (not synthesizing
+  placeholders)
+- fixture test: feed a synthetic Duffel response → assert emitted
+  OrderConfirmation booking_reference matches the synthetic input.
+
+Architectural rules
+-------------------
+  - Lives in repos/travel + repos/docs (tutorial 08 update only).
+  - NO auth changes. NO gateway changes. NO Firestore changes.
+  - NO repos/ops or repos/noetl changes.
+  - Schemas remain backwards-compatible — photo fields added as
+    optional. NO schema_version bump.
+  - No new GCP secrets, no new IAM.
+  - Maps widget key referrer must include travel.mestumre.dev. Codex
+    verifies; if missing, AMBER + STOP — Kadyapam adds via Console.
+  - Photo fetch failures degrade gracefully to placeholders. Never
+    crash the card.
+  - Booking reference threading is a system-prompt + payload-
+    construction fix, NOT an LLM rewrite.
+  - Cloudflare Pages auto-deploys preview + prod. Codex verifies the
+    preview URL works BEFORE merging to main.
+  - Kadyapam-side browser smoke against production is the GREEN gate.
+  - Never echo tokens / credentials.
+
+Phases (8)
+----------
+  1. Pre-handoff verify (baseline GREEN; referrer allowlist OK).
+  2. Photo wiring agent side (place_card, hotel_card payload + examples).
+  3. Photo wiring UI side (PlaceCard, HotelCard rendering + Skeleton fallback + tests).
+  4. Party formatter (formatParty.ts + apply in widgets + tests).
+  5. Real booking reference threading (system prompt + payload
+     construction + fixture test).
+  6. Open travel PR; Pages auto-deploys preview; verify preview URL;
+     merge to main; Pages auto-deploys prod.
+  7. Live smoke handoff: AMBER pending Kadyapam's 8-step browser
+     checklist (incognito → Auth0 → trip prompt → verify photos /
+     party / booking ref appear correctly).
+  8. Close out: memory entry, scoping doc Round 10 note, tutorial 08
+     'What's NOT covered' list trimmed (struck items captured in
+     the result JSON for audit), result JSON, ai-meta pointer bumps
+     local-only.
+
+Result file shape mirrors prior rounds. Required: travel PR URL +
+merge SHA, docs PR URL + merge SHA, Pages preview + prod deploy run
+IDs, Kadyapam smoke checklist + (initially empty) confirmation, list
+of tutorial 08 nits struck (the three addressed) + remaining nits
+(filter widgets, full property block surfacing, date consistency,
+etc.).
+
+If Amadeus 500-flakes during the hotel-photo smoke: AMBER acceptable
+on that single sub-check; friendly-failure rendering remains the
+documented behaviour from Round 5.

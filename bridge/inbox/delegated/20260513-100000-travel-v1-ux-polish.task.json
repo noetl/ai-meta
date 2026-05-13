@@ -1,0 +1,173 @@
+{
+  "id": "20260513-100000-travel-v1-ux-polish",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T10:00:00Z",
+  "title": "Travel v1 UX polish — photo wiring + party display + real booking reference (Round 10)",
+
+  "description": "First post-Round-9 UX iteration. Knocks down three of the documented v1 polish nits from tutorial 08: (1) wire Google Places photo URLs into PlaceCard renders + Amadeus hotel photos into HotelCard; (2) format `{adults, children: [{age}]}` party objects into human-readable strings like '2 adults · 1 child (3 yrs)' wherever party is displayed; (3) thread the real Duffel test booking reference (e.g., `XKQAYC`) through to OrderConfirmation widget payload instead of the synthetic `ABC123` placeholder. Pure muno/travel work — single repos/travel PR. No infra changes, no new GCP setup, no new MCP tools, no auth changes. Cloudflare Pages auto-deploys on merge; phase 6 verifies via the Pages preview URL before merging to main. Live smoke is Kadyapam's incognito test post-merge. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` post-tutorial roadmap; tutorial 08's 'What's NOT covered' section enumerates these nits explicitly.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "Minimal. No new secrets, no new IAM. Codex verifies pre-existing setup in phase 1.",
+    "what_codex_verifies_for_you": [
+      "Maps widget key (`travel-agent-widget-key`) has `https://travel.mestumre.dev/*` AND `http://localhost:5173/*` in its HTTP referrer allowlist. If not, AMBER + STOP (photo URLs will 403 in the browser without it).",
+      "Existing GCP secrets (duffel-api-test, google-maps-widget-key, etc.) accessible to noetl-worker-mcp — unchanged from prior rounds.",
+      "travel main is at the post-Round-9 SHA (currently `09694e2` per the GREEN handover memo, but Codex captures the live HEAD)."
+    ]
+  },
+
+  "design_brief_for_codex": {
+    "v1_polish_nits_being_addressed": "Three items from tutorial 08's 'What's NOT covered in v1' section, prioritized by visual impact:\n\n  1. **Photo wiring** (place + hotel) — biggest visible lift. Today the PlaceCard and HotelCard components render grey placeholders. Google Places + Amadeus hotels both return photo data; the playbooks just don't thread it through to the widget payloads, and the renderers don't read it even when present.\n\n  2. **Party display polish** — today the agent stores party as `{ adults: 2, children: [{age: 3}], rooms: 1 }`. ItinerarySummary and PropertyBlock currently render that with `JSON.stringify` (so the user sees `Party: {\"adults\":2}`). Replace with a human-readable formatter.\n\n  3. **Real Duffel booking reference** — today OrderConfirmation renders `Reference ABC123` (a synthetic placeholder hardcoded somewhere in the agent's chat step). Duffel test orders return a real `booking_reference` (e.g. `XKQAYC`); thread it through.",
+
+    "photo_wiring_in_repos_travel": "Two halves: agent payload + UI rendering.\n\n  **Agent side** (muno/travel/playbooks/itinerary-planner.yaml or wherever the chat step that emits widgets lives):\n  - When emitting `place_card` envelopes from Google Places results: include the `photo_url` field on the payload. Construct it from `mcp/google-places.place_photo_url(photo_resource)` for the first photo in the place's `photos[]` array. If no photos, set `photo_url: null` and the renderer falls back to a styled placeholder (not the grey blank).\n  - When emitting `hotel_card` envelopes from Amadeus search_hotels results: include `photos: [<urls>]` on the payload using Amadeus's `media[]` URLs (Amadeus hotel responses include a `media` array with photo URLs). If no photos, `photos: []` and the renderer falls back.\n  - Update `muno/travel/playbooks/agent/widget_envelope_examples.md` with concrete examples showing the new photo fields.\n\n  **Schema check**: confirm `place_card.schema.json` and `hotel_card.schema.json` already declare `photo_url` / `photos` as valid optional fields (they were specified in Round 4a/6a). If not, add them as optional fields; do NOT bump the major schema_version since this is purely additive.\n\n  **UI side** (muno/travel/src/components/widgets/PlaceCard.tsx, HotelCard.tsx):\n  - PlaceCard renders the `payload.photo_url` as the card's hero image. Use MUI `<CardMedia>` or `<img>` with appropriate sizing per the Figma. Aspect ratio ~16:9 for the wide card variant, square for compact.\n  - HotelCard's existing photo carousel slot (per the Figma `1/18` pattern) should consume `payload.photos[]`. Implement the carousel if not present, OR for v1 just show the first photo with a 'View all 18 photos' link. Keep this round tight — fancy carousel can be a follow-up.\n  - Both: if photo URL is missing / errors / 403, render a Material-themed placeholder (geometric pattern or muted illustration), NOT a grey blank box. Use MUI `<Skeleton variant=\"rectangular\">` styled to the card slot.\n  - Image load error handling: on `<img onError>`, swap to the placeholder. Don't let a broken Google Places photo break the whole card.\n\n  **HTTP referrer**: photo URLs constructed via `place_photo_url` embed the widget API key in the URL. The browser must send a `Referer` header matching the API key's restrictions. For travel.mestumre.dev that's `https://travel.mestumre.dev/*` — verify in phase 1. Note: some browsers strip Referer for cross-origin image loads in strict referrer policies. The muno app's `<meta name=\"referrer\">` should be set to `strict-origin-when-cross-origin` (default Vite behaviour is fine).",
+
+    "party_display_formatter": "Add `muno/travel/src/utils/formatParty.ts` (or wherever the project keeps UI helpers):\n\n```ts\nexport function formatParty(party: {\n  adults: number;\n  children?: Array<{ age?: number | null }>;\n  rooms?: number;\n} | null | undefined): string {\n  if (!party) return '';\n  const parts: string[] = [];\n  if (party.adults) parts.push(`${party.adults} ${party.adults === 1 ? 'adult' : 'adults'}`);\n  if (party.children && party.children.length > 0) {\n    const ages = party.children.map(c => c.age != null ? `${c.age} yr${c.age === 1 ? '' : 's'}` : null).filter(Boolean);\n    parts.push(\n      `${party.children.length} ${party.children.length === 1 ? 'child' : 'children'}` +\n      (ages.length > 0 ? ` (${ages.join(', ')})` : '')\n    );\n  }\n  if (party.rooms && party.rooms > 1) parts.push(`${party.rooms} rooms`);\n  return parts.join(' · ');\n}\n```\n\nThis is a translatable helper — wire i18n later (could move to react-i18next plurals in a follow-up round). For v1 the strings are English-only.\n\n**Apply at** at minimum:\n- `muno/travel/src/components/widgets/ItinerarySummary.tsx` — where party currently renders.\n- `muno/travel/src/components/widgets/PropertyBlock.tsx` — the right-pane Trip state slot accumulator.\n- Anywhere else the agent's payload includes party that gets rendered.\n\nAdd a vitest test for `formatParty` covering: zero children, 1 adult / 1 child / 1 room, 2 adults / 0 children / 1 room, 2 adults / 2 children (3 and 7 yrs) / 1 room, missing rooms field, null input, missing age on a child.",
+
+    "real_booking_reference_threading": "The agent's chat step currently emits the OrderConfirmation envelope with a hardcoded `booking_reference: 'ABC123'` (or similar placeholder). Trace where this lives:\n\n  - Inspect `muno/travel/playbooks/agent/system_prompt_chat.md` AND the YAML steps in `itinerary-planner.yaml` that run AFTER `mcp/duffel.create_order`. Find the spot that constructs the OrderConfirmation widget payload.\n  - That spot must use the real `booking_reference` from the Duffel create_order response (typically `response.data.booking_reference` — verify the actual shape via the existing duffel MCP playbook + an inspection of one of the past order_confirmation events in Firestore from round 20260512-220000 / execution `625452830463099795`).\n  - Same for `total_amount`, `total_currency`, `passengers` — these were probably synthetic too. Thread the real Duffel response through.\n  - If the agent's chat-step LLM is what's generating these placeholders (because the system prompt didn't get the Duffel response into the context window): the fix is in the system prompt + the data the chat step receives. Strengthen the prompt to require pulling fields verbatim from the most recent `agent_tool_response` event.\n\n  Add a smoke step in the agent test fixture: feed a synthetic create_order response into the chat step and assert the emitted OrderConfirmation envelope has the same `booking_reference` (not a hardcoded placeholder).",
+
+    "no_breaking_changes": "All three improvements are additive to existing widget payloads. The widget schemas already accommodate these fields (or accept them as optional additions in this round). No schema_version bumps. No agent system prompt rewrites beyond the OrderConfirmation fix. No existing tests should break.",
+
+    "what_NOT_to_do": "  - DO NOT change auth, gateway, or Firestore wiring.\n  - DO NOT modify the agent's per-turn loop (extraction → tool dispatch → chat step). Only the chat step's payload-construction logic for the three affected widgets.\n  - DO NOT touch the LLM extraction prompt or slot schema.\n  - DO NOT change the widget envelope/schema structure beyond optionally adding photo fields if missing.\n  - DO NOT change anything in repos/ops or repos/noetl. Pure repos/travel work.\n  - DO NOT remove the placeholder fallback UI in PlaceCard/HotelCard — keep it as a graceful fallback for missing photos.\n  - DO NOT echo any tokens (Duffel test token, Auth0, etc.) in stdout / memory / result JSON."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm baseline is GREEN + widget API key referrer covers travel.mestumre.dev.",
+      "spec": [
+        "Pull repos/travel main; confirm at `09694e2` or later (post-Round-9-hotfixes SHA).",
+        "`npm install` clean.",
+        "`npm run smoke:widgets` passes (all 23 widgets baseline).",
+        "`npm run test` passes existing fixtures.",
+        "`npm run type-check` passes.",
+        "`npm run build` succeeds.",
+        "`gcloud services api-keys list --project=noetl-demo-19700101 --filter='displayName:travel-agent-widget-key' --format='value(restrictions.browserKeyRestrictions.allowedReferrers)'` → list must include `https://travel.mestumre.dev/*` AND `http://localhost:5173/*`. If missing: AMBER + STOP (photo URLs will 403 in browsers).",
+        "Confirm the Round 9 GREEN state — `curl -sv https://travel.mestumre.dev/` returns 200 and the deployed bundle includes the Auth0 fallback strings."
+      ],
+      "verify": "Baseline GREEN; photo URL referrer allowlist confirmed."
+    },
+
+    "2_photo_wiring_agent_side": {
+      "objective": "Thread Google Places photo URLs + Amadeus hotel photos into widget payloads.",
+      "spec": [
+        "Inspect `muno/travel/playbooks/itinerary-planner.yaml` chat step that emits place_card / hotel_card envelopes.",
+        "Update payload construction to include `photo_url` (from `mcp/google-places.place_photo_url` for the first photo resource) for place_card.",
+        "Update hotel_card payload to include `photos: [<urls>]` from Amadeus search_hotels `media[]`.",
+        "Update `muno/travel/playbooks/agent/widget_envelope_examples.md` with concrete examples.",
+        "Verify the JSON Schemas at `muno/travel/playbooks/widget-contract/place_card.schema.json` and `hotel_card.schema.json` include the relevant optional fields. If not present, add as optional (no version bump)."
+      ],
+      "verify": "Agent emits valid envelopes containing photo_url / photos. AJV validation passes."
+    },
+
+    "3_photo_wiring_ui_side": {
+      "objective": "Render the photo URLs in PlaceCard + HotelCard.",
+      "spec": [
+        "Update `muno/travel/src/components/widgets/PlaceCard.tsx` to render `payload.photo_url` as the card hero image (MUI CardMedia). Add `onError` fallback to MUI Skeleton.",
+        "Update `muno/travel/src/components/widgets/HotelCard.tsx` similarly. For v1, render the first photo as the hero + a small badge showing total photo count. Fancy carousel deferred.",
+        "Material-themed placeholder when photo URL is null/missing/errors. NOT a grey box. Use MUI Skeleton or a styled illustration container with a 'No photo available' overlay.",
+        "Add vitest fixtures: PlaceCard / HotelCard with photo, without photo, with broken photo URL (simulate onError). All three render without crashing."
+      ],
+      "verify": "`npm run smoke:widgets` passes; new fixtures exercise photo render paths."
+    },
+
+    "4_party_display_formatter": {
+      "objective": "Format party as a human-readable string everywhere it's displayed.",
+      "spec": [
+        "Author `muno/travel/src/utils/formatParty.ts` per `design_brief_for_codex.party_display_formatter`.",
+        "Apply in ItinerarySummary, PropertyBlock, anywhere else that renders party.",
+        "Add vitest tests covering: empty, 1 adult, 2 adults / 1 child (3 yrs), 2 adults / 2 children (3 + 7 yrs) / 2 rooms, missing rooms, null input, missing age.",
+        "Lookup all current `JSON.stringify(party)` or `payload.party` references in muno/travel/src/ and replace as needed."
+      ],
+      "verify": "All party-rendering tests pass; no `JSON.stringify(party)` or raw `Party: {` strings remain in the UI components."
+    },
+
+    "5_real_booking_reference_threading": {
+      "objective": "Replace `ABC123` placeholder with the real Duffel booking_reference.",
+      "spec": [
+        "Trace where OrderConfirmation envelope is constructed in `muno/travel/playbooks/itinerary-planner.yaml`. Likely in the chat step after a successful `mcp/duffel.create_order` agent_tool_response event.",
+        "Update payload construction to pull `booking_reference`, `total_amount`, `total_currency`, and passenger names from the actual Duffel create_order response (the last `agent_tool_response` event of type `create_order`).",
+        "Strengthen the system prompt (`muno/travel/playbooks/agent/system_prompt_chat.md`) to REQUIRE pulling fields verbatim from the most recent successful tool response — the LLM must not synthesize placeholder values for OrderConfirmation.",
+        "Add a fixture test: feed a synthetic Duffel create_order response (mock) through the chat step and assert the emitted OrderConfirmation envelope's booking_reference matches the synthetic input exactly."
+      ],
+      "verify": "Fixture test passes; live smoke (phase 7) will confirm the real ref renders."
+    },
+
+    "6_open_pr_and_verify_preview_deploy": {
+      "objective": "Open the repos/travel PR; Cloudflare Pages auto-deploys a preview URL; verify the preview works.",
+      "spec": [
+        "Open PR: `feat(ui): v1 polish — photos in cards, party display formatter, real Duffel booking ref`.",
+        "Cloudflare Pages CI auto-deploys to a preview URL (typically `<branch-name>.<pages-project-id>.pages.dev` or `<pr-num>--travel.pages.dev`).",
+        "Poll the preview deploy status via `gh api repos/noetl/travel/check-runs` OR wait for Pages' deployment hook.",
+        "`curl -sv https://<preview-url>/` returns 200; the bundle includes the new strings (grep for `formatParty`, `payload.photo_url`, etc.).",
+        "Self-review the diff. Confirm tests pass in CI.",
+        "Merge to main. Cloudflare Pages auto-deploys to travel.mestumre.dev."
+      ],
+      "verify": "Preview deploy GREEN; main merge triggers prod deploy."
+    },
+
+    "7_live_smoke_handoff_to_kadyapam": {
+      "objective": "Kadyapam-side browser smoke against the production deploy.",
+      "spec": [
+        "Wait for the post-merge Pages deploy to complete (poll `gh api repos/noetl/travel/actions/runs` for the latest main run).",
+        "Codex outputs a Kadyapam-side smoke checklist in the result JSON:",
+        "  1. Open https://travel.mestumre.dev/ in incognito.",
+        "  2. Sign in with the existing Auth0 test user (do NOT paste passwords anywhere). Reach the chat shell.",
+        "  3. Free-form prompt: 'Trip to Paris next month for 2 adults and 1 child age 3'.",
+        "  4. Verify place card for Eiffel Tower (or whatever the agent surfaces) shows a real photo, NOT a grey placeholder.",
+        "  5. Continue: pick a flight, place a test order.",
+        "  6. Verify OrderConfirmation shows the real Duffel booking reference (NOT `ABC123`).",
+        "  7. Open the right-pane Trip state / itinerary_summary. Verify party reads as '2 adults · 1 child (3 yrs)' (or close — the exact joining char depends on the formatter).",
+        "  8. Verify hotel cards (if Amadeus 200s) show photos too. (AMBER acceptable here if Amadeus 500s; that's the known test API flake from sync/issues/2026-05-11-amadeus-test-api-500s.md.)",
+        "Codex marks the round AMBER pending Kadyapam confirmation; flips GREEN after Kadyapam reports all 8 checks pass."
+      ],
+      "verify": "Smoke checklist documented; round AMBERs pending Kadyapam."
+    },
+
+    "8_close_out": {
+      "objective": "Memory, scoping doc update, result JSON, ai-meta pointer bump.",
+      "spec": [
+        "Memory entry at `ai-meta/memory/inbox/2026/05/<timestamp>-travel-v1-ux-polish-green-or-amber.md`.",
+        "Update `ai-meta/sync/issues/2026-05-12-trip-planner-app-scoping.md`: add 'Round 10 — v1 UX polish' section with the three nits addressed + GREEN status (or AMBER if pending Kadyapam).",
+        "Update `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md` 'What's NOT covered' section: STRIKE the three nits from the list (party display, photo wiring, booking ref) since they're addressed. The list shrinks; leave the remaining nits (date inconsistency, full property block surfacing, filter widgets, etc.) intact.",
+        "Result file: `bridge/outbox/20260513-100000-travel-v1-ux-polish.result.json` with travel PR URL + merge SHA + docs PR URL + Pages deploy run IDs + Kadyapam smoke checklist + (initially empty) confirmation field.",
+        "Bump ai-meta `repos/travel` and `repos/docs` submodule pointers locally. Do NOT push ai-meta.",
+        "Append paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`."
+      ],
+      "verify": "All artefacts written; pointers bumped locally; PRs merged."
+    }
+  },
+
+  "architectural_rules": [
+    "Lives entirely in repos/travel + repos/docs (tutorial 08 update). NO repos/ops or repos/noetl changes.",
+    "No auth changes. No gateway changes. No Firestore changes.",
+    "Widget schemas remain backwards-compatible — photo fields added as optional only.",
+    "No new GCP secrets, no new IAM.",
+    "Maps widget key referrer must include travel.mestumre.dev — Codex verifies, doesn't add (Kadyapam adds via Cloud Console if missing).",
+    "Photo fetch failures degrade gracefully to placeholders — never crash the card.",
+    "Real Duffel booking_reference threading is a system-prompt + payload-construction fix, NOT an LLM-prompt-engineering rewrite. The LLM must be required to use the tool response, not encouraged.",
+    "Cloudflare Pages auto-deploys both PR preview branches and main. Codex verifies the preview before merging; smoke against the production deploy happens after main merges.",
+    "No tokens or credentials in stdout, memory, or result JSON.",
+    "Kadyapam-side browser smoke is the GREEN gate. Codex documents the checklist; user runs it.",
+    "If Amadeus 500-flakes during the hotel-photo smoke: AMBER acceptable on that single sub-check; the test API flake is known and friendly-failure rendering remains in place from Round 5."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-100000-travel-v1-ux-polish.result.json`. Required: id, status (GREEN once Kadyapam confirms; AMBER pending is a valid intermediate state), summary, travel_pr_url, travel_merge_sha, docs_pr_url, docs_merge_sha, ai_meta_submodule_pointer_bump_shas, pages_preview_deploy_run_id, pages_prod_deploy_run_id, photo_wiring_status (place+hotel), party_formatter_added (bool), booking_reference_threaded (bool), kadyapam_smoke_checklist, kadyapam_smoke_confirmation (initially empty), tutorial_08_nits_struck (list), cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md",
+    "scripts/travel_gateway_session_auth_green_handoff_to_claude_msg.txt (Round 9 GREEN handover; describes the deployed state going in)",
+    "repos/docs/docs/tutorials/08-trip-planner-end-to-end.md ('What's NOT covered' section enumerates the polish nits)",
+    "repos/travel/playbooks/widget-contract/place_card.schema.json + hotel_card.schema.json + order_confirmation.schema.json",
+    "repos/travel/playbooks/itinerary-planner.yaml",
+    "repos/travel/playbooks/agent/system_prompt_chat.md",
+    "bridge/outbox/20260512-220000-duffel-test-orders.result.json (booking ref XKQAYC example)",
+    "memory/inbox/2026/05/20260512-160546-duffel-test-orders-green.md (Round 1 outcome reference)",
+    "https://duffel.com/docs/api/orders (Duffel booking_reference field)",
+    "https://developers.google.com/maps/documentation/places/web-service/photos (Places photo URL spec)",
+    "https://developers.amadeus.com/self-service/category/hotels (Amadeus media[] response shape)"
+  ]
+}
