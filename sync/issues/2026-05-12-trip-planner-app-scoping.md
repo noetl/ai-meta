@@ -270,6 +270,27 @@ the required `https://travel.mestumre.dev/*` HTTP referrer. No Muno or ops
 code was changed; rerun Round 8 after those pre-handoff items are
 complete.
 
+### Round 9 — gateway-session auth for travel.mestumre.dev
+
+Status 2026-05-13: AMBER pending Kadyapam browser smoke. The original
+Cloudflare Access edge-gating plan was superseded because it did not match the
+NoETL GUI identity model. The corrected round mirrors `repos/gui`:
+Auth0 SPA login produces an ID token, Travel posts `{ auth0_token,
+auth0_domain }` to `https://gateway.mestumre.dev/api/auth/login`, the gateway
+returns a NoETL `session_token`, and subsequent playbook execution calls use
+`Authorization: Bearer <session_token>`.
+
+`noetl/travel#18` merged at `4daafae`, adding
+`docs/auth/gateway-session-pattern.md`, `src/api/gatewaySession.ts`,
+gateway-session request handling, production guest-mode disable by default, and
+`VITE_ALLOW_GUEST=true` for local development. `noetl/docs#69` merged at
+`296aeb2`, updating Tutorial 08 to describe the production sign-in pane and the
+local guest-mode flag. Cloudflare Pages deploy run `25785214311` completed
+successfully and the live bundle contains the gateway-session strings. Final
+GREEN requires a browser smoke: incognito visit to `travel.mestumre.dev`, Auth0
+login as the allowed user, `Linking to gateway...`, chat shell visible, and
+gateway requests carrying the session bearer token.
+
 ## UI patterns extracted from the Figma
 
 Observations from the 5 PNG exports + 1 SVG asset:
