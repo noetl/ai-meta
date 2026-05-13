@@ -1,0 +1,169 @@
+{
+  "id": "20260513-010000-itinerary-agent-4b",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T01:00:00Z",
+  "title": "Implement LLM-driven itinerary agent at muno/playbooks/itinerary-planner.yaml (trip-planner Round 4b)",
+
+  "description": "Build the trip-planner's LLM-driven itinerary agent inside the muno repo at `muno/playbooks/itinerary-planner.yaml`. Hybrid input (scripted widget submissions + free-form chat). Per-turn LLM extraction step infers slot updates and tool requests from the latest event, given current slot state. Tool dispatch through mcp/duffel + mcp/google-places + mcp/amadeus + mcp/firestore (event sourcing). Emits widget envelopes that match the 23 schemas frozen in round 20260513-000000. Hotels source LOCKED to Amadeus per round 20260512-230000 (Duffel Stays sales-gated). Cap: 1 muno PR (the playbook + its supporting agent docs/scripts). User-action: NONE — all dependencies (mcp/firestore on GKE, schemas in muno, secrets in GCP) are already in place. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` sections 'Agent: hybrid linear + free-form input', 'Event-sourced storage + replay', 'Pre-templated widgets'. Runs PARALLEL with round 20260513-010500 (Round 6b — real Material widget components); the two rounds touch disjoint paths in muno.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 21600,
+  "max_iterations": 14,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "DONE. No new secrets, no new IAM, no new GCP services. All upstream rounds GREEN.",
+    "what_is_ready": [
+      "mcp/firestore v6 on GKE (catalog 625474366091821164) — event sourcing + transactional seq + header redaction.",
+      "mcp/duffel with search + test-env orders (round 20260512-220000 GREEN, catalog v5).",
+      "mcp/google-places (Pattern C, hybrid auth).",
+      "mcp/amadeus (existing, with documented test 500-flake on hotels — Round 4 hotels source).",
+      "muno bootstrap at noetl/muno main (commit 4143d4c, container build GREEN). 23 widget schemas + envelope at muno/playbooks/widget-contract/. Stub renderer dispatches by widget_type.",
+      "Firestore Native db `(default)` in us-central1 with worker SA datastore.user."
+    ]
+  },
+
+  "design_brief_for_codex": {
+    "playbook_location": "`muno/playbooks/itinerary-planner.yaml` — lives in muno (not repos/ops) per the 'home base' rule. Trip-planner-specific. Loaded into NoETL via the same registration script that mcp/* playbooks use, after a small extension that scans muno/playbooks/ in addition to the ops/automation/agents/ paths. If extending the registration script is non-trivial, document the manual register step in `muno/playbooks/deployment/register-with-noetl.sh` and move on.",
+
+    "workload_shape": "```yaml\nworkload:\n  pg_auth: pg_k8s\n  gcp_auth: google_oauth\n  ai_provider: openai             # openai | anthropic | vertex-ai | ollama\n  llm_extraction_model: gpt-4o    # JSON-mode required\n  llm_chat_model: gpt-4o-mini     # cheaper for short bot bubbles\n  thread_id: ''                    # UUID, caller-provided or agent-generated on first turn\n  user_uid: ''                     # 'guest' for unauthenticated\n  event_type: ''                   # user_message | user_widget_submit | user_widget_cta_click\n  event_payload: {}                # type-specific shape — see event schemas below\n  firestore_database: '(default)'\n  amadeus_env: test\n  duffel_env: test\n  flight_provider: duffel          # inherited from travel runtime default\n  enrich_with_google_places: true  # this agent always enriches; not opt-in\n```",
+
+    "per_turn_loop_pseudocode": "Each agent invocation processes exactly ONE input event and emits zero or more output events. The agent is stateless across invocations — all state lives in Firestore.\n\n```\n1. Read inputs: thread_id, event_type, event_payload.\n2. Load thread state (project slot_state from /chat_threads/{thread_id}/events).\n3. Append the input event: mcp/firestore.append_event(\n     thread_path='chat_threads/{thread_id}',\n     event={ type: event_type, payload: event_payload }\n   ).\n4. LLM extraction step (JSON mode):\n     prompt: system + slot_schema + current_slot_state + last N events + new event\n     output: { slot_updates: {...}, tool_requests: [...], render_intent: {...} }\n5. If slot_updates non-empty:\n     a. Apply to slot_state (in-memory).\n     b. append_event(type='agent_slot_update', payload={changes: slot_updates}).\n     c. Update /trips/{trip_id} projection (if trip exists yet).\n6. For each tool_request in tool_requests:\n     a. append_event(type='agent_tool_call', payload={tool, arguments}).\n     b. Invoke the tool (mcp/duffel | mcp/google-places | mcp/amadeus | mcp/firestore).\n        - REDACT Authorization + sensitive headers in the request snapshot before storage.\n     c. append_event(type='agent_tool_response', payload={tool, status, response_summary}).\n     d. ALSO write the full request/response to events/api_calls/{call_id} for replay.\n     e. Update slot_state with any auto-computable fields (e.g., result counts).\n7. LLM chat step (cheaper model):\n     prompt: system + slot_state + tool_responses + render_intent\n     output: { bot_message?: str, widgets: [<envelope>, ...] }\n8. For each widget envelope:\n     a. VALIDATE against the schema in muno/playbooks/widget-contract/. Invalid envelope → swap for a bot_text widget with a graceful description (never crash).\n     b. append_event(type='agent_widget_emit', payload={envelope}).\n9. If bot_message present: append_event(type='agent_chat', payload={text: bot_message}).\n10. Return: { thread_id, emitted_event_seqs: [...], final_slot_state }.\n```\n",
+
+    "slot_state_schema": "Stored as a projection at `chat_threads/{thread_id}/slot_state`. Fields:\n  - `region`: { label, country_code, city_code?, kind } | null\n  - `check_in_date`: ISO date | null\n  - `check_out_date`: ISO date | null\n  - `nights`: int (derived from dates) | null\n  - `party`: { rooms, adults, children: [{age}] } | null\n  - `star_rating_min`: int | null\n  - `budget_min` / `budget_max`: { amount: int, currency: str } | null\n  - `bed_type`: str | null\n  - `amenities_required`: [str] | null\n  - `flight_search_results`: [<offer_id>] | null (last search batch)\n  - `picked_flight_offer_id`: str | null\n  - `hotel_search_results`: [<hotel_id>] | null\n  - `picked_hotel_id`: str | null\n  - `total_results_seen`: int | null (for 'Rooms matching: 54' indicator)\n  - `matching_with_current_filters`: int | null\n  - `total_cost`: { amount, currency } | null (computed at finalize)",
+
+    "trip_projection_schema": "Stored as `trips/{trip_id}` once the user has provided at least region + dates. Mirrors the scoping doc's Firestore data model. Subcollections: `events/` (calendar entries: flight_depart, flight_arrive, check_in, check_out — populated by Round 5 Google Calendar), `orders/` (Duffel order snapshots), `notes/` (user-typed text notes). `chat_thread_id` cross-links back.",
+
+    "tool_dispatch_rules": "The LLM extraction step decides which tools to call. Rules of thumb the system prompt enforces:\n  - If region is empty AND user mentioned a destination: call `mcp/google-places.search_text` (broad query, no specific intent) OR `mcp/duffel.search_places` (if context is clearly a flight origin/destination).\n  - If region + dates + party complete AND no flight results yet: call `mcp/duffel.search_offers`. Default `flight_provider: duffel`.\n  - If user picked a flight offer AND no hotel results yet: call `mcp/amadeus.search_hotels` (hotels source LOCKED to Amadeus per Round 2 outcome).\n  - If user picked both: emit `itinerary_summary` widget and offer Confirm CTA.\n  - On Confirm: call `mcp/duffel.create_order` with the picked offer + traveller data + balance payment. Then emit `order_confirmation` widget.\n  - If the user's free-form message conflicts with current state (e.g. 'actually make it 4-star'): apply the slot update and re-run the relevant search.\n  - The system prompt MUST forbid the LLM from calling production-mode endpoints. Workload always passes `amadeus_env: test`, `duffel_env: test`. The LLM cannot override these.",
+
+    "widget_envelope_emission": "All emitted widgets match a schema in `muno/playbooks/widget-contract/*.schema.json`. The agent's LLM chat step is constrained to JSON output and is given the schema list as context. The validation step (per-turn-loop step 8.a) is a HARD gate: invalid envelope → swap for `bot_text` describing the agent's intent in natural language. Never let an unvalidated envelope reach Firestore.\n\nWidget choice heuristics:\n  - Empty slots → ask via `bot_text` + `date_range_picker` / `party_picker` / `place_autocomplete_input`.\n  - Flight results → `flight_list` containing `flight_card` items.\n  - Hotel results → `hotel_list` containing `hotel_card` items (incl. upsell_banner if filter relaxation would help — agent computes this from `total_results_seen` vs `matching_with_current_filters`).\n  - Tool error → `error_card` with retry CTA.\n  - Async tool in flight → `loading_card`.\n  - Ambiguous user input → `clarify_question`.\n  - End of flow → `itinerary_summary` then `order_confirmation`.",
+
+    "replay_determinism": "The agent is deterministic given (events + tool responses replayed from events/api_calls). To enable this: when invoked in 'replay mode' (workload field `replay: true` + `replay_thread_id`), the agent does NOT call live tools; it reads tool responses from events/api_calls for each tool_call event and feeds them through the same LLM extraction + chat steps. LLM determinism comes from `temperature: 0` + model pinning (record the model version on each agent invocation). Note: LLMs are never truly deterministic; the goal is 'mostly-stable diff' not byte-equality. Replay surfaces drift, doesn't fail on it.",
+
+    "muno_repo_changes": "Files this round adds inside muno:\n  - `muno/playbooks/itinerary-planner.yaml` — the agent itself.\n  - `muno/playbooks/agent/system_prompt_extraction.md` — system prompt for the extraction step (JSON-mode contract, slot schema, tool catalog).\n  - `muno/playbooks/agent/system_prompt_chat.md` — system prompt for the chat-response step (widget contract, bounded fields).\n  - `muno/playbooks/agent/widget_envelope_examples.md` — one example envelope per widget type (helps the LLM emit valid shapes).\n  - `muno/docs/architecture/agent-design.md` — fills out the stub from round 4a/6a with the actual per-turn loop, slot schema, tool dispatch rules, replay mode, etc.\n  - `muno/scripts/itinerary_agent_smoke.sh` — happy-path smoke driver: creates a thread, sends a free-form 'trip to Miami next month for 2 adults' message, polls for completion, prints the emitted event log + final slot_state.\n  - `muno/playbooks/deployment/register-with-noetl.sh` — registers itinerary-planner.yaml against the NoETL server (or document manual registration if the script is non-trivial).\n  - `muno/memory/inbox/codex/2026/05/<timestamp>-itinerary-agent-4b-green.md` — outcome memory in muno per the home-base rule.\n\nFiles this round does NOT touch (Round 6b's territory):\n  - `muno/src/**` (frontend)\n  - `muno/src/components/widgets/*.tsx` (stubs replaced by Round 6b)\n  - `muno/src/theme.ts` (Round 6b)\n  - `muno/package.json` (no new runtime deps; LLM SDK lives in repos/ops or NoETL core if needed)\n\nThis disjointness is what lets 4b and 6b run truly parallel.",
+
+    "ai_provider_implementation": "Reuse the existing `ai_provider: openai | anthropic | vertex-ai | ollama` switch from `repos/ops/automation/agents/travel/runtime.yaml`. For the extraction step, require a model that supports strict JSON output mode (gpt-4o, claude-3-5-sonnet-20241022, vertex gemini-2.0-pro). For the chat step, cheaper models OK (gpt-4o-mini, claude-3-5-haiku, gemini-flash). If the worker can't reach the chosen provider: AMBER on that smoke, fall through to a recorded fixture for the parts not requiring live LLM."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm all upstream rounds are GREEN and muno main is at the bootstrap+fix SHA.",
+      "spec": [
+        "muno main HEAD must match the latest pushed (currently `4143d4c` per round 20260513-002608). `git ls-remote git@github.com:noetl/muno.git HEAD`.",
+        "muno/playbooks/widget-contract/*.schema.json — 24 files present, validate via ajv compile.",
+        "muno/playbooks/ directory exists and is empty except for widget-contract/ — confirms this round doesn't collide with prior work.",
+        "mcp/firestore v6 registered on GKE (catalog 625474366091821164). Probe with tools/list.",
+        "mcp/duffel v5 with 7 tools — Probe.",
+        "Firestore (default) db reachable from worker pod via WI (probe with mcp/firestore.set_doc on a `_smoke/` path; cleanup after).",
+        "If any check fails: AMBER + STOP."
+      ],
+      "verify": "All checks pass; muno main SHA captured in result JSON."
+    },
+
+    "2_author_agent_playbook_skeleton": {
+      "objective": "Lay down the playbook structure: workload, keychain refs, the per-turn loop as YAML steps with stubs for the LLM + tool dispatch logic.",
+      "spec": [
+        "Author `muno/playbooks/itinerary-planner.yaml` per `design_brief_for_codex.workload_shape` and `per_turn_loop_pseudocode`.",
+        "Reference existing keychain entries — no new credentials.",
+        "The playbook's `workflow.steps` mirrors the 10 numbered steps in the per-turn loop. Each step has a clear name and is independently testable.",
+        "Add comment headers in the YAML linking back to the scoping doc sections and to `muno/docs/architecture/agent-design.md`."
+      ],
+      "verify": "YAML parses with `python -c 'import yaml; yaml.safe_load(open(...))'`. No NoETL validation errors on dry-run if `noetl playbook validate` is available."
+    },
+
+    "3_implement_extraction_step": {
+      "objective": "Build the LLM extraction step with JSON-mode contract.",
+      "spec": [
+        "Author `muno/playbooks/agent/system_prompt_extraction.md` — explains the agent's role, the slot schema (paste the schema from `design_brief_for_codex.slot_state_schema`), the available tool catalog (with input/output shapes summarized), and the strict JSON output contract: `{slot_updates, tool_requests, render_intent}`.",
+        "The extraction step in the playbook reads: current_slot_state (from Firestore projection), last 10 events (from event log), the new event. It calls the LLM (provider selected by `workload.ai_provider`) with `temperature: 0` and `response_format: json_object`.",
+        "Validate the LLM response against an internal JSON Schema before applying. If malformed: retry once with a structured-output schema hint; if still malformed, AMBER on this single turn (don't crash the agent).",
+        "Implement slot_updates application: deep-merge into current_slot_state, write the result to `chat_threads/{thread_id}/slot_state` (single doc, not events)."
+      ],
+      "verify": "Smoke A — feed a synthetic event ('I want to go to Miami next month for 2 adults') against an empty slot_state; expected output includes `slot_updates.region.label = 'Miami'` and one or both of `slot_updates.party.adults=2`, a `tool_request` for date_range_picker emission."
+    },
+
+    "4_implement_tool_dispatch_and_event_log": {
+      "objective": "Wire the tool dispatcher and the event-sourcing append calls.",
+      "spec": [
+        "For each tool_request from the extraction step: emit an `agent_tool_call` event via mcp/firestore.append_event, invoke the actual MCP tool (mcp/duffel | mcp/google-places | mcp/amadeus | mcp/firestore for trip projection writes), capture the response, REDACT sensitive headers from the request snapshot, emit an `agent_tool_response` event, AND write the full request+response to `events/api_calls/{call_id}` linked via `event_seq`.",
+        "Apply auto-computable slot updates from tool responses (e.g., `flight_search_results = [<offer_id>...]`, `total_results_seen`).",
+        "Tool error handling: if an MCP tool returns status=error or HTTP 5xx, append an `agent_tool_response` event with `error: true`, surface a `error_card` widget on the next chat step. Don't crash the agent."
+      ],
+      "verify": "Smoke B — single-turn dispatch where extraction emits a flight search tool_request. Expected events in the log: `agent_tool_call` → `agent_tool_response` (success), with full request/response in `events/api_calls/`. Verify header redaction by inspecting the response snapshot."
+    },
+
+    "5_implement_widget_chat_step_with_validation": {
+      "objective": "Build the LLM chat step that emits validated widget envelopes.",
+      "spec": [
+        "Author `muno/playbooks/agent/system_prompt_chat.md` — explains: bounded JSON output (envelope schema), the 23 widget templates available, the variant + ai_adjustments contract, the rule that unknown widget_type → must fall back to a bot_text describing the intent.",
+        "Author `muno/playbooks/agent/widget_envelope_examples.md` — one valid envelope per widget_type so the LLM has few-shot examples.",
+        "The chat step calls the LLM with slot_state + recent tool_responses + render_intent. Output: `{bot_message?, widgets: [<envelope>, ...]}`.",
+        "VALIDATE each envelope against the envelope schema PLUS the matching payload schema (use the same ajv-compiled schemas the frontend uses; copy them into the playbook's filesystem at deploy time, OR ship a small validator script alongside the playbook). Invalid envelope: replace with a bot_text widget that includes the original `widget_type` + a one-line natural-language description.",
+        "Append `agent_widget_emit` (one per valid envelope) and optionally `agent_chat` (one with bot_message)."
+      ],
+      "verify": "Smoke C — extraction emits `render_intent: ask_dates`. Chat step produces a bot_text bubble + a date_range_picker envelope. Both pass validation. Both land in the event log."
+    },
+
+    "6_end_to_end_happy_path_smoke": {
+      "objective": "Full happy-path conversation from cold thread to itinerary_summary.",
+      "spec": [
+        "`muno/scripts/itinerary_agent_smoke.sh` drives this: creates a new thread (POST initial empty event), sends a free-form 'trip to Miami next month for 2 adults' user message, polls for completion (no widget required of user — agent should be able to plan a stub itinerary autonomously with synthetic Miami dates if the user's message has them or defaults).",
+        "Expected event log shape (executions IDs captured): user_message → agent_slot_update (region+party) → agent_tool_call (google-places) → agent_tool_response → agent_widget_emit (place_list) → user_widget_submit (date_range_picker, synthetic) → agent_slot_update (dates) → agent_tool_call (mcp/duffel.search_offers) → agent_tool_response → agent_widget_emit (flight_list) → user_widget_submit (pick offer) → agent_tool_call (mcp/amadeus.search_hotels) → agent_tool_response (may be 500-flake — friendly failure path) → either agent_widget_emit (hotel_list) OR agent_widget_emit (error_card) → user_widget_submit (skip or pick) → agent_widget_emit (itinerary_summary).",
+        "If Amadeus 500-flakes, the friendly-failure render path (error_card) keeps the conversation alive — agent offers to retry hotels OR skip to summary. Either is acceptable behaviour.",
+        "Cleanup: delete the test thread + its events/api_calls after capturing execution IDs."
+      ],
+      "verify": "End-to-end smoke produces the expected event chain. Final slot_state has region, dates, party, picked_flight. Optional picked_hotel depending on Amadeus availability."
+    },
+
+    "7_replay_smoke": {
+      "objective": "Verify replay mode reproduces the agent's behaviour given the recorded events.",
+      "spec": [
+        "Take the thread from phase 6 BEFORE deletion. Run the agent in replay mode (`workload.replay: true`, `workload.replay_thread_id: <thread_id>`). Replay each user_* event in order; agent uses recorded tool responses from `events/api_calls/` instead of calling live tools.",
+        "Compare emitted events from the replay against the original. Allow LLM-drift in `agent_chat.text` content (LLMs aren't byte-deterministic even at temp=0); REQUIRE byte-identical `agent_slot_update` events and the same sequence of widget_types in `agent_widget_emit` events.",
+        "If significant drift, AMBER on this phase but don't block the round — drift is a known LLM property, not a correctness bug. Document the drift in the result JSON."
+      ],
+      "verify": "Slot updates byte-identical. Widget sequence preserved. Chat text drift tolerated."
+    },
+
+    "8_docs_and_close_out": {
+      "objective": "Architecture doc + memory + result JSON.",
+      "spec": [
+        "Flesh out `muno/docs/architecture/agent-design.md` with the actual implementation: per-turn loop diagram (mermaid), slot schema, tool dispatch table, replay-mode flow, error handling.",
+        "Memory entry at `muno/memory/inbox/codex/2026/05/<timestamp>-itinerary-agent-4b-green.md`. Cross-link from `ai-meta/memory/inbox/2026/05/<timestamp>-itinerary-agent-4b-green.md`.",
+        "Result file: `bridge/outbox/20260513-010000-itinerary-agent-4b.result.json` with: muno_commit_sha, agent_playbook_path, smoke_summaries {extraction, dispatch, widget_chat, end_to_end, replay}, drift_metrics, cleanup, verdict.",
+        "Open muno PR: `feat(agent): implement LLM-driven itinerary planner with hybrid input + event sourcing`. Merge to muno main once self-review passes. NO direct-to-main this time — muno has its first feature PR via the standard flow.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "ai-meta side: bump `repos/muno` submodule pointer to the merged muno commit. Local commit only; Kadyapam pushes ai-meta."
+      ],
+      "verify": "muno PR merged; ai-meta submodule pointer bumped locally; outcome memory written in both muno and ai-meta."
+    }
+  },
+
+  "architectural_rules": [
+    "Lives at `muno/playbooks/itinerary-planner.yaml`. NOT in repos/ops.",
+    "No frontend changes (Round 6b owns muno/src/).",
+    "No new GCP secrets, no new IAM, no new MCP servers — consume what's already deployed.",
+    "Hotels source LOCKED to Amadeus (Round 2 outcome). Don't try Duffel Stays.",
+    "Production-mode endpoints (duffel_env=live, amadeus_env=production) are FORBIDDEN — agent must always run test mode.",
+    "All emitted widgets MUST validate against the muno/playbooks/widget-contract/ schemas. Invalid → fall back to bot_text.",
+    "All event log writes go through mcp/firestore.append_event (mandatory header redaction).",
+    "LLM provider switchable via workload.ai_provider; extraction step REQUIRES JSON output mode.",
+    "Smokes scope to `chat_threads/_smoke-{nonce}` paths; cleanup at end of phase 6.",
+    "muno main lands the feature via PR (not direct-to-main like the bootstrap commit was).",
+    "ai-meta submodule pointer bump is local-only; Kadyapam pushes ai-meta.",
+    "If Round 6b is mid-flight when this round opens its muno PR: rebase against the latest muno main before merging (likely no conflicts since paths are disjoint, but verify)."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-010000-itinerary-agent-4b.result.json`. Mirror prior round shapes. Required fields: id, status, summary, muno_pr_url, muno_merge_sha, ai_meta_submodule_pointer_bump_sha, pre_handoff_checks, agent_smokes {extraction, dispatch, widget_chat, end_to_end, replay}, replay_drift_metrics, smoke_thread_cleanup_confirmed, cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md — agent design, event sourcing, widget contract, data model",
+    "memory/inbox/2026/05/20260512-235900-firestore-mcp-event-sourcing-green.md — Round 3 outcome (storage substrate)",
+    "memory/inbox/2026/05/20260513-002608-muno-bootstrap-container-build-green.md — Round 4a/6a GREEN flip",
+    "memory/inbox/2026/05/20260512-230000-duffel-stays-unavailable-round-2.md — hotels source LOCKED to Amadeus",
+    "repos/ops/automation/agents/travel/runtime.yaml — existing ai_provider switch pattern to reuse",
+    "repos/ops/automation/agents/mcp/firestore.yaml — append_event + replay_events tools",
+    "muno/playbooks/widget-contract/*.schema.json — the closed widget catalogue"
+  ]
+}

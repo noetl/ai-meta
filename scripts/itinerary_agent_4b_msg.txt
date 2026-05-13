@@ -1,0 +1,114 @@
+Codex prompt — Implement LLM-driven itinerary agent (trip-planner Round 4b)
+                muno/playbooks/itinerary-planner.yaml — hybrid input + event sourcing
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-010000-itinerary-agent-4b.task.json
+Result:        bridge/outbox/20260513-010000-itinerary-agent-4b.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+
+Round goal
+----------
+Build the LLM-driven itinerary agent inside the muno repo at
+`muno/playbooks/itinerary-planner.yaml`. Hybrid input: scripted widget
+submissions AND free-form chat messages both feed the same per-turn
+LLM extraction step. Tool dispatch through mcp/duffel + mcp/google-places
++ mcp/amadeus + mcp/firestore (event sourcing). Emits widget envelopes
+matching the 23 schemas frozen in Round 4a/6a.
+
+Pre-handoff: NONE — all dependencies already deployed and verified.
+
+Runs PARALLEL with Round 6b (muno-material-widgets-6b). Disjoint paths
+in muno — this round touches `muno/playbooks/` only; 6b touches
+`muno/src/` only. Rebase before merging if the other PR lands first.
+
+Per-turn loop (one event → zero-or-more emitted events)
+------------------------------------------------------
+1. Append the input event to chat_threads/{thread_id}/events.
+2. LLM extraction step (JSON mode, temp=0):
+     input: slot_state + last 10 events + new event
+     output: { slot_updates, tool_requests, render_intent }
+3. Apply slot_updates → write to chat_threads/{id}/slot_state.
+4. For each tool_request: dispatch → record full request/response in
+   events/api_calls/{call_id} (with header redaction).
+5. LLM chat step (cheaper model):
+     input: slot_state + tool_responses + render_intent
+     output: { bot_message?, widgets: [<envelope>, ...] }
+6. Validate each envelope against muno/playbooks/widget-contract/.
+   Invalid → swap for a bot_text describing the agent's intent.
+7. Append agent_widget_emit / agent_chat events.
+
+Architecture decisions locked
+-----------------------------
+  - Hotels source: Amadeus (Duffel Stays sales-gated, Round 2).
+  - flight_provider: duffel (default).
+  - Production-mode endpoints FORBIDDEN. amadeus_env=test, duffel_env=test
+    always. LLM cannot override.
+  - All widget emissions validate against muno/playbooks/widget-contract/.
+    Invalid → bot_text fallback. Never crash.
+  - All events via mcp/firestore.append_event (mandatory header redaction).
+  - Replay mode: temp=0 + model pinning + tool responses replayed from
+    events/api_calls. LLM drift on chat text is tolerated; slot_updates
+    and widget_type sequence must be byte-identical for clean replay.
+
+Files this round adds (inside muno)
+-----------------------------------
+  - muno/playbooks/itinerary-planner.yaml — the agent.
+  - muno/playbooks/agent/system_prompt_extraction.md
+  - muno/playbooks/agent/system_prompt_chat.md
+  - muno/playbooks/agent/widget_envelope_examples.md (one per widget type)
+  - muno/docs/architecture/agent-design.md (flesh out the stub)
+  - muno/scripts/itinerary_agent_smoke.sh (happy-path driver)
+  - muno/playbooks/deployment/register-with-noetl.sh (or document manual)
+  - muno/memory/inbox/codex/2026/05/<timestamp>-itinerary-agent-4b-green.md
+
+Files this round does NOT touch (Round 6b territory)
+----------------------------------------------------
+  - muno/src/** (frontend)
+  - muno/src/components/widgets/*.tsx (real Material — 6b's job)
+  - muno/src/theme.ts (6b)
+  - muno/package.json (no new TS runtime deps; LLM SDK lives elsewhere)
+
+Phases (8)
+----------
+  1. Pre-handoff verify: mcp/firestore + mcp/duffel + mcp/google-places +
+     mcp/amadeus registered on GKE; muno main at 4143d4c or later;
+     all 24 schemas validate.
+  2. Author playbook skeleton (workload, keychain refs, 10-step
+     workflow shell).
+  3. Implement extraction step + system prompt. Smoke A: synthetic
+     event → expected slot_updates extracted.
+  4. Implement tool dispatch + event-log appending (with header
+     redaction confirmation). Smoke B: flight search dispatch
+     produces correct event chain + api_calls record.
+  5. Implement widget chat step + envelope validation. Smoke C:
+     extraction emits render_intent=ask_dates → chat step produces
+     bot_text + valid date_range_picker envelope.
+  6. End-to-end smoke: full happy-path "trip to Miami next month for
+     2 adults" conversation. Capture execution IDs.
+  7. Replay smoke: re-run phase 6's thread via replay mode. Verify
+     slot_updates byte-identical, widget_type sequence preserved,
+     chat text drift documented.
+  8. Docs + close out. Open muno PR (NOT direct-to-main; this is the
+     first feature PR on muno). Merge once self-review passes.
+     Bump ai-meta repos/muno pointer locally.
+
+Architectural rules
+-------------------
+  - Lives in muno/playbooks/itinerary-planner.yaml. NOT repos/ops.
+  - No frontend changes. No new GCP setup.
+  - Hotels source: Amadeus only.
+  - Test-mode endpoints only.
+  - All widgets validate; invalid → bot_text fallback.
+  - All event log writes through mcp/firestore.append_event.
+  - LLM provider selectable via workload.ai_provider; extraction step
+    REQUIRES JSON output mode.
+  - Smoke threads under chat_threads/_smoke-{nonce}; cleanup at end of
+    phase 6.
+  - muno PR via standard flow (no direct-to-main).
+  - ai-meta pointer bump local-only; Kadyapam pushes ai-meta.
+  - If Round 6b is mid-flight: rebase muno PR against latest main
+    before merging.
+
+Result file shape mirrors bridge/outbox/20260513-000000-muno-bootstrap-widget-contract.result.json.
+Drift in agent_chat text content is acceptable on replay. Slot updates
+and widget_type sequence must be byte-identical for clean replay.
