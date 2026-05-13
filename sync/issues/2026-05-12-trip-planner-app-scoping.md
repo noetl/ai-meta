@@ -219,6 +219,19 @@ for everything that follows. Auth is "Guest" only initially (matches
 the Figma). The renderer can display widgets the moment Round 4's
 agent emits them.
 
+Status 2026-05-13: AMBER with bootstrap complete. `noetl/muno` was
+initialized on `main` at `ec43ade` with 23 widget payload schemas plus
+the envelope schema, generated `src/contracts/widgets.ts`, React 18 +
+TS + Vite + MUI v6 shell, AJV widget validation, JSON stub renderers,
+docs, scripts, memory skeleton, `.claude`, Dockerfile, and nginx config.
+`ai-meta` added `repos/muno` as a local submodule commit `a201c6a`.
+Validation passed for `npm install`, schema compile, `npm run
+type-check`, `npm run build`, and `npm run smoke:widgets`. The only
+unfinished check is container build verification: local `docker` is not
+installed and the configured Podman API socket refused connections even
+after restarting the `noetl-dev` machine. No code or schema validation
+failed.
+
 ### Round 7 — End-to-end tutorial (the cap-stone)
 
 New `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md`. Walks

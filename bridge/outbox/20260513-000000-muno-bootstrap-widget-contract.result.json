@@ -1,0 +1,82 @@
+{
+  "id": "20260513-000000-muno-bootstrap-widget-contract",
+  "status": "AMBER",
+  "summary": "Bootstrapped noetl/muno as the trip-planner home base and pushed its initial main commit directly to the previously empty repository. The durable deliverables landed: 23 widget payload schemas plus the envelope schema, generated TypeScript contracts, React 18 + TypeScript + Vite + MUI v6 shell, AJV widget validation, JSON stub renderers, docs, scripts, memory skeleton, .claude config, Dockerfile, and nginx config. ai-meta has a local commit adding repos/muno as a submodule. The only AMBER item is container-build verification: local docker is absent and the configured Podman API socket refused connections even after restarting the noetl-dev machine.",
+  "muno_repo_url": "https://github.com/noetl/muno",
+  "muno_initial_commit_sha": "ec43adeadf7aa0514a2479f21da8fb2a481769e7",
+  "ai_meta_submodule_add_sha": "a201c6a5cbdfa809f116657ac2adb14c917b4c9f",
+  "schemas_count": 24,
+  "schema_breakdown": {
+    "envelope": 1,
+    "templates": 23
+  },
+  "frontend_smokes": {
+    "npm_install_ok": true,
+    "schema_compile_ok": true,
+    "type_check_ok": true,
+    "vite_build_ok": true,
+    "widget_renderer_dispatch_ok": true,
+    "docker_build_ok": false,
+    "docker_build_blocker": "docker command is not installed; podman build could not connect to the local Podman API socket. podman machine restart completed, but podman still returned connection refused against the configured socket."
+  },
+  "widget_renderer_dispatch_smoke": {
+    "command": "npm run smoke:widgets",
+    "result": "Widget dispatch smoke passed for 23 widget envelopes"
+  },
+  "file_count_breakdown": {
+    "schemas": 24,
+    "src_widget_components_including_stub_base": 24,
+    "docs_markdown": 17,
+    "scripts": 6,
+    "total_files_committed": 113
+  },
+  "phases": {
+    "verify_pre_handoff": {
+      "muno_was_empty": true,
+      "default_branch_before": "",
+      "default_branch_after": "main"
+    },
+    "widget_contract": {
+      "envelope_schema": "playbooks/widget-contract/_envelope.schema.json",
+      "template_schemas": 23,
+      "architecture_doc": "docs/architecture/widget-contract.md",
+      "ajv_compile": "PASS"
+    },
+    "frontend_skeleton": {
+      "react": "18",
+      "typescript": "5.5+",
+      "vite": "7.x",
+      "mui": "6.x",
+      "renderer": "src/components/WidgetRenderer.tsx",
+      "stubs": "src/components/widgets/*.tsx render payload JSON in MUI Cards"
+    },
+    "meta_files": {
+      "readme": true,
+      "agents": true,
+      "claude": true,
+      "docs": true,
+      "memory": true,
+      "scripts": true,
+      "dockerfile": true,
+      "nginx": true
+    },
+    "muno_push": {
+      "pushed_directly_to_main": true,
+      "pull_request": false
+    },
+    "ai_meta_submodule": {
+      "path": "repos/muno",
+      "url": "git@github.com:noetl/muno.git",
+      "local_commit_only": true,
+      "pushed": false
+    }
+  },
+  "cleanup": {
+    "no_secrets_committed": true,
+    "secret_scan_note": "Only placeholder comments and Secret Manager secret names were present; no token bytes, .env files, or node_modules were committed.",
+    "node_modules_committed": false,
+    "dist_committed": false,
+    "ai_meta_pushed": false
+  },
+  "verdict": "AMBER. The repository bootstrap and all application/schema validations completed and were pushed to noetl/muno main. ai-meta has the local submodule-add commit. The only incomplete verification is container image build due local Docker/Podman connectivity, not project code."
+}
