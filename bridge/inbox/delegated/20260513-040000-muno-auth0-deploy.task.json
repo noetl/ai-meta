@@ -1,0 +1,195 @@
+{
+  "id": "20260513-040000-muno-auth0-deploy",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T04:00:00Z",
+  "title": "Deploy muno to muno.mestumre.dev with Auth0 authentication (post-tutorial Round 8)",
+
+  "description": "Two coupled deliverables: (a) wire Auth0 authentication into the muno React app (SPA mode, `@auth0/auth0-react`), replacing the v1 'Guest mode' with real user accounts; (b) deploy the resulting container to a fresh GKE subdomain `muno.mestumre.dev` behind the project's existing Cloudflare-fronted ingress. Frontend-only Auth0 in this round — NoETL server JWT validation is documented as a follow-up. user_uid (from Auth0 `sub` claim) flows into chat events and Firestore paths via the existing event-sourcing pattern. Cap: 1 muno PR (Auth0 + manifests) + 1 ops PR (Helm or kustomize ingress entry for muno.mestumre.dev — verify the existing pattern under repos/ops/ci/manifests/). Pre-handoff items for Kadyapam: Auth0 SPA app registration + Maps key referrer update — see `pre_handoff_for_kadyapam`. Mid-round handoff: Kadyapam adds the DNS record at Cloudflare once the Ingress IP is known (phase 7 surfaces it). Scoping references: `sync/issues/2026-05-12-trip-planner-app-scoping.md` 'muno is the home base' + post-tutorial roadmap item #3.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 21600,
+  "max_iterations": 14,
+
+  "pre_handoff_for_kadyapam": {
+    "must_be_done_before_firing": "Three items, ~10 minutes total. The round AMBERs at phase 1 if any of these isn't ready.",
+
+    "step_1_auth0_spa_app_registration": "In the existing Auth0 tenant dashboard, create a new Application:\n  - Type: **Single Page Application**\n  - Name: `Adiona / muno`\n  - **Allowed Callback URLs**: `https://muno.mestumre.dev/callback, http://localhost:5173/callback`\n  - **Allowed Logout URLs**: `https://muno.mestumre.dev, http://localhost:5173`\n  - **Allowed Web Origins**: `https://muno.mestumre.dev, http://localhost:5173`\n  - **Allowed Origins (CORS)**: same as Web Origins.\n  - Capture the **Domain** (something like `<tenant>.us.auth0.com`) and the **Client ID** (no client secret for SPAs — they use PKCE).\n  - Optional but recommended now: create an Auth0 API resource with audience `https://api.muno.mestumre.dev` so future NoETL JWT validation has an identifier ready. SPA app's 'APIs' tab → authorize this API for the SPA.\n  - Provision the values into the existing GCP Secret Manager (they're non-secret for SPAs but storing centralizes ops):\n    ```bash\n    echo -n '<auth0-domain>' | gcloud secrets create muno-auth0-domain \\\n      --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n    echo -n '<auth0-client-id>' | gcloud secrets create muno-auth0-client-id \\\n      --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n    echo -n 'https://api.muno.mestumre.dev' | gcloud secrets create muno-auth0-audience \\\n      --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n    for s in muno-auth0-domain muno-auth0-client-id muno-auth0-audience; do\n      gcloud secrets add-iam-policy-binding $s \\\n        --project=noetl-demo-19700101 \\\n        --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \\\n        --role=roles/secretmanager.secretAccessor\n    done\n    ```",
+
+    "step_2_maps_key_referrer_update": "The `google-maps-widget-key` API key currently has referrer restrictions for `https://mestumre.dev/*`, `https://gateway.mestumre.dev/*`, `https://*.pages.dev/*`. Add the new subdomain:\n  - Open https://console.cloud.google.com/apis/credentials?project=noetl-demo-19700101\n  - Click `travel-agent-widget-key` → Application restrictions → HTTP referrers\n  - Add: `https://muno.mestumre.dev/*`\n  - Also (for local dev convenience): `http://localhost:5173/*` if not already there\n  - Save.\n  - Phase 1 verifies the new referrer was added by `gcloud services api-keys describe` reading.",
+
+    "step_3_confirm_existing_infrastructure": "These are READ-ONLY checks the codex sandbox confirms in phase 1:\n  - GKE cluster `noetl-cluster` in us-central1 reachable.\n  - The existing ingress controller (probably ingress-nginx) is installed in the cluster.\n  - cert-manager is installed and `gateway.mestumre.dev` already has a valid TLS cert — codex confirms `kubectl -n cert-manager get certificate -A | grep mestumre`.\n  - GitHub Container Registry push access for ghcr.io/noetl/muno from the codex/operator environment.\n  - Cloudflare zone `mestumre.dev` is active (Kadyapam confirms via Cloudflare dashboard; codex doesn't have Cloudflare API access).",
+
+    "mid_round_handoff_dns": "After phase 7 reports the Ingress IP, Kadyapam adds the DNS record at Cloudflare:\n  - Cloudflare dashboard → `mestumre.dev` zone → DNS → Records → **Add record**.\n  - Type: `A` (or `CNAME` if pointing at the gateway record, but A direct to the Ingress IP is simpler).\n  - Name: `muno`.\n  - IPv4 address: the Ingress IP from phase 7's output.\n  - Proxy status: **Proxied** (orange cloud) — gives us Cloudflare's TLS termination + WAF + caching at the edge.\n  - TTL: Auto.\n  - SSL/TLS encryption mode for the zone should already be **Full (Strict)** since gateway.mestumre.dev works that way; codex doesn't change this.\n  - Save.\n  - Wait 1-2 minutes for propagation (often faster).\n  - Tell codex 'DNS added' so it can resume to phase 9 (smoke against the live URL)."
+  },
+
+  "design_brief_for_codex": {
+    "auth0_frontend_integration": "Add Auth0 to `muno/src/`:\n\n  - **Deps**: `npm install @auth0/auth0-react`.\n  - **Init**: in `muno/src/main.tsx`, wrap `<App />` with `<Auth0Provider domain={import.meta.env.VITE_AUTH0_DOMAIN} clientId={import.meta.env.VITE_AUTH0_CLIENT_ID} authorizationParams={{ redirect_uri: window.location.origin + '/callback', audience: import.meta.env.VITE_AUTH0_AUDIENCE }} cacheLocation=\"localstorage\" useRefreshTokens={true}>`.\n  - **Routes**: add `/callback` route that uses `useAuth0().handleRedirectCallback()` then navigates to `/`. React Router config update.\n  - **Sidebar**: update `muno/src/components/shell/Sidebar.tsx`:\n    - When `isAuthenticated`: show user.name + user.picture (Avatar from MUI Icons or img tag) at the top, replacing 'Guest mode'. A 'Sign out' button below the nav. Triggers `logout({ logoutParams: { returnTo: window.location.origin } })`.\n    - When NOT authenticated: show a 'Sign in' button (replaces the prior 'Guest mode' label). Clicking it calls `loginWithRedirect({ authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE } })`.\n  - **API client**: extend `muno/src/api/noetlClient.ts` to attach the Auth0 access token as a Bearer header when authenticated. Use `useAuth0().getAccessTokenSilently()` to fetch fresh tokens. If unauthenticated, send no token (guest mode preserved as fallback).\n  - **user_uid wiring**: when sending events to the itinerary agent (`POST /api/agent/turn` or whatever NoETL endpoint the existing client uses), include `user_uid: user.sub` (Auth0 sub) in the request body if authenticated, else omit (agent falls back to chat_threads/thread_id path).\n  - **Locale strings**: add to `muno/src/locales/en.json` and `ru.json`: `sidebar.signin`, `sidebar.signout`, `auth.loading`, `auth.callback_error`.\n  - **Vite env vars**: document `VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID`, `VITE_AUTH0_AUDIENCE` in `muno/.env.example` (commit a sample) and in `muno/docs/deployment/`. Build pipeline reads these at build time.\n  - **No NoETL server-side JWT validation in this round** — frontend trusts and sends the user_uid; NoETL stores it but doesn't verify the token. Document this clearly in `muno/docs/auth/auth0-setup.md` as a v1 trust assumption with a TODO for server-side validation in a follow-up round.\n  - **Test fixtures**: add a vitest test that mocks `useAuth0` and verifies (a) authenticated state shows Sign out, (b) unauthenticated state shows Sign in, (c) authenticated API calls include the Bearer header.",
+
+    "container_build_with_auth0_env_vars": "The Vite build needs Auth0 values baked in at compile time. Update the Dockerfile multi-stage build to accept build-args:\n\n```dockerfile\nFROM node:20-alpine AS build\nWORKDIR /app\nARG VITE_AUTH0_DOMAIN\nARG VITE_AUTH0_CLIENT_ID\nARG VITE_AUTH0_AUDIENCE\nARG VITE_GOOGLE_MAPS_KEY\nENV VITE_AUTH0_DOMAIN=${VITE_AUTH0_DOMAIN}\nENV VITE_AUTH0_CLIENT_ID=${VITE_AUTH0_CLIENT_ID}\nENV VITE_AUTH0_AUDIENCE=${VITE_AUTH0_AUDIENCE}\nENV VITE_GOOGLE_MAPS_KEY=${VITE_GOOGLE_MAPS_KEY}\nCOPY package*.json ./\nRUN npm ci\nCOPY . ./\nRUN npm run build\n# ... existing nginx stage unchanged ...\n```\n\nThe build script (`scripts/build_container.sh` — new) pulls all four secrets via gcloud, passes them as `--build-arg`, then `podman build` (or `docker buildx`):\n\n```bash\nVITE_AUTH0_DOMAIN=$(gcloud secrets versions access latest --secret=muno-auth0-domain --project=noetl-demo-19700101)\nVITE_AUTH0_CLIENT_ID=$(gcloud secrets versions access latest --secret=muno-auth0-client-id --project=noetl-demo-19700101)\nVITE_AUTH0_AUDIENCE=$(gcloud secrets versions access latest --secret=muno-auth0-audience --project=noetl-demo-19700101)\nVITE_GOOGLE_MAPS_KEY=$(gcloud secrets versions access latest --secret=google-maps-widget-key --project=noetl-demo-19700101)\npodman build \\\n  --build-arg VITE_AUTH0_DOMAIN=\"$VITE_AUTH0_DOMAIN\" \\\n  --build-arg VITE_AUTH0_CLIENT_ID=\"$VITE_AUTH0_CLIENT_ID\" \\\n  --build-arg VITE_AUTH0_AUDIENCE=\"$VITE_AUTH0_AUDIENCE\" \\\n  --build-arg VITE_GOOGLE_MAPS_KEY=\"$VITE_GOOGLE_MAPS_KEY\" \\\n  -t ghcr.io/noetl/muno:$(date -u +%Y%m%d-%H%M%S) \\\n  -t ghcr.io/noetl/muno:latest \\\n  .\n```\n\nNever echo the values. Use `set +x` if the build script has tracing enabled. Tag with a UTC timestamp + `:latest`.",
+
+    "container_registry_push": "Push the built image to `ghcr.io/noetl/muno`. The repo's GitHub Actions / Codex environment should already have `GHCR_TOKEN` or equivalent set; verify in phase 1 by attempting a dry-run `podman login ghcr.io`. The image is public for the org per the noetl convention, OR private — confirm by checking how `ghcr.io/noetl/noetl` is configured. Document the chosen visibility.",
+
+    "k8s_deployment_manifests": "Add manifests at `repos/ops/ci/manifests/muno/`:\n\n  - `namespace.yaml`: `kind: Namespace, metadata: { name: muno }` (or reuse `noetl` namespace if that's the project pattern — verify by listing existing manifests).\n  - `deployment.yaml`: standard React/nginx deployment. 2 replicas. `image: ghcr.io/noetl/muno:latest` initially; pin to the timestamped tag for production stability after first successful rollout. Container port 8080. Resource requests CPU 50m / memory 64Mi; limits CPU 250m / memory 128Mi.\n  - `service.yaml`: `kind: Service, type: ClusterIP, spec: { ports: [{port: 80, targetPort: 8080}], selector: app=muno }`.\n  - `ingress.yaml`: ingress-nginx ingress (or whatever class the cluster uses) for `muno.mestumre.dev` with TLS termination via cert-manager. Annotation `cert-manager.io/cluster-issuer: letsencrypt-prod` (or whichever issuer gateway.mestumre.dev uses — copy that pattern). TLS section refers to a Secret that cert-manager auto-provisions.\n  - `configmap.yaml`: any runtime config muno's nginx needs. Probably empty for v1.\n  - `kustomization.yaml`: kustomize entry that pulls the above + any base patches.\n\nIf the project uses Helm instead of kustomize, adapt accordingly — INSPECT `repos/ops/ci/manifests/noetl/` to determine the convention.",
+
+    "deployment_apply_and_ingress_ip_capture": "From the codex environment with `kubectl` configured for the GKE cluster:\n\n```bash\nkubectl apply -f repos/ops/ci/manifests/muno/\nkubectl -n muno rollout status deployment/muno --timeout=2m  # or whatever namespace\n```\n\nThen poll for the Ingress external IP (cert-manager provisioning takes 1-3 minutes):\n\n```bash\nfor i in {1..30}; do\n  IP=$(kubectl -n muno get ingress muno -o jsonpath='{.status.loadBalancer.ingress[0].ip}')\n  if [ -n \"$IP\" ]; then\n    echo \"INGRESS_IP=$IP\"\n    break\n  fi\n  sleep 10\ndone\n```\n\nOutput the IP. Phase 7 reports it to Kadyapam who adds the DNS record at Cloudflare per `pre_handoff_for_kadyapam.mid_round_handoff_dns`. Codex AMBERs at phase 7 awaiting DNS confirmation; resumes to phase 9 (smoke) once Kadyapam confirms.",
+
+    "live_smoke_post_dns": "After DNS is added (Kadyapam confirms):\n\n  1. `curl -sv https://muno.mestumre.dev/` → expect HTTP 200 with `< server: nginx` header.\n  2. Inspect the response HTML — should be muno's `index.html` referencing the Vite-built JS bundle.\n  3. Headless Auth0 login smoke is HARD without real credentials — instead, document the manual smoke step in the result JSON for Kadyapam: 'Open https://muno.mestumre.dev/ in a browser, click Sign in, complete Auth0 flow, return to muno, verify the sidebar shows user info and the chat works.'\n  4. Container deployment smoke: `kubectl -n muno get pods` → all Running, no restarts.\n\nCheck TLS via `curl -vI https://muno.mestumre.dev/ 2>&1 | grep -E 'subject|issuer'` — confirm cert is valid (Cloudflare's edge cert OR Let's Encrypt direct, depending on Cloudflare proxy setting).",
+
+    "docs_added": "  - `muno/docs/deployment/muno-subdomain.md` — full GKE + Cloudflare runbook including the manifests, the kubectl apply flow, the Cloudflare DNS step, troubleshooting (cert provisioning slow, 502 from ingress, etc.).\n  - `muno/docs/auth/auth0-setup.md` — frontend Auth0 integration, the SPA app registration steps Kadyapam followed, the env vars, and the v1 trust assumption (frontend-trusted user_uid; server-side JWT validation is a TODO).\n  - Update `muno/README.md` to mention the live URL once deployed.",
+
+    "what_NOT_to_do": "  - DO NOT add server-side JWT validation to NoETL in this round. Frontend-trusted user_uid is acceptable for v1; the round explicitly defers server validation.\n  - DO NOT change Firestore security rules. They stay v1 permissive per Round 5.\n  - DO NOT tighten the muno API endpoints to require auth — Guest mode remains a working fallback so anonymous users can still try the demo.\n  - DO NOT commit any Auth0 secrets or token bytes. The Auth0 domain + client_id are non-secret (visible in any SPA build) and committed only via the build-arg path from gcloud.\n  - DO NOT change the existing widget API key restrictions BEYOND adding the new referrer. Don't remove existing referrers (mestumre.dev, gateway.mestumre.dev, *.pages.dev).\n  - DO NOT modify Cloudflare config from codex — Kadyapam owns Cloudflare access. Codex outputs DNS instructions; Kadyapam executes."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm Auth0 app + Maps key referrer + existing infra are ready.",
+      "spec": [
+        "`gcloud secrets describe muno-auth0-domain --project=noetl-demo-19700101` → exists.",
+        "`gcloud secrets describe muno-auth0-client-id --project=noetl-demo-19700101` → exists.",
+        "`gcloud secrets describe muno-auth0-audience --project=noetl-demo-19700101` → exists.",
+        "Per-secret IAM: worker SA has `secretAccessor` on all three (the round doesn't actually need it since the values are baked into the frontend build, but operational hygiene).",
+        "`gcloud services api-keys list --project=noetl-demo-19700101 --filter='displayName:travel-agent-widget-key' --format='value(restrictions.browserKeyRestrictions.allowedReferrers)'` includes `https://muno.mestumre.dev/*`.",
+        "`kubectl config current-context` → `gke_noetl-demo-19700101_us-central1_noetl-cluster`. `kubectl -n cert-manager get certificate -A | grep mestumre` → at least one valid cert.",
+        "`kubectl get ingressclass` → records ingress class for the new ingress.",
+        "Verify ghcr.io push access (dry-run `podman login ghcr.io` or `docker login ghcr.io`).",
+        "If any check fails: AMBER + STOP."
+      ],
+      "verify": "All pre-handoff items confirmed; phase 2 can proceed."
+    },
+
+    "2_auth0_frontend_integration": {
+      "objective": "Add Auth0 to muno's React app.",
+      "spec": [
+        "Per `design_brief_for_codex.auth0_frontend_integration`.",
+        "`npm install @auth0/auth0-react`.",
+        "Wire Auth0Provider, callback route, sidebar sign-in/sign-out, API client Bearer header, user_uid passthrough.",
+        "Add locale strings.",
+        "Commit `.env.example` documenting the three VITE_AUTH0_* vars (without real values).",
+        "Add vitest tests for authenticated vs unauthenticated rendering and Bearer header attachment.",
+        "`npm run type-check`, `npm run test`, `npm run smoke:widgets` all GREEN.",
+        "`npm run dev` localhost smoke: open http://localhost:5173, click Sign in, complete Auth0 flow, return to muno, confirm sidebar shows user info."
+      ],
+      "verify": "Auth0 wired; localhost smoke passes."
+    },
+
+    "3_container_build_with_auth0_env_vars": {
+      "objective": "Extend Dockerfile + build script for build-time Auth0 args; build the image.",
+      "spec": [
+        "Update muno's Dockerfile to accept VITE_AUTH0_DOMAIN, VITE_AUTH0_CLIENT_ID, VITE_AUTH0_AUDIENCE, VITE_GOOGLE_MAPS_KEY as build-args.",
+        "Add `muno/scripts/build_container.sh` (per design brief). chmod +x.",
+        "Run the build script; capture image ID and size.",
+        "`podman run --rm -d -p 18080:8080 ghcr.io/noetl/muno:<tag>` → curl localhost:18080 returns 200 with index.html embedding the Auth0 domain (verify via grep without echoing the full value).",
+        "Cleanup the test container."
+      ],
+      "verify": "Container builds and runs locally; image size growth bounded (target <80 MB)."
+    },
+
+    "4_push_image_to_ghcr": {
+      "objective": "Push the built image to ghcr.io/noetl/muno.",
+      "spec": [
+        "`podman push ghcr.io/noetl/muno:<timestamp>` and `:latest`.",
+        "Verify via `gh api /orgs/noetl/packages/container/muno/versions --jq '.[0]' 2>&1 | head -5` or equivalent.",
+        "Capture the final image SHA digest for the deployment manifest pin."
+      ],
+      "verify": "Image is pullable via `podman pull ghcr.io/noetl/muno:latest`."
+    },
+
+    "5_k8s_deployment_manifests_and_apply": {
+      "objective": "Add manifests at repos/ops/ci/manifests/muno/ and apply to GKE.",
+      "spec": [
+        "Per `design_brief_for_codex.k8s_deployment_manifests`.",
+        "INSPECT repos/ops/ci/manifests/noetl/ first to match the project's kustomize/helm convention.",
+        "Apply via `kubectl apply -f repos/ops/ci/manifests/muno/` (or `kustomize build ... | kubectl apply -f -` if kustomize).",
+        "Wait for rollout: `kubectl -n muno rollout status deployment/muno --timeout=2m`.",
+        "Confirm pods Running: `kubectl -n muno get pods`."
+      ],
+      "verify": "Deployment is 2/2 ready."
+    },
+
+    "6_capture_ingress_ip_and_cert_status": {
+      "objective": "Get the Ingress external IP + confirm cert-manager provisioning.",
+      "spec": [
+        "Poll `kubectl -n muno get ingress muno -o jsonpath='{.status.loadBalancer.ingress[0].ip}'` for up to 5 minutes.",
+        "Once IP known, confirm: `kubectl -n muno get certificate -o wide` → status `Ready: True` (cert-manager provisioning can take 1-3 minutes after Ingress is up).",
+        "If cert is still provisioning at the end of phase 6, that's OK — DNS-side TLS verification happens after Cloudflare propagates the DNS record in the next phase.",
+        "Capture the Ingress IP for the result JSON."
+      ],
+      "verify": "Ingress IP captured."
+    },
+
+    "7_output_cloudflare_dns_instructions": {
+      "objective": "Print clear Cloudflare DNS instructions for Kadyapam + AMBER pending DNS update.",
+      "spec": [
+        "Result JSON's `dns_instructions_for_kadyapam` field contains the exact step-by-step (zone, record type, name, value, proxy setting, SSL/TLS mode confirmation).",
+        "Codex's stdout also prints these instructions.",
+        "Round status at this point: AMBER (DNS pending). Memory entry and partial result JSON capture this state.",
+        "Codex pauses here and waits for explicit user signal 'DNS added' before resuming to phase 8.",
+        "Implementation note: codex may need to break this into two task invocations if the codex flow can't pause-and-resume mid-round. If so, phases 1-7 are one Codex run; phases 8-10 are a follow-up run after Kadyapam adds DNS. Document whichever flow the codex implementation uses."
+      ],
+      "verify": "Instructions output is complete and copy-pasteable."
+    },
+
+    "8_post_dns_live_smoke": {
+      "objective": "Verify the live URL works end-to-end after Kadyapam adds DNS.",
+      "spec": [
+        "Resolve `muno.mestumre.dev` via `dig +short muno.mestumre.dev` (or `getent hosts`) — should return either the Cloudflare proxy IPs (orange-cloud mode, common case) OR the GKE Ingress IP (DNS-only mode).",
+        "`curl -sv https://muno.mestumre.dev/` → HTTP 200 with HTML body referencing muno's Vite bundle. If 521/522 (Cloudflare upstream errors), wait 30-60s for the origin cert to settle.",
+        "Confirm cert chain: `curl -vI https://muno.mestumre.dev/ 2>&1 | grep -E 'subject|issuer'` → if Cloudflare proxy: Cloudflare-issued cert; if DNS-only: cert-manager Let's Encrypt cert.",
+        "Document the manual browser smoke step for Kadyapam: 'Open https://muno.mestumre.dev/ in a browser → click Sign in → complete Auth0 → return to muno → verify sidebar shows user info → start a trip planning conversation → confirm Firestore writes a chat_threads document under users/{your_auth0_sub}/.'",
+        "Re-confirm the Firestore writes work: `firestore_replay.sh thread-list --limit 3` → find Kadyapam's signed-in thread (path includes user_uid)."
+      ],
+      "verify": "URL serves muno; browser-side login flow described to user."
+    },
+
+    "9_docs_and_close_out": {
+      "objective": "Author runbooks, memory, result JSON, PRs.",
+      "spec": [
+        "Author `muno/docs/deployment/muno-subdomain.md` — full GKE + Cloudflare + Auth0 runbook.",
+        "Author `muno/docs/auth/auth0-setup.md` — Auth0 SPA registration steps + frontend integration notes + the v1 trust-assumption with the server-side-validation TODO.",
+        "Update `muno/README.md` with the live URL.",
+        "Update `muno/docs/deployment/kind-setup.md` to note the new build-arg surface area (the dev workflow now needs the four VITE_* vars).",
+        "Result file: `bridge/outbox/20260513-040000-muno-auth0-deploy.result.json`. Required: id, status, summary, muno_pr_url, muno_merge_sha, ops_pr_url, ops_merge_sha, ai_meta_submodule_pointer_bump_shas, image_sha, ingress_ip, dns_added_at, live_url_curl_status, cert_issuer, auth0_smoke_described (bool), cleanup, verdict.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "Memory entry at `ai-meta/memory/inbox/2026/05/<timestamp>-muno-auth0-deploy-green.md` (or AMBER if anything didn't land cleanly).",
+        "Update `ai-meta/sync/issues/2026-05-12-trip-planner-app-scoping.md` adding a 'Round 8 (post-tutorial): muno deployed + Auth0' status note.",
+        "Open muno PR: `feat(auth+deploy): Auth0 SPA integration + muno.mestumre.dev deployment manifests`.",
+        "Open repos/ops PR (if k8s manifests landed there): `feat(deploy): muno trip-planner ingress + manifests`. Some projects keep deploy manifests in muno itself rather than ops — INSPECT and follow the project convention.",
+        "ai-meta side: bump `repos/muno` (and `repos/ops` if applicable) submodule pointers locally. Do NOT push ai-meta.",
+        "Pin the deployment image to the timestamped tag (not :latest) in the manifest after the first successful rollout — update the manifest in a follow-up commit to repos/ops main."
+      ],
+      "verify": "All artefacts written; PRs merged; ai-meta pointers bumped locally."
+    }
+  },
+
+  "architectural_rules": [
+    "Auth0 frontend-only in v1. NO server-side JWT validation in this round.",
+    "Guest mode preserved as fallback (anonymous users can still demo).",
+    "Firestore security rules unchanged from v1 permissive.",
+    "Auth0 domain + client_id baked into the build via build-args, NOT served at runtime. Standard SPA pattern.",
+    "Container image goes to ghcr.io/noetl/muno (mirror the noetl/noetl image convention).",
+    "Deployment manifests live in repos/ops (or muno — verify convention). Either way, single PR per repo.",
+    "Cloudflare DNS update is Kadyapam-side. Codex outputs instructions and AMBERs pending confirmation.",
+    "Cloudflare proxy mode RECOMMENDED (orange cloud) — gets us Cloudflare's TLS termination + WAF.",
+    "If proxy mode is on and Cloudflare's edge cert covers `muno.mestumre.dev` via the existing zone wildcard, the cert-manager TLS at the origin still works because Cloudflare → origin uses 'Full (Strict)' validation against the cert-manager cert.",
+    "Maps key gains `https://muno.mestumre.dev/*` referrer; other referrers unchanged.",
+    "Never commit Auth0 secrets or any token bytes. Auth0 domain + client_id are non-secret but flow via gcloud secrets for ops cleanliness.",
+    "muno PR + ops PR via standard flow.",
+    "ai-meta pointer bumps local-only; Kadyapam pushes ai-meta."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-040000-muno-auth0-deploy.result.json`. Required: id, status (GREEN once live smoke passes; AMBER pending DNS is a valid intermediate state), summary, muno_pr_url, muno_merge_sha, ops_pr_url (if applicable), ops_merge_sha (if applicable), ai_meta_submodule_pointer_bump_shas, image_uri (with sha digest), ingress_ip, dns_instructions_for_kadyapam (full text), dns_added_at_iso, live_url_curl_status, cert_issuer, browser_auth0_smoke_described, manual_smoke_checklist_for_kadyapam, cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md (post-tutorial roadmap item #3)",
+    "memory/inbox/2026/05/20260513-030000-tutorial-08-end-to-end-green.md (Round 7 GREEN — feature-complete milestone)",
+    "muno repo at fdd7dc9 / 96759b8 / current main",
+    "repos/ops/ci/manifests/noetl/ (deployment manifest convention to mirror)",
+    "repos/gui/Dockerfile (container packaging convention)",
+    "https://auth0.com/docs/quickstart/spa/react (Auth0 React SPA guide)",
+    "https://kubernetes.github.io/ingress-nginx/ (likely ingress class)",
+    "https://cert-manager.io/docs/ (TLS provisioning)",
+    "https://developers.cloudflare.com/dns/manage-dns-records/ (DNS step Kadyapam executes)"
+  ]
+}

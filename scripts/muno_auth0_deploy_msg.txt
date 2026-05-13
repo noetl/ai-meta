@@ -1,0 +1,104 @@
+Codex prompt — Deploy muno to muno.mestumre.dev with Auth0 authentication (post-tutorial Round 8)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-040000-muno-auth0-deploy.task.json
+Result:        bridge/outbox/20260513-040000-muno-auth0-deploy.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md (post-tutorial roadmap #3)
+
+Round goal
+----------
+Two coupled deliverables in one round:
+
+  (a) Wire Auth0 authentication into the muno React app (SPA mode,
+      @auth0/auth0-react). Sidebar Sign in / Sign out, Bearer token on
+      API calls, user_uid from Auth0 sub claim into chat events.
+      Guest mode preserved as fallback. NO server-side JWT validation
+      in this round — frontend-trusted user_uid is acceptable for v1;
+      validation is a follow-up.
+
+  (b) Deploy the resulting container to muno.mestumre.dev behind the
+      project's existing GKE + Cloudflare ingress. Push image to
+      ghcr.io/noetl/muno. Apply K8s manifests. Capture Ingress IP.
+      Output Cloudflare DNS instructions for Kadyapam. Resume to live
+      smoke after Kadyapam confirms DNS is added.
+
+Pre-handoff (Kadyapam, before firing this round)
+------------------------------------------------
+~10 minutes total. Round AMBERs at phase 1 if missing.
+
+  1. Register an Auth0 SPA app named 'Adiona / muno':
+     - Allowed Callback URLs: https://muno.mestumre.dev/callback, http://localhost:5173/callback
+     - Allowed Logout URLs: https://muno.mestumre.dev, http://localhost:5173
+     - Allowed Web Origins (incl. CORS): same two URLs
+     - Optional API audience: https://api.muno.mestumre.dev (for
+       future server validation)
+     - Capture Domain + Client ID.
+  2. Provision GCP secrets:
+     - muno-auth0-domain
+     - muno-auth0-client-id
+     - muno-auth0-audience
+     - Grant noetl-worker-mcp `roles/secretmanager.secretAccessor` on each.
+  3. Update google-maps-widget-key referrer restrictions to include
+     `https://muno.mestumre.dev/*` (in addition to the existing
+     mestumre.dev / gateway.mestumre.dev / *.pages.dev entries).
+
+Mid-round handoff (DNS — Kadyapam, after phase 7)
+-------------------------------------------------
+Phase 7 outputs the Ingress external IP. Kadyapam adds the DNS record
+at Cloudflare:
+
+  - Cloudflare dashboard → `mestumre.dev` zone → DNS → Records → Add.
+  - Type: A
+  - Name: muno
+  - IPv4: <Ingress IP from phase 7>
+  - Proxy status: Proxied (orange cloud) — Cloudflare TLS + WAF edge.
+  - TTL: Auto.
+  - SSL/TLS mode for the zone: confirm Full (Strict) — should already be.
+
+After DNS lands (1-2 min propagation), Kadyapam tells codex 'DNS added'
+to resume phase 8 (live smoke).
+
+Phases (9)
+----------
+  1. Verify pre-handoff (Auth0 secrets, Maps referrer, GKE access,
+     cert-manager present, ghcr push access).
+  2. Auth0 frontend integration in muno (Auth0Provider, /callback
+     route, Sidebar Sign in/out, Bearer header on API calls,
+     user_uid passthrough, vitest fixtures).
+  3. Container build with Auth0 build-args; podman run smoke locally.
+  4. Push image to ghcr.io/noetl/muno (timestamped + :latest).
+  5. K8s manifests at repos/ops/ci/manifests/muno/ (or muno/deploy/ —
+     verify project convention). Apply via kubectl. Wait for rollout.
+  6. Capture Ingress IP + cert-manager status.
+  7. Output Cloudflare DNS instructions to Kadyapam.
+     AMBER round status until Kadyapam confirms DNS added.
+  8. Post-DNS live smoke: curl https://muno.mestumre.dev/ → 200; cert
+     issuer check; describe browser-side Auth0 manual smoke for
+     Kadyapam.
+  9. Docs (muno-subdomain.md + auth0-setup.md), result JSON, memory
+     entry, scoping doc Round 8 note, PR merges, ai-meta pointer
+     bump local.
+
+Architectural rules
+-------------------
+  - Auth0 frontend-only. NO server-side JWT validation in this round.
+  - Guest mode preserved as fallback.
+  - Firestore security rules unchanged from v1 permissive.
+  - Container image at ghcr.io/noetl/muno (mirror noetl/noetl).
+  - Cloudflare proxy mode recommended (orange cloud). Origin cert via
+    cert-manager Let's Encrypt; Cloudflare → origin uses Full (Strict).
+  - Never commit Auth0 secrets or any token bytes.
+  - muno PR + ops PR (if applicable) via standard flow.
+  - ai-meta pointer bumps local-only.
+  - Cloudflare DNS update is Kadyapam-side; codex outputs instructions.
+
+Notes
+-----
+  - If codex's flow can't pause-and-resume at phase 7: split into two
+    invocations (phases 1-7 first; phases 8-9 after DNS added).
+    Either model works; document the chosen flow in the result JSON.
+  - Round status at completion: GREEN if live smoke passes; AMBER if
+    DNS propagation slow or cert-manager still provisioning. Either is
+    a clean intermediate state.
+
+Result file shape mirrors prior round result JSONs in bridge/outbox/.
