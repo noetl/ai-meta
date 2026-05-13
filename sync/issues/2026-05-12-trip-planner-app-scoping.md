@@ -1006,3 +1006,20 @@ contract doc is approved. Rounds 5 and 7 strictly wait on prior rounds.
   prototype.
 - `git@github.com:noetl/travel.git` — trip-planner home base repo, renamed
   from `noetl/muno` on 2026-05-13.
+
+## 2026-05-13 Travel Auth0 Audience Hotfix
+
+After the CORS tunnel fix, Auth0 rejected login with:
+
+```text
+Service not found: https://api.travel.mestumre.dev
+```
+
+Root cause: stale `VITE_AUTH0_AUDIENCE` plumbing made the SPA include an
+`audience` parameter for a non-existent Auth0 API. That is the wrong shape for
+the NoETL GUI-style gateway-session flow. Travel should request only an Auth0 ID
+token and then exchange that ID token with `https://gateway.mestumre.dev/api/auth/login`.
+
+`noetl/travel#22` removed audience from the authorize URL and from Pages,
+Docker, and container build plumbing. Cloudflare Pages main deploy `25810371735`
+passed, and the live bundle contains no `api.travel` or `audience` string.
