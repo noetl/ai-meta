@@ -246,6 +246,16 @@ the reader through:
 Includes screenshots from the muno app, executions IDs as proofs, and
 a "what's not covered" section about real-money booking gating.
 
+Status 2026-05-13: GREEN via docs#67. The capstone tutorial is merged at
+`repos/docs/docs/tutorials/08-trip-planner-end-to-end.md` with eight UI
+screenshots under `static/img/tutorials/trip-planner-end-to-end/`.
+`npm run build` passed in `repos/docs`. The tutorial is explicit that
+the v1 flow is test-environment only, cites real execution IDs from the
+Duffel, Firestore, Google Places, and calendar rounds, includes a
+Firestore replay walkthrough, and names the remaining v1 polish gaps
+instead of overselling the demo. With this round, the trip-planner
+project is feature-complete for the tutorial arc.
+
 ## UI patterns extracted from the Figma
 
 Observations from the 5 PNG exports + 1 SVG asset:

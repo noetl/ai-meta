@@ -1,0 +1,59 @@
+{
+  "id": "20260513-030000-tutorial-08-end-to-end",
+  "status": "GREEN",
+  "summary": "Added the Adiona/muno end-to-end trip-planner capstone tutorial to repos/docs, with eight captured UI screenshots, test-environment-only framing, Firestore replay notes, execution-id proofs, and an explicit v1 limitations section.",
+  "docs_pr_url": "https://github.com/noetl/docs/pull/67",
+  "docs_merge_sha": "030b1666a225bab329222050c641fa379e1125a4",
+  "ai_meta_submodule_pointer_bump_sha": "this ai-meta close-out commit; repos/docs now points at 030b1666a225bab329222050c641fa379e1125a4",
+  "tutorial_path": "repos/docs/docs/tutorials/08-trip-planner-end-to-end.md",
+  "tutorial_word_count": 2058,
+  "screenshots_committed": 8,
+  "screenshot_directory": "repos/docs/static/img/tutorials/trip-planner-end-to-end",
+  "screenshot_source_directory": "/Volumes/X10/projects/adiona/tutorial_screenshots",
+  "screenshot_total_bytes": 660187,
+  "mermaid_diagrams_count": 1,
+  "execution_ids_cited": [
+    "625307783436435727",
+    "625385246619337115",
+    "625385503302353446",
+    "625309687340073612",
+    "625452830463099795",
+    "625474366091821164",
+    "625590045860168070"
+  ],
+  "broken_link_count": 0,
+  "docs_build": {
+    "ok": true,
+    "duration_s": 31,
+    "framework": "Docusaurus",
+    "command": "npm run build"
+  },
+  "files": {
+    "markdown": [
+      "docs/tutorials/08-trip-planner-end-to-end.md"
+    ],
+    "screenshots": [
+      "static/img/tutorials/trip-planner-end-to-end/01-chat-start.png",
+      "static/img/tutorials/trip-planner-end-to-end/02-places-card.png",
+      "static/img/tutorials/trip-planner-end-to-end/03-date-picker.png",
+      "static/img/tutorials/trip-planner-end-to-end/04-flight-search.png",
+      "static/img/tutorials/trip-planner-end-to-end/05-picked-flight.png",
+      "static/img/tutorials/trip-planner-end-to-end/06-hotel-search.png",
+      "static/img/tutorials/trip-planner-end-to-end/07-calendar-view.png",
+      "static/img/tutorials/trip-planner-end-to-end/08-itinerary-summary.png"
+    ]
+  },
+  "validation": [
+    "Copied the eight pre-captured PNGs verbatim from /Volumes/X10/projects/adiona/tutorial_screenshots/.",
+    "Ran repos/docs npm run build successfully.",
+    "Opened and squash-merged docs PR #67.",
+    "Updated ai-meta repos/docs submodule pointer locally."
+  ],
+  "cleanup": {
+    "new_screenshots_captured": false,
+    "muno_touched": false,
+    "secrets_logged": false,
+    "ai_meta_pushed": false
+  },
+  "verdict": "GREEN. The Round 7 capstone tutorial is merged in docs, image references build cleanly, and the local ai-meta pointer now tracks the merged docs commit. Kadyapam still owns pushing the ai-meta close-out commit."
+}
