@@ -291,10 +291,21 @@ follow-up hotfix `noetl/travel#19` merged at `09694e2` after the live app showed
 `Auth0 is not configured for this build`; it adds the same public Auth0 SPA
 fallback config used by the NoETL GUI while preserving Vite env overrides. Pages
 deploy run `25786167198` completed successfully and the live bundle now contains
-the fallback Auth0 domain/client id. Final GREEN requires a browser smoke:
-incognito visit to `travel.mestumre.dev`, Auth0 login as the allowed user,
-`Linking to gateway...`, chat shell visible, and gateway requests carrying the
-session bearer token.
+the fallback Auth0 domain/client id.
+
+Status 2026-05-13 update: Kadyapam's live browser smoke advanced past Auth0
+configuration but hung indefinitely on `Linking to gateway...`, with no useful
+console output. `noetl/travel#20` merged at `05285bd`, bounding the two silent
+wait points: Auth0 ID-token lookup now times out after 10 seconds and gateway
+auth login/session validation fetches time out after 15 seconds. Cloudflare
+Pages deploy run `25806130152` completed successfully and the live bundle
+contains the timeout messages. The round remains AMBER until the next browser
+smoke either reaches the chat shell or surfaces the exact gateway/Auth0 failure
+message instead of spinning forever.
+
+Final GREEN requires a browser smoke: incognito visit to
+`travel.mestumre.dev`, Auth0 login as the allowed user, `Linking to gateway...`,
+chat shell visible, and gateway requests carrying the session bearer token.
 
 ## UI patterns extracted from the Figma
 
