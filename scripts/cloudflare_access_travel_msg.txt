@@ -1,0 +1,86 @@
+Codex prompt — Protect travel.mestumre.dev with Cloudflare Access (URGENT — Round 9)
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-070000-cloudflare-access-travel.task.json
+Result:        bridge/outbox/20260513-070000-cloudflare-access-travel.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+
+Round goal
+----------
+travel.mestumre.dev is currently PUBLIC. The in-app Auth0 SPA flow
+(noetl/travel#17) gates the UX but not the asset surface — anyone can
+fetch the SPA bundle. Close the gap by configuring Cloudflare Access
+at the edge of the Pages deployment, using the Auth0 IdP that's
+already wired into Cloudflare Zero Trust for gateway.mestumre.dev.
+
+All work via Cloudflare REST API from Codex. Token in GCP Secret
+Manager (`cloudflare-access-token`), never echoed. Documentation goes
+to repos/travel + repos/docs. No code changes.
+
+Pre-handoff (Kadyapam, before firing)
+-------------------------------------
+1. Cloudflare API token with scopes:
+   - Account → Access: Apps and Policies → Edit
+   - Account → Access: Audit Logs → Read
+   - Zone → Zone → Read
+   - Zone → DNS → Read
+   - Account resources: the account owning mestumre.dev
+   - Zone resources: mestumre.dev
+   Provision as GCP secret `cloudflare-access-token`; grant worker SA
+   `secretAccessor`.
+
+2. Auth0 IdP already in Cloudflare Zero Trust → Settings →
+   Authentication → Login methods. If absent: create Auth0 Regular
+   Web App (NOT SPA — Access uses the server-side OIDC code flow
+   that needs a client secret), then add it as an IdP in Zero Trust.
+   Separate from the existing SPA app the muno frontend uses; that
+   one stays untouched.
+
+3. Decide allow rule (email domain OR explicit list OR Auth0 group
+   claim). Provision as GCP secret `cloudflare-access-allow-rule`;
+   format auto-detected by Codex:
+   - `@cybx.io` (starts with @) → email_domain rule
+   - `alexis.k@cybx.io,kadyapam@gmail.com` (comma-separated) → email list
+
+Architectural rules
+-------------------
+  - Edge protection only. NO server-side JWT validation in this round.
+  - In-app Auth0 SPA flow (PR #17) untouched. Defense-in-depth: edge
+    gate + in-app token = two layers. UX consolidation is a separate
+    follow-up.
+  - Codex makes API calls via the CF token. Never echo token or
+    session cookies in stdout / memory / result JSON.
+  - Do NOT modify other Cloudflare Access apps. List + verify only.
+  - Do NOT touch DNS or Cloudflare proxy settings on the travel record.
+  - Do NOT call any Auth0 Management API. Kadyapam handled Auth0.
+  - Rollback is `DELETE /accounts/{account_id}/access/apps/{app_uuid}`
+    — Codex records the UUID prominently in the result JSON.
+  - If site is still 200 (unprotected) after 60s post-policy retry:
+    AMBER + STOP for diagnosis.
+  - Documentation in repos/travel + repos/docs. No code in muno or ops.
+  - PRs via standard flow; ai-meta pointer bumps local-only.
+
+Phases (7)
+----------
+  1. Pre-handoff verify: CF token works, Auth0 IdP exists, allow rule
+     secret exists, no existing Access app for travel, baseline curl
+     returns 200 (i.e., currently unprotected — the gap we're closing).
+  2. Create Self-hosted Access app for travel.mestumre.dev (Auth0 IdP
+     bound, 24h session, lax cookies). Capture App UUID.
+  3. Create Allow policy from the allow-rule secret. Capture Policy UUID.
+  4. Verify: anonymous curl returns 302 to <team>.cloudflareaccess.com.
+  5. Document in repos/travel/docs/auth/cloudflare-access.md + small
+     README mention. Open travel PR.
+  6. Update repos/docs/docs/tutorials/08-trip-planner-end-to-end.md
+     'Try it yourself' section to mention the Access challenge. Open
+     docs PR.
+  7. Close out: result JSON (with App UUID for rollback), memory entry,
+     codex-spike validation log, scoping doc Round 9 note, ai-meta
+     submodule pointer bumps (local-only).
+
+Result file shape mirrors prior round result JSONs. Required UUIDs:
+- cf_application_uuid (full — for rollback)
+- cf_policy_uuid (full)
+Captured in plaintext because they're not credentials, just resource IDs.
+
+Session cookies, tokens, secrets: NEVER in result/memory/docs.

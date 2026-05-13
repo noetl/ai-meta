@@ -1,0 +1,159 @@
+{
+  "id": "20260513-070000-cloudflare-access-travel",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T07:00:00Z",
+  "title": "Protect travel.mestumre.dev with Cloudflare Access (Auth0 IdP at the edge)",
+
+  "description": "URGENT: travel.mestumre.dev is currently public — anyone can fetch the muno SPA assets and probe the chat shell without authentication. PR noetl/travel#17 wired Auth0 login UX inside the app but did not gate the asset surface. Round 9 closes the gap by configuring Cloudflare Access at the edge of the Pages deployment, using Auth0 as the OIDC IdP that's already wired into Zero Trust for gateway.mestumre.dev. All work via Cloudflare API from Codex (token in GCP Secret Manager, never echoed). Pre-handoff: Cloudflare API token + Auth0 IdP confirmation. Cap: 1 travel PR (docs only) + Cloudflare Access app/policy created via API. No infra changes outside Cloudflare. Scoping reference: post-tutorial roadmap item (auth tightening) from `sync/issues/2026-05-12-trip-planner-app-scoping.md`.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 10800,
+  "max_iterations": 8,
+
+  "pre_handoff_for_kadyapam": {
+    "must_be_done_before_firing": "Three items. Round AMBERs at phase 1 if any missing.",
+
+    "step_1_cloudflare_api_token": "Create a scoped Cloudflare API token at https://dash.cloudflare.com/profile/api-tokens → **Create token** → **Custom token**.\n  - **Token name**: `noetl-zero-trust-access-edit`.\n  - **Permissions** (4 entries):\n    - **Account** → **Access: Apps and Policies** → **Edit**\n    - **Account** → **Access: Audit Logs** → **Read** (verification)\n    - **Zone** → **Zone** → **Read** (resolve zone IDs)\n    - **Zone** → **DNS** → **Read** (verify travel record present)\n  - **Account resources**: Include → the account that owns `mestumre.dev`.\n  - **Zone resources**: Include → `mestumre.dev`.\n  - **TTL**: 30 days (matches your other operational tokens).\n  - Click **Continue** → **Create token** → **Copy the token** (only shown once; starts with a long URL-safe string).\n\nProvision into GCP Secret Manager:\n```bash\necho -n '<paste-cf-token>' | gcloud secrets create cloudflare-access-token \\\n  --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n\ngcloud secrets add-iam-policy-binding cloudflare-access-token \\\n  --project=noetl-demo-19700101 \\\n  --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \\\n  --role=roles/secretmanager.secretAccessor\n```",
+
+    "step_2_confirm_auth0_idp_in_zero_trust": "Cloudflare Zero Trust needs Auth0 already registered as an Identity Provider — Codex doesn't create IdPs. Check at https://one.dash.cloudflare.com/ → your account → **Settings** → **Authentication** → **Login methods**.\n  - If an entry titled **Auth0** is present: nothing more to do.\n  - If not: add it now. Steps:\n    1. In Auth0 dashboard (https://manage.auth0.com), create a **Regular Web Application** named `Cloudflare Access — mestumre.dev` (NOT a SPA — Cloudflare Access uses the server-side OIDC code flow that needs a client secret).\n    2. Allowed Callback URLs: `https://<your-team-slug>.cloudflareaccess.com/cdn-cgi/access/callback` (the exact URL is shown in Cloudflare's Add Auth0 IdP form).\n    3. Copy the Auth0 Domain, Client ID, Client Secret into Cloudflare's Add Auth0 IdP form.\n    4. Save → confirm the Auth0 entry shows under Login methods.\n  - This is separate from the existing SPA app the muno app uses for its in-browser Auth0 flow (that one stays untouched).",
+
+    "step_3_decide_allow_rule": "Decide who is allowed through. Options (pick one):\n  - **Email domain** allowlist: e.g., `@cybx.io` (everyone on the team's Google Workspace).\n  - **Explicit email list**: e.g., `alexis.k@cybx.io,kadyapam@gmail.com`.\n  - **Auth0 group claim** (advanced): e.g., user has `groups: ['noetl-team']` in their Auth0 token.\n\nStash the chosen rule in a GCP secret so Codex doesn't infer it:\n```bash\n# email domain form\necho -n '@cybx.io' | gcloud secrets create cloudflare-access-allow-rule \\\n  --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n\n# OR explicit emails (comma-separated)\necho -n 'alexis.k@cybx.io,kadyapam@gmail.com' | gcloud secrets create cloudflare-access-allow-rule \\\n  --replication-policy=automatic --project=noetl-demo-19700101 --data-file=-\n\ngcloud secrets add-iam-policy-binding cloudflare-access-allow-rule \\\n  --project=noetl-demo-19700101 \\\n  --member=serviceAccount:noetl-worker-mcp@noetl-demo-19700101.iam.gserviceaccount.com \\\n  --role=roles/secretmanager.secretAccessor\n```\n\nCodex auto-detects the format (starts with `@` → domain rule; contains `,` or `@` mid-string → emails list)."
+  },
+
+  "design_brief_for_codex": {
+    "cloudflare_api_basics": "All API calls go to `https://api.cloudflare.com/client/v4/`. Auth header: `Authorization: Bearer <token>`. Content-Type: `application/json`. Read the token via `gcloud secrets versions access latest --secret=cloudflare-access-token --project=noetl-demo-19700101` and never echo it.\n\nReference: https://developers.cloudflare.com/api/operations/access-applications-add-an-application\n\nThe Access app type for a Pages-hosted SPA is **'self_hosted'** — Cloudflare's Access challenge happens at the edge regardless of where the origin actually lives.",
+
+    "discover_account_and_zone_ids": "First call (verifies the token works):\n```\nGET /accounts\n```\nResponse `.result[]` is the list of accounts the token can see. Find the one that owns `mestumre.dev`. Capture its `id` (the Account ID).\n\nNext:\n```\nGET /zones?name=mestumre.dev\n```\nCapture `.result[0].id` (the Zone ID). Sanity check: `.result[0].account.id` matches the Account ID from above.\n\nNext (verification):\n```\nGET /zones/{zone_id}/dns_records?name=travel.mestumre.dev\n```\nThe record should exist (added during round 20260513-040000 or thereabouts). If not present: AMBER + STOP and surface the discrepancy to Kadyapam.",
+
+    "verify_auth0_idp_exists": "```\nGET /accounts/{account_id}/access/identity_providers\n```\nLook through `.result[]` for an entry where `type == 'oidc'` AND `name` contains `auth0` (case-insensitive). Capture its `id` (the IdP UUID). If none found: AMBER + STOP and surface the missing-IdP gap to Kadyapam (pre-handoff step 2 must have been skipped).",
+
+    "create_self_hosted_access_application": "```\nPOST /accounts/{account_id}/access/apps\n```\nBody:\n```json\n{\n  \"name\": \"travel\",\n  \"domain\": \"travel.mestumre.dev\",\n  \"type\": \"self_hosted\",\n  \"session_duration\": \"24h\",\n  \"allowed_idps\": [\"<auth0_idp_uuid>\"],\n  \"auto_redirect_to_identity\": false,\n  \"app_launcher_visible\": false,\n  \"http_only_cookie_attribute\": true,\n  \"same_site_cookie_attribute\": \"lax\",\n  \"service_auth_401_redirect\": false,\n  \"tags\": [\"noetl\", \"trip-planner\", \"travel\"]\n}\n```\nResponse `.result.id` is the Application UUID. Capture it.\n\nDo NOT set `auto_redirect_to_identity: true` — let users see Cloudflare's IdP selector page first. (If exactly one IdP is bound to the app, Cloudflare auto-redirects anyway.)",
+
+    "create_allow_policy": "```\nPOST /accounts/{account_id}/access/apps/{application_id}/policies\n```\nBody depends on the rule format Codex auto-detected from the `cloudflare-access-allow-rule` secret:\n\n**If rule starts with `@`** (email domain):\n```json\n{\n  \"name\": \"team allowlist\",\n  \"decision\": \"allow\",\n  \"include\": [{ \"email_domain\": { \"domain\": \"<from-secret>\" } }],\n  \"precedence\": 1\n}\n```\n\n**If rule is comma-separated emails**:\n```json\n{\n  \"name\": \"team allowlist\",\n  \"decision\": \"allow\",\n  \"include\": [\n    { \"email\": { \"email\": \"alexis.k@cybx.io\" } },\n    { \"email\": { \"email\": \"kadyapam@gmail.com\" } }\n  ],\n  \"precedence\": 1\n}\n```\n\nResponse `.result.id` is the Policy UUID. Capture it.",
+
+    "verify_protection_anonymous_probe": "After the policy lands (give it ~10s to propagate at the edge):\n```bash\ncurl -sv -o /dev/null https://travel.mestumre.dev/ 2>&1 \\\n  | grep -iE '^< (HTTP|location|cf-)'\n```\nExpected (proves protection is live):\n- `HTTP/2 302`\n- `location: https://<team>.cloudflareaccess.com/cdn-cgi/access/login/<app-id>?...` (or `/cdn-cgi/access/sso/oidc/...`)\n- `cf-ray: ...` header present\n\nIf the response is `HTTP/2 200` with the muno HTML: protection is NOT yet active. Wait 30s and re-probe; if still 200 after 60s, AMBER + STOP (likely a policy-binding issue).\n\nAlso probe the `/cdn-cgi/access/get-identity` endpoint (should reject without a session cookie):\n```bash\ncurl -sv https://travel.mestumre.dev/cdn-cgi/access/get-identity 2>&1 \\\n  | grep -iE '^< HTTP'\n```\nExpected `HTTP/2 401` or `HTTP/2 302`.",
+
+    "existing_access_apps_safety": "Codex must NEVER modify or delete existing Access applications (e.g., the one that fronts `gateway.mestumre.dev`). List existing apps once at the start of the round to be sure the `travel` app doesn't already exist:\n```\nGET /accounts/{account_id}/access/apps?name=travel\n```\nIf an existing app with the same name OR same domain already exists: AMBER + STOP with a clear message (likely from a prior partial run). Do not auto-update; let Kadyapam decide.",
+
+    "documentation_added": "  - `repos/travel/docs/auth/cloudflare-access.md` — runbook: pre-handoff steps, the API endpoints called, how to verify, how to add a user (or rotate the allow rule), and the security model (edge auth + in-app Auth0 = defense-in-depth).\n  - Note clearly: the in-app Auth0 SPA flow from PR #17 is unchanged. Users now log in at the edge first, then again inside the app. UX-cleanup work to consolidate is documented as a follow-up under `repos/travel/docs/auth/cloudflare-access.md` 'Open follow-ups' subsection.\n  - Add a brief mention to `repos/travel/README.md`: 'Live: https://travel.mestumre.dev/ (gated by Cloudflare Access — request from <team email>).'\n  - Update `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md` 'Try it yourself' section to note the Cloudflare Access challenge is the first step now.",
+
+    "what_NOT_to_do": "  - DO NOT call any Auth0 Management API. Auth0 side is done; Codex only consumes the IdP UUID Cloudflare already knows about.\n  - DO NOT modify or delete other Cloudflare Access apps. List + verify only.\n  - DO NOT touch DNS records. The `travel` A/CNAME record is already correctly configured.\n  - DO NOT echo the CF token, the IdP secret, the allowlist secret, or any session cookies in stdout or memory entries.\n  - DO NOT widen the Auth0 SPA app's allowed callback URLs (separate concern — Kadyapam owns Auth0 config).\n  - DO NOT change Cloudflare proxy mode or TLS settings on the travel record.\n  - DO NOT add server-side JWT validation to NoETL in this round. Defense-in-depth via Access at the edge is the v1 fix; in-app token validation is a separate follow-up round.\n  - DO NOT bypass-test by adding a service auth token to the policy — service auth is a different flow and out of scope here.",
+
+    "rollback_plan": "If anything goes wrong (e.g., the policy is too restrictive and locks Kadyapam out): rollback is just deleting the Access application:\n```\nDELETE /accounts/{account_id}/access/apps/{application_id}\n```\nWithout the app, Cloudflare doesn't gate the hostname and the site is open again. Document the application UUID prominently in the result JSON so Kadyapam can run this rollback by hand if needed."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm CF token, Auth0 IdP, and allow rule are all in place.",
+      "spec": [
+        "`gcloud secrets describe cloudflare-access-token --project=noetl-demo-19700101` → exists.",
+        "Per-secret IAM filter for `noetl-worker-mcp` shows `secretAccessor`.",
+        "`gcloud secrets describe cloudflare-access-allow-rule --project=noetl-demo-19700101` → exists.",
+        "Cloudflare API token works: `GET /accounts` returns at least one account.",
+        "Find the account owning mestumre.dev → capture Account ID.",
+        "`GET /zones?name=mestumre.dev` → exactly one match; capture Zone ID.",
+        "`GET /zones/{zone_id}/dns_records?name=travel.mestumre.dev` → exactly one match (the A or CNAME record).",
+        "`GET /accounts/{account_id}/access/identity_providers` → at least one Auth0 IdP entry; capture its UUID.",
+        "Verify no existing Access app already protects `travel.mestumre.dev`: `GET /accounts/{account_id}/access/apps?name=travel` → empty OR none with `domain == travel.mestumre.dev`. If conflict: AMBER + STOP.",
+        "Anonymous baseline probe (proves the site is currently UNPROTECTED — the bug we're fixing): `curl -sv -o /dev/null https://travel.mestumre.dev/` → HTTP/2 200, NOT 302. Record this baseline.",
+        "If any check fails: AMBER + STOP."
+      ],
+      "verify": "All pre-handoff items confirmed; account/zone/IdP UUIDs captured; current public-access baseline recorded."
+    },
+
+    "2_create_access_application": {
+      "objective": "POST the Self-hosted Access app for travel.mestumre.dev.",
+      "spec": [
+        "Build the request body per `design_brief_for_codex.create_self_hosted_access_application`.",
+        "Substitute the captured Auth0 IdP UUID into `allowed_idps`.",
+        "`POST /accounts/{account_id}/access/apps`.",
+        "Capture the Application UUID from `.result.id`. Record prominently for rollback."
+      ],
+      "verify": "App created; UUID captured; `GET /accounts/{account_id}/access/apps/{app_uuid}` returns the new app."
+    },
+
+    "3_create_allow_policy": {
+      "objective": "POST the allow policy binding the app to the chosen rule.",
+      "spec": [
+        "Read `cloudflare-access-allow-rule` secret; auto-detect format (starts with `@` → email_domain rule; comma-separated emails → email rules; single value containing `@` → single email).",
+        "Build the policy body per `design_brief_for_codex.create_allow_policy`.",
+        "`POST /accounts/{account_id}/access/apps/{app_uuid}/policies`.",
+        "Capture Policy UUID."
+      ],
+      "verify": "Policy created; `GET /accounts/{account_id}/access/apps/{app_uuid}/policies` shows exactly one policy."
+    },
+
+    "4_verify_protection_active": {
+      "objective": "Confirm the site is now gated.",
+      "spec": [
+        "Wait ~15s after policy creation for edge propagation.",
+        "Run the anonymous probe per `design_brief_for_codex.verify_protection_anonymous_probe`.",
+        "Expected: HTTP/2 302 with location starting `https://<team>.cloudflareaccess.com/cdn-cgi/access/`. Record the exact location header in the result JSON (minus query params with session tokens).",
+        "Also probe `https://travel.mestumre.dev/cdn-cgi/access/get-identity` → 401 or 302.",
+        "If site still returns 200 after 60s of retries: AMBER + STOP; surface this for diagnosis."
+      ],
+      "verify": "Anonymous request gets challenged at the edge."
+    },
+
+    "5_document_in_repos": {
+      "objective": "Author the auth docs in repos/travel.",
+      "spec": [
+        "Per `design_brief_for_codex.documentation_added`. Open one repos/travel PR with the doc additions.",
+        "Cross-link to the post-tutorial roadmap section in the scoping doc.",
+        "Document the rollback recipe (DELETE app UUID).",
+        "DO NOT include the actual UUIDs in the docs (they're operational data, kept in the result JSON only)."
+      ],
+      "verify": "Docs PR open. Merge after self-review."
+    },
+
+    "6_update_tutorial_08": {
+      "objective": "Add the Access challenge note to tutorial 08 in repos/docs.",
+      "spec": [
+        "Edit `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md` 'Try it yourself' section: add a step before any others noting that the first thing a visitor sees is a Cloudflare Access login challenge, not the muno chat shell. Brief mention that the team email allowlist is what controls who can get in.",
+        "Open a small repos/docs PR with just this update."
+      ],
+      "verify": "Docs PR open; tutorial reflects the auth gate."
+    },
+
+    "7_close_out": {
+      "objective": "Result JSON, memory, scoping doc update, ai-meta pointer bumps.",
+      "spec": [
+        "Result file: `bridge/outbox/20260513-070000-cloudflare-access-travel.result.json`. Required: id, status, summary, cf_application_uuid, cf_policy_uuid, baseline_curl_status (200 before), post_curl_status (302 after), post_curl_location_prefix (redacted), rollback_command, travel_pr_url, docs_pr_url, ai_meta_submodule_pointer_bump_shas, cleanup, verdict.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "Memory entry at `ai-meta/memory/inbox/2026/05/<timestamp>-cloudflare-access-travel-green.md`. Include the CF Application UUID + Policy UUID for the audit trail (these are not credentials; just resource IDs).",
+        "Update `ai-meta/sync/issues/2026-05-12-trip-planner-app-scoping.md` adding a 'Round 9 GREEN: travel.mestumre.dev is now Cloudflare Access protected' note.",
+        "Bump `repos/travel` and `repos/docs` submodule pointers locally. Do NOT push ai-meta."
+      ],
+      "verify": "All artefacts written; PRs merged; ai-meta pointer bumps local."
+    }
+  },
+
+  "architectural_rules": [
+    "Cloudflare Access at the edge, Auth0 as the IdP. Defense-in-depth with the existing in-app Auth0 SPA flow from PR noetl/travel#17.",
+    "Codex makes API calls via the CF token in GCP Secret Manager. Never echo the token or any session cookies.",
+    "Do NOT modify other Cloudflare Access applications. List + verify only.",
+    "Do NOT touch DNS records. Do NOT change Cloudflare proxy mode.",
+    "Do NOT modify Auth0 config (Kadyapam handled the Auth0 side already).",
+    "Do NOT add server-side JWT validation in this round. Edge protection only.",
+    "Do NOT bypass-test with service auth. Real anonymous probe confirms the gate.",
+    "Rollback is documented and easy: DELETE the Access app UUID.",
+    "Allow rule comes from the `cloudflare-access-allow-rule` secret. Codex auto-detects the format (domain vs emails).",
+    "Documentation additions in repos/travel + repos/docs only. No code changes in this round.",
+    "PRs via standard flow.",
+    "ai-meta pointer bumps local-only; Kadyapam pushes ai-meta."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-070000-cloudflare-access-travel.result.json`. Required: id, status (GREEN if anonymous probe returns 302), summary, cf_account_id_last4 (redact prefix for audit-only), cf_zone_id_last4, auth0_idp_uuid_last4, cf_application_uuid (full — needed for rollback), cf_policy_uuid (full), baseline_curl_status_before, post_curl_status_after, post_curl_location_host_only (e.g., `<team>.cloudflareaccess.com` — not the full URL with token), rollback_command_template, travel_pr_url, docs_pr_url, ai_meta_submodule_pointer_bump_shas, cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md",
+    "memory/inbox/2026/05/20260513-062528-travel-pages-auth0-stage-report.md (current state of travel deployment)",
+    "https://developers.cloudflare.com/api/operations/access-applications-add-an-application",
+    "https://developers.cloudflare.com/api/operations/access-applications-add-a-policy",
+    "https://developers.cloudflare.com/cloudflare-one/identity/idp-integration/auth0/",
+    "https://developers.cloudflare.com/cloudflare-one/policies/access/",
+    "noetl/travel#17 (the in-app Auth0 SPA flow PR — left untouched in this round)"
+  ]
+}
