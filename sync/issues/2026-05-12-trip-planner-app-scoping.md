@@ -272,7 +272,19 @@ complete.
 
 ### Round 9 — gateway-session auth for travel.mestumre.dev
 
-Status 2026-05-13: AMBER pending Kadyapam browser smoke. The original
+Status 2026-05-13: **GREEN**. Kadyapam confirmed the live browser flow:
+sign-in → Auth0 → gateway link → chat shell renders, `Bearer <session_token>`
+attached on subsequent gateway calls. Long debug arc resolved via PRs
+noetl/travel#18 → #19 → #20 (bounded timeout/error surfacing) → #21 (replaced
+Auth0 React SDK with the exact GUI hash-flow pattern) → #22 (removed stale
+`api.travel.mestumre.dev` audience plumbing); plus noetl/ops#89 fixing the GKE
+gateway CORS allowlist for the Cloudflare Tunnel path (the real cause of the
+'Linking to gateway...' hang). Audit trail in
+`bridge/outbox/codex-spike-green-validation.md`,
+`memory/inbox/2026/05/20260513-082800-travel-gateway-cors-tunnel-hotfix.md`,
+and `memory/inbox/2026/05/20260513-090000-travel-auth0-audience-hotfix.md`.
+
+The original
 Cloudflare Access edge-gating plan was superseded because it did not match the
 NoETL GUI identity model. The corrected round mirrors `repos/gui`:
 Auth0 SPA login produces an ID token, Travel posts `{ auth0_token,

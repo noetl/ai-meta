@@ -1,0 +1,86 @@
+Travel gateway-session auth is now GREEN on https://travel.mestumre.dev.
+
+What changed since the corrected Round 9 handoff:
+
+1. noetl/travel#18 implemented the GUI-style gateway-session flow for Travel.
+   Travel signs in with Auth0, exchanges the Auth0 ID token with
+   https://gateway.mestumre.dev/api/auth/login, stores the returned
+   session_token/user_info, and sends Authorization: Bearer <session_token> to
+   gateway-backed NoETL calls.
+
+2. noetl/travel#19 added the GUI Auth0 SPA fallback config so Pages builds do
+   not strand the sign-in pane when VITE_AUTH0_* values are absent.
+
+3. noetl/travel#20 added bounded timeout/error surfacing for gateway linking
+   so the UI no longer hangs forever on "Linking to gateway...".
+
+4. noetl/travel#21 replaced the Auth0 React SDK handoff with the exact GUI
+   pattern: direct Auth0 authorize URL, response_type=id_token token, parse
+   id_token from /callback#..., then POST it to /api/auth/login.
+
+5. noetl/ops#89 fixed the GKE gateway CORS allowlist for the Cloudflare Tunnel
+   path. The live gateway now allows https://travel.mestumre.dev plus local
+   Vite origins. This was why the auth playbook never started: the browser
+   preflight was blocked before the POST reached GKE.
+
+6. noetl/travel#22 removed the stale Auth0 audience plumbing. Travel was
+   passing audience=https://api.travel.mestumre.dev, but that Auth0 API does
+   not exist and should not exist for this flow. The live bundle now contains
+   no api.travel string and no audience string.
+
+Validation already completed:
+
+- Cloudflare Pages main deploy for travel#22 passed: run 25810371735.
+- Live bundle check against https://travel.mestumre.dev confirmed no
+  api.travel/audience strings.
+- Kadyapam browser-tested the deployed app and reported: "it works."
+- ai-meta records the audit trail in:
+  - bridge/outbox/codex-spike-green-validation.md
+  - sync/issues/2026-05-12-trip-planner-app-scoping.md
+  - memory/inbox/2026/05/20260513-082800-travel-gateway-cors-tunnel-hotfix.md
+  - memory/inbox/2026/05/20260513-090000-travel-auth0-audience-hotfix.md
+
+How to test login safely:
+
+Option A, preferred manual smoke:
+
+1. Open a fresh incognito/private browser window.
+2. Go to https://travel.mestumre.dev.
+3. Click Sign in.
+4. Use the existing Auth0 test user that Kadyapam uses for the NoETL GUI.
+   Do not write the password into prompts, memory, logs, screenshots, or result
+   files. If the password was exposed in any transcript, rotate it in Auth0.
+5. After Auth0 redirects back, confirm the app leaves "Linking to gateway..."
+   and loads the Travel chat shell.
+6. In DevTools Network, confirm:
+   - POST https://gateway.mestumre.dev/api/auth/login returns 200.
+   - Subsequent gateway calls carry Authorization: Bearer <session_token>.
+7. Start a small trip-planner prompt and confirm a widget renders.
+
+Option B, local dev smoke:
+
+1. Only use local dev when testing unmerged frontend changes.
+2. From repos/travel run npm run dev and open http://127.0.0.1:5173.
+3. Local Vite origins are now allowed by gateway CORS, but the deployed
+   Cloudflare Pages surface is the canonical production smoke.
+
+Important constraints:
+
+- Do not reintroduce Cloudflare Access for this app. Round 9 intentionally uses
+  gateway-mediated Auth0 sessions, mirroring repos/gui.
+- Do not add api.travel.mestumre.dev as an Auth0 API. Travel needs an ID token,
+  not an API access token, for the gateway-session exchange.
+- Do not store Auth0 passwords, session tokens, Cloudflare tokens, or any token
+  bytes in ai-meta. This repository is public.
+- Firestore rules are still permissive v1; per-user Firestore hardening remains
+  a future follow-up.
+
+Suggested next items after this GREEN:
+
+1. NoETL server-side hardening: verify/validate gateway session semantics where
+   needed, do not trust frontend state alone.
+2. Per-uid Firestore rules and authenticated Firebase reads.
+3. Tutorial 08 production-auth update if the screenshots/docs still show
+   guest-only or pre-auth behavior.
+4. Optional cleanup: remove any remaining stale Auth0 audience references from
+   external deployment settings/secrets if they are no longer used.
