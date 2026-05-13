@@ -315,6 +315,18 @@ Cloudflare Pages deploy run `25807101113` completed successfully and the live
 bundle contains the direct hash-token flow. The next browser smoke should start
 the gateway auth playbook immediately after Auth0 redirects back.
 
+Status 2026-05-13 third update: the remaining blocker was GKE gateway CORS on
+the Cloudflare Tunnel path. The deployed `noetl-gateway` Helm release only
+allowed `https://mestumre.dev` and `https://gateway.mestumre.dev`, so preflight
+from `https://travel.mestumre.dev` and `http://127.0.0.1:5173` returned 200 but
+without `access-control-allow-origin`; the browser correctly blocked the POST
+before the auth playbook could start. Live mitigation was applied with Helm
+revision 112, adding `https://travel.mestumre.dev`, `http://localhost:5173`, and
+`http://127.0.0.1:5173` to `CORS_ALLOWED_ORIGINS`. `noetl/ops#89` merged at
+`16e0ef7` to make the fix durable in the gateway Helm values and GKE fresh-stack
+automation. Post-fix preflight and invalid-token POST probes now return
+`access-control-allow-origin` for the Travel and Vite dev origins.
+
 Final GREEN requires a browser smoke: incognito visit to
 `travel.mestumre.dev`, Auth0 login as the allowed user, `Linking to gateway...`,
 chat shell visible, and gateway requests carrying the session bearer token.
