@@ -1,0 +1,142 @@
+{
+  "id": "20260513-030000-tutorial-08-end-to-end",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T03:00:00Z",
+  "title": "End-to-end trip-planner tutorial 08 in repos/docs (trip-planner Round 7 — cap-stone)",
+
+  "description": "Write the cap-stone tutorial for the Adiona/muno trip-planner project at `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md`. Walks the reader through a complete trip-planning session in muno against the GKE NoETL backend. Uses 8 captured screenshots from Kadyapam's local demo run at `/Volumes/X10/projects/adiona/tutorial_screenshots/`. References execution IDs as proofs from prior rounds. Includes a Firestore replay walkthrough using `ai-meta/scripts/firestore_replay.sh`. Explicit 'What's NOT covered' section pointing at post-tutorial roadmap (real-money booking, mobile responsive, multi-user auth, ICS export, Google Calendar push). Cap: 1 docs PR (`repos/docs`). Pre-handoff: NONE — screenshots already captured. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` Round 7 section.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "DONE. Screenshots captured at /Volumes/X10/projects/adiona/tutorial_screenshots/. No new GCP setup. No new secrets.",
+    "screenshot_inventory": [
+      "01-chat-start.png — 3-column shell visible; bot greeting + user 'Find flights to Paris'; PlaceAutocompleteInput with 'Paris'; Eiffel Tower place card; DateRangePicker (07/01/2026 → 07/05/2026, 4 nights). Right pane shows Trip state with Destination: Paris.",
+      "02-places-card.png — Scrolled view showing the full Eiffel Tower place card (landmark tag, 120000 reviews, Add to itinerary CTA) + the first flight card emerging.",
+      "03-date-picker.png — Closer view of DateRangePicker + the flight list with 2 UA SFO→JFK 199 USD offers, Watch In Detail + Book This CTAs.",
+      "04-flight-search.png — Flight cards in detail + Hotels section header with 'Relax filters for more options' info banner.",
+      "05-picked-flight.png — Order confirmation card 'Booking confirmed / Reference ABC123 / USD 199.00 / Alex (passenger)' with View full order + New search CTAs. Hotels showing Central Hotel (8.7/10, 4 stars, 'Rooms matching: 3', USD 180).",
+      "06-hotel-search.png — Hotel card + Schedule section emerging (Jul 15 2026 8AM Depart SFO + Jul 15 2026 12PM Hotel check-in events with edit pencils).",
+      "07-calendar-view.png — Full Schedule (CalendarView widget) + Itinerary Summary card (Paris, 2026-07-01 to 2026-07-05, Party JSON, Draft itinerary, USD 1200 total, Confirm + Edit CTAs).",
+      "08-itinerary-summary.png — Same Schedule + Itinerary Summary visible PLUS the input bar at thread bottom ('Tell Adiona where you want to go' placeholder + Send button)."
+    ],
+    "known_v1_polish_nits_to_flag_honestly_in_tutorial": [
+      "Party renders as raw JSON `{\"adults\":2}` instead of 'Party: 2 adults' — v1 formatting nit.",
+      "Place card photo placeholder is grey — Google Places photo URLs not yet wired through the widget renderer.",
+      "Hotel card photo placeholder is grey — same as above for Amadeus hotels.",
+      "Booking reference 'ABC123' is a synthetic placeholder rendered by the agent — actual Duffel test booking refs (like 'XKQAYC' from round 20260512-220000) are stored in Firestore but not yet displayed verbatim in the OrderConfirmation widget.",
+      "Schedule shows 'Jul 15, 2026' while date picker shows '07/01/2026 → 07/05/2026' — captured across multiple demo runs; date consistency is a v1 polish item.",
+      "Trip state right pane shows only Destination + Dates in this capture; the full slot accumulator (party, star rating, budget, etc.) is wired but collapsed in the screenshot — note the design supports a richer panel that future rounds will surface fully."
+    ]
+  },
+
+  "design_brief_for_codex": {
+    "tutorial_audience": "Developers and product folks who've already read tutorial 07 (`07-travel-agent-with-widgets.md`) and want to see the end-to-end trip-planner story — how the LLM-driven agent, Firestore event sourcing, Duffel orders, Amadeus hotels, Google Places, and the muno chat UI fit together to plan a real trip. Reading level: assumes familiarity with NoETL playbooks and the prior travel agent tutorial; does NOT assume Firebase or React knowledge.",
+
+    "tutorial_structure": "Approximately 7 sections totaling ~1000-1400 lines of markdown:\n\n  ## Vision (intro, ~60 lines)\n     - One-paragraph 'what we built and why'.\n     - Diagram (mermaid): user → muno chat UI → NoETL itinerary-planner agent → mcp/{firestore,duffel,google-places,amadeus} → Duffel/Amadeus/Google APIs.\n     - 'Rounds 1-7' summary table with status + key link per round (pull from the memory files at `ai-meta/memory/inbox/2026/05/*-green.md`).\n     - Embedded screenshot 01-chat-start.png as the hero image.\n\n  ## Prerequisites (~80 lines)\n     - GCP project (noetl-demo-19700101) with: Firestore Native, mcp/{firestore,duffel,google-places,amadeus} playbooks registered, secrets (duffel-api-test, google-maps-widget-key) provisioned.\n     - GKE cluster `noetl-cluster` in us-central1 with WI annotation on noetl-worker-mcp.\n     - muno repo cloned + `npm install` ready. VITE_GOOGLE_MAPS_KEY env var.\n     - Reference Pattern C setup playbook + the Duffel/Firestore round memories.\n\n  ## Walkthrough (~600 lines, 8 numbered sub-sections — one per screenshot)\n     1. **Starting the chat** (uses 01-chat-start.png). Reader runs `kubectl port-forward` + `npm run dev`. Sees the 3-column shell. Notes the Guest mode + the Trip state right pane.\n     2. **Free-form chat → place card** (uses 02-places-card.png). User types 'Find flights to Paris'. Agent's LLM extraction step pulls `slot_updates.region`. Tool dispatch to `mcp/google-places.search_text`. Renders a `place_list` containing the Eiffel Tower card.\n     3. **Date-range picker → date selection** (uses 03-date-picker.png). Agent emits a `date_range_picker` widget. User submits 07/01/2026 → 07/05/2026. Event: `user_widget_submit` → agent applies `slot_updates.check_in_date` + `check_out_date`. Right pane updates.\n     4. **Flight search** (uses 04-flight-search.png). Agent dispatches `mcp/duffel.search_offers` with SFO→JFK (or CDG depending on inferred origin). Results emit as `flight_list` containing `flight_card.compact` items. Show the 'Watch In Detail' + 'Book This' CTAs.\n     5. **Book a flight (test-env order)** (uses 05-picked-flight.png). User clicks 'Book This'. Agent dispatches `mcp/duffel.create_order` with synthetic passenger + balance payment. Receives a real Duffel test booking reference. Emits `order_confirmation` widget showing the booking confirmed state. Hotels start loading underneath.\n     6. **Hotel search via Amadeus** (uses 06-hotel-search.png). Agent dispatches `mcp/amadeus.search_hotels`. Surfaces 'Relax filters for more options' upsell banner. Shows Central Hotel card. Notes the friendly-failure path if Amadeus 500-flakes — covered in `sync/issues/2026-05-11-amadeus-test-api-500s.md`.\n     7. **Schedule populates via Firestore** (uses 07-calendar-view.png). After flight order + hotel pick, the agent writes calendar event documents to `users/{uid}/trips/{tripId}/events/` via `mcp/firestore.set_doc`. The `CalendarView` widget subscribes via Firebase JS SDK `onSnapshot` and rerenders. Show the schedule: Flight departs SFO + Hotel check-in.\n     8. **Itinerary summary + Confirm** (uses 08-itinerary-summary.png). Agent emits `itinerary_summary` with the picked flight + picked hotel + total cost. User clicks Confirm → agent finalizes the trip in Firestore. Input bar visible at the bottom for free-form chat (e.g. 'add a 3pm meeting on Wednesday' → user_note calendar event).\n\n  ## Behind the scenes — replay the session (~100 lines)\n     - Show `ai-meta/scripts/firestore_replay.sh thread-list --limit 5` to find the demo thread.\n     - Run `firestore_replay.sh events chat_threads/{thread_id} --from 1 --to 30` to walk the event log.\n     - Output snippet showing user_message → agent_slot_update → agent_tool_call → agent_tool_response → agent_widget_emit chain.\n     - Reference `events/api_calls/` for full request/response audit (with header redaction confirmed).\n     - Note that replay is deterministic for slot updates + widget sequence; LLM chat text drift is tolerated.\n\n  ## What's NOT covered in v1 (~80 lines, roadmap section)\n     - Real-money booking (Thread 3 — payment + monetization decisions: PCI scope, processor choice, KYC).\n     - Mobile responsive (Figma has `mob-*` variants; deferred to a Round 6c).\n     - Multi-user auth (Firebase Auth — current state is Guest only).\n     - Google Calendar sync (Kadyapam locked to Firestore-only; documented in `muno/docs/architecture/calendar-design.md`).\n     - ICS export (post-tutorial).\n     - Place + hotel photo wiring (placeholders in v1).\n     - Party display polish ('2 adults' instead of raw JSON).\n     - Real booking reference display.\n     - Right-pane property block full slot surfacing.\n     - Filter narrowing widgets (star rating slider, budget range, amenities checkbox group) — wired in schema but agent doesn't yet emit them.\n\n  ## Try it yourself (~80 lines)\n     - Clone muno + dependencies.\n     - Run `kubectl -n noetl port-forward svc/noetl 8082:8082` (matches the prior tutorials' pattern).\n     - `VITE_GOOGLE_MAPS_KEY=$(gcloud secrets versions access latest --secret=google-maps-widget-key --project=noetl-demo-19700101) npm run dev`.\n     - Open http://localhost:5173.\n     - Type 'Find flights to Paris' and walk the flow.\n     - Inspect Firestore via the console OR via `firestore_replay.sh`.\n\n  ## Related (~40 lines)\n     - All 7 rounds' memory entries with brief one-liners.\n     - The scoping doc.\n     - Pattern C setup playbook.\n     - Figma source path (the design that drove the UI).",
+
+    "screenshot_handling": "Copy all 8 PNGs from `/Volumes/X10/projects/adiona/tutorial_screenshots/` into `repos/docs/static/img/tutorial-08/` (or wherever the Docusaurus/MkDocs/etc. static image dir is — INSPECT repos/docs structure first to determine the right location). Reference them from the markdown with relative paths per the docs site's convention. Optimize each PNG via `optipng -o 5` or `pngquant` if those binaries are available, otherwise commit as-is.",
+
+    "execution_ids_to_cite": "Pull authentic execution IDs from the result JSONs in `bridge/outbox/`:\n  - Pattern C SA OAuth probe: 200 (from round 20260512-030000, but a probe not an execution ID).\n  - Duffel test order: 625452830463099795 (booking ref XKQAYC, from round 20260512-220000).\n  - Default-Duffel flights smoke: 625385246619337115 (from round 20260512-130000).\n  - Amadeus override smoke (friendly-failure path proof): 625309687340073612 (from round 20260512-130000).\n  - Firestore append_event smoke: capture from round 20260512-235000 result JSON.\n  - Itinerary agent end-to-end smoke from round 20260513-010000 result JSON.\n  - Calendar view live smoke: 625590045860168070 (from round 20260513-020000).\n\nUse these as inline proofs (e.g., 'A real test order produced booking reference XKQAYC; you can replay the full request/response audit via execution 625452830463099795').",
+
+    "what_NOT_to_do": "  - DO NOT claim production-mode capability. Everything in v1 is test-env: Duffel test wallet, Amadeus test API. Tutorial must say so explicitly in the Vision section.\n  - DO NOT show full Duffel test tokens, GCP service-account JSONs, Figma PATs, or any other credential bytes in code blocks. All examples use `<...>` placeholders.\n  - DO NOT recommend deploying the v1 permissive Firestore rules to a real production project. The tutorial's deployment section explicitly notes the rules are demo-only.\n  - DO NOT promise feature parity with commercial trip planners. The tutorial frames muno as a reference implementation + technical demo, not a competitor to Kayak/Hopper/Booking.com.\n  - DO NOT update tutorial 07's content. This is purely additive (a new 08).\n  - DO NOT modify muno or any other repo. The tutorial is entirely in repos/docs.",
+
+    "docs_site_inspection": "Before writing, INSPECT `repos/docs/` to determine: docs framework (likely Docusaurus or MkDocs Material), where existing tutorials 01-07 live, where static images go, the markdown frontmatter convention (e.g., `--- title: ... sidebar_position: 8 ---`), and how cross-tutorial links are formatted. Mirror the conventions exactly. The tutorial must build and render cleanly when the docs site is built locally."
+  },
+
+  "phases": {
+    "1_inspect_docs_repo_structure": {
+      "objective": "Determine the docs framework + conventions to mirror.",
+      "spec": [
+        "`ls repos/docs/` — note the framework files (docusaurus.config.js / mkdocs.yml / etc).",
+        "`ls repos/docs/docs/tutorials/` — confirm tutorial 07 exists and note its frontmatter shape.",
+        "`head -20 repos/docs/docs/tutorials/07-travel-agent-with-widgets.md` — capture the frontmatter convention.",
+        "Find where static images live: likely `repos/docs/static/img/` for Docusaurus or `repos/docs/docs/assets/` for MkDocs. Capture the path.",
+        "Run the docs build locally if possible (e.g., `npm run build` or `mkdocs build`) to confirm baseline GREEN — if not possible without extra deps, document the manual verification step in the result JSON."
+      ],
+      "verify": "Framework identified; image path chosen; tutorial 07 frontmatter captured."
+    },
+
+    "2_copy_and_optimize_screenshots": {
+      "objective": "Stage the 8 PNGs in the docs static-images directory.",
+      "spec": [
+        "Create `repos/docs/static/img/tutorial-08/` (or equivalent based on phase 1).",
+        "Copy all 8 PNGs from `/Volumes/X10/projects/adiona/tutorial_screenshots/` into that directory, preserving filenames (`01-chat-start.png` etc.).",
+        "Optimize via `optipng -o 5` or `pngquant --quality=85-95 --skip-if-larger` if available. If not, commit as-is.",
+        "Record original + optimized sizes in the result JSON."
+      ],
+      "verify": "8 PNGs land in the right directory; each is readable; total weight is reasonable (under ~5 MB combined target)."
+    },
+
+    "3_author_tutorial_markdown": {
+      "objective": "Write `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md` per the design brief.",
+      "spec": [
+        "Frontmatter matches tutorial 07's shape.",
+        "Title: 'Trip planner end-to-end (Adiona/muno)'.",
+        "All 7 sections present per design brief.",
+        "All 8 screenshots referenced inline at the right walkthrough steps.",
+        "All cited execution IDs are real values from the prior round result JSONs in `bridge/outbox/`.",
+        "Mermaid architecture diagram in the Vision section.",
+        "Honest 'v1 polish nits' surfaced in the 'What's NOT covered' section per `pre_handoff_for_kadyapam.known_v1_polish_nits_to_flag_honestly_in_tutorial`.",
+        "No leaked credentials or secret bytes — all token examples use `<...>` placeholders.",
+        "Cross-links to tutorial 07, to the scoping doc, and to all 7 round memory files."
+      ],
+      "verify": "Tutorial renders without markdown errors. Manual eyeball pass confirms screenshots line up with narrative steps. Length is 1000-1400 lines."
+    },
+
+    "4_docs_build_verify": {
+      "objective": "Confirm the docs site builds cleanly with the new tutorial.",
+      "spec": [
+        "Run the docs build locally (Docusaurus `npm run build` OR MkDocs `mkdocs build` OR whatever phase 1 identified).",
+        "Confirm: no broken internal links (especially the cross-references to tutorial 07 + the scoping doc).",
+        "Confirm: all 8 image references resolve.",
+        "Confirm: tutorial 08 appears in the sidebar/index at position 8 (sequenced after 07)."
+      ],
+      "verify": "Docs build GREEN; tutorial renders."
+    },
+
+    "5_open_docs_PR_and_close_out": {
+      "objective": "Standard close-out.",
+      "spec": [
+        "Open repos/docs PR: `docs(tutorials): add trip-planner end-to-end tutorial (Adiona/muno cap-stone)`.",
+        "PR body summarizes: cap-stone for the 7-round trip-planner project; references all prior rounds; explicit roadmap section enumerates post-tutorial work.",
+        "Merge after self-review.",
+        "Result file: `bridge/outbox/20260513-030000-tutorial-08-end-to-end.result.json`. Required: id, status, summary, docs_pr_url, docs_merge_sha, ai_meta_submodule_pointer_bump_sha, tutorial_word_count, screenshots_committed (8), broken_link_count (0 target), docs_build {ok, duration_s}, cleanup, verdict.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "Memory entry at `ai-meta/memory/inbox/2026/05/<timestamp>-tutorial-08-end-to-end-green.md` (NOT in muno — this is a repos/docs deliverable, not a muno deliverable).",
+        "Update `ai-meta/sync/issues/2026-05-12-trip-planner-app-scoping.md` adding a 'Round 7 GREEN' status note. Mark the whole project as 'feature complete + tutorial shipped'.",
+        "ai-meta side: bump `repos/docs` submodule pointer to the merged commit. Local commit only; Kadyapam pushes."
+      ],
+      "verify": "Docs PR merged; ai-meta pointer bumped; tutorial 08 live on the docs site after deployment."
+    }
+  },
+
+  "architectural_rules": [
+    "Lives entirely in repos/docs. NO changes to muno, repos/ops, repos/noetl, ai-meta scripts.",
+    "Screenshots copied verbatim from /Volumes/X10/projects/adiona/tutorial_screenshots/. Do NOT capture new screenshots; do NOT touch muno.",
+    "No production-mode claims. Tutorial repeats 'test env only' visibly in the Vision section.",
+    "No leaked credentials in code examples. All tokens shown as <...> placeholders.",
+    "All cited execution IDs are real values from prior round result JSONs.",
+    "Honest about v1 polish nits — list them explicitly in 'What's NOT covered'.",
+    "Cross-links to prior rounds use relative paths that work on the docs site.",
+    "Mermaid diagrams render via the docs site's mermaid plugin (verify in phase 4).",
+    "docs PR via standard flow.",
+    "ai-meta pointer bump local-only; Kadyapam pushes ai-meta."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-030000-tutorial-08-end-to-end.result.json`. Required: id, status, summary, docs_pr_url, docs_merge_sha, ai_meta_submodule_pointer_bump_sha, tutorial_path, tutorial_word_count, screenshots_committed (8 expected), screenshot_directory, mermaid_diagrams_count, execution_ids_cited (list), broken_link_count (0 target), docs_build {ok, duration_s, framework}, cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md — Round 7 section",
+    "All 7 prior round memory files in memory/inbox/2026/05/",
+    "All 7 prior round result JSONs in bridge/outbox/",
+    "/Volumes/X10/projects/adiona/tutorial_screenshots/ — the 8 PNGs",
+    "repos/docs/docs/tutorials/07-travel-agent-with-widgets.md — convention reference",
+    "playbooks/google-maps-platform-setup-pattern-c.md — referenced from the prerequisites section",
+    "scripts/firestore_replay.sh — referenced from the replay section"
+  ]
+}

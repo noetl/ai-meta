@@ -1,0 +1,112 @@
+Codex prompt — End-to-end trip-planner tutorial (trip-planner Round 7 — cap-stone)
+                repos/docs/docs/tutorials/08-trip-planner-end-to-end.md
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-030000-tutorial-08-end-to-end.task.json
+Result:        bridge/outbox/20260513-030000-tutorial-08-end-to-end.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+Screenshots:   /Volumes/X10/projects/adiona/tutorial_screenshots/ (8 PNGs)
+
+Round goal
+----------
+Write the cap-stone tutorial for the Adiona/muno trip-planner project.
+Walks a developer through a complete trip-planning session in muno
+against the GKE NoETL backend. References execution IDs as proofs from
+all 6 prior rounds. Includes a Firestore event replay walkthrough.
+Explicit honest 'What's NOT covered in v1' section enumerating
+post-tutorial roadmap items.
+
+Lives entirely in repos/docs. No muno, repos/ops, repos/noetl, or
+ai-meta scripts changes.
+
+Pre-handoff: NONE. Screenshots are already captured at
+/Volumes/X10/projects/adiona/tutorial_screenshots/:
+  - 01-chat-start.png
+  - 02-places-card.png
+  - 03-date-picker.png
+  - 04-flight-search.png
+  - 05-picked-flight.png
+  - 06-hotel-search.png
+  - 07-calendar-view.png
+  - 08-itinerary-summary.png
+
+Tutorial structure (~1000-1400 lines markdown)
+----------------------------------------------
+  1. Vision (intro + mermaid architecture diagram + rounds 1-7 summary
+     table + hero screenshot 01).
+  2. Prerequisites (GCP project, Firestore, secrets, muno install,
+     VITE_GOOGLE_MAPS_KEY).
+  3. Walkthrough — 8 numbered sub-sections, one per screenshot:
+     1. Starting the chat (01)
+     2. Free-form chat → place card (02)
+     3. Date-range picker → date selection (03)
+     4. Flight search (04)
+     5. Book a flight (test-env order) (05)
+     6. Hotel search via Amadeus (06)
+     7. Schedule populates via Firestore (07)
+     8. Itinerary summary + Confirm (08)
+  4. Behind the scenes — replay the session using
+     ai-meta/scripts/firestore_replay.sh.
+  5. What's NOT covered in v1 — explicit roadmap with honest v1 polish
+     nits (Party JSON rendering, placeholder photos, synthetic booking
+     ref display, etc.).
+  6. Try it yourself — CLI commands (port-forward + npm run dev + open
+     localhost:5173).
+  7. Related — cross-links to all 7 prior round memory files + scoping
+     doc + Pattern C playbook + Figma source.
+
+Execution IDs to cite (real values)
+-----------------------------------
+  - Duffel test order: 625452830463099795 (booking ref XKQAYC).
+  - Default-Duffel flights smoke: 625385246619337115.
+  - Amadeus override friendly-failure: 625309687340073612.
+  - Calendar view live smoke: 625590045860168070.
+  - Pull additional IDs from result JSONs in bridge/outbox/ as needed.
+
+Honest v1 polish nits to surface in 'What's NOT covered'
+--------------------------------------------------------
+  - Party renders as raw JSON `{"adults":2}`, should be '2 adults'.
+  - Place/hotel card photos are grey placeholders (Google Places +
+    Amadeus photo URLs not yet wired through).
+  - Booking reference 'ABC123' is the agent's synthetic placeholder
+    rendered in OrderConfirmation; real refs live in Firestore (real
+    Duffel test ref XKQAYC from round 1 smoke).
+  - Schedule shows 'Jul 15, 2026' while date picker shows
+    '07/01/2026 → 07/05/2026' — captured across multiple demo runs;
+    date consistency is a v1 polish item.
+  - Trip state right pane shows only Destination + Dates in screenshots;
+    full slot accumulator (party/star_rating/budget/etc.) is wired but
+    collapsed in the capture.
+  - Filter narrowing widgets (star rating slider, budget range,
+    amenities checkbox group) are in the schema but agent doesn't yet
+    emit them.
+
+Architectural rules
+-------------------
+  - Lives in repos/docs only.
+  - No muno or repos/ops/noetl changes.
+  - Screenshots used verbatim from
+    /Volumes/X10/projects/adiona/tutorial_screenshots/. NO new captures.
+  - No production-mode claims. Repeat 'test env only' in Vision section.
+  - All token/secret examples use `<...>` placeholders.
+  - All cited execution IDs are real values from result JSONs.
+  - Cross-tutorial links use relative paths the docs site recognises.
+  - Mermaid diagrams render via the docs site's plugin.
+  - docs PR via standard flow.
+  - ai-meta pointer bump local-only.
+
+Phases (5)
+----------
+  1. Inspect repos/docs structure (Docusaurus or MkDocs etc.).
+     Identify image dir convention + frontmatter shape from tutorial 07.
+  2. Copy + optimize 8 PNGs into the right static-images directory.
+  3. Author 08-trip-planner-end-to-end.md per the structure above.
+  4. Verify docs build GREEN locally; no broken links; all 8 images
+     resolve.
+  5. Open docs PR, close out (result JSON + memory entry + scoping doc
+     'Round 7 GREEN' note + ai-meta repos/docs pointer bump local).
+
+Result file shape mirrors prior round result JSONs in bridge/outbox/.
+If the docs site can't be built locally (missing dev deps in codex
+sandbox): note the manual-verification step in the result JSON; PR
+still merges after Kadyapam's eyeball pass.
