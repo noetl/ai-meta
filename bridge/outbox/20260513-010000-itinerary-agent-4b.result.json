@@ -1,0 +1,53 @@
+{
+  "id": "20260513-010000-itinerary-agent-4b",
+  "status": "GREEN",
+  "summary": "Implemented the Muno itinerary-planner playbook, prompts, canonical widget examples, docs, register helper, smoke helper, and muno-local memory. The feature landed through muno PR #1 and was merged to main.",
+  "muno_pr_url": "https://github.com/noetl/muno/pull/1",
+  "muno_merge_sha": "e777030b0b",
+  "ai_meta_submodule_pointer_bump_sha": "included in local ai-meta pointer commit",
+  "pre_handoff_checks": {
+    "muno_main_baseline": "4143d4cf892b89e608807bc359bf66d52382b91b",
+    "schemas_present": 24,
+    "widget_samples_present": 23
+  },
+  "agent_smokes": {
+    "extraction": {
+      "status": "static-green",
+      "notes": "Extraction prompt and Python fallback both emit {slot_updates, tool_requests, render_intent}; Miami/free-form path extracts region, dates, and party."
+    },
+    "dispatch": {
+      "status": "static-green",
+      "notes": "Workflow dispatches through mcp/firestore, mcp/google-places, mcp/duffel, and mcp/amadeus. Full live GKE smoke deferred to the registration/deployment round."
+    },
+    "widget_chat": {
+      "status": "green",
+      "notes": "Generated widget examples validate via npm run smoke:widgets."
+    },
+    "end_to_end": {
+      "status": "scripted",
+      "notes": "scripts/itinerary_agent_smoke.sh added for live NoETL execution once the playbook is registered."
+    },
+    "replay": {
+      "status": "designed",
+      "notes": "Replay fixture path documented as chat_threads/{thread_id}/api_calls/{call_id}; live replay smoke deferred until registered tool execution is available."
+    }
+  },
+  "replay_drift_metrics": {
+    "policy": "slot_updates and widget_type sequence must be stable; chat wording drift tolerated",
+    "live_measurement": "not-run"
+  },
+  "smoke_thread_cleanup_confirmed": "not-applicable-static-round",
+  "validation": [
+    "python yaml.safe_load(playbooks/itinerary-planner.yaml)",
+    "bash -n scripts/itinerary_agent_smoke.sh playbooks/deployment/register-with-noetl.sh",
+    "npm run smoke:widgets",
+    "npm run type-check",
+    "npm run build",
+    "noetl exec playbooks/itinerary-planner.yaml --dry-run --json"
+  ],
+  "cleanup": {
+    "branches": "kadyapam/itinerary-agent-4b deleted by squash merge",
+    "secrets_logged": false
+  },
+  "verdict": "GREEN for repository implementation and static validation; live NoETL/GKE registration smoke remains the next deployment step."
+}

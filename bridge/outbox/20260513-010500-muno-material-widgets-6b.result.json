@@ -1,0 +1,65 @@
+{
+  "id": "20260513-010500-muno-material-widgets-6b",
+  "status": "GREEN",
+  "summary": "Replaced the 23 JSON stub widgets with Material UI v6 implementations, added Adiona theme tokens, Inter font loading, Google Maps widget support, widget event callback plumbing, docs, and contract fixture tests. The feature landed through muno PR #2 and was merged to main.",
+  "muno_pr_url": "https://github.com/noetl/muno/pull/2",
+  "muno_merge_sha": "fdd7dc9803080a1507da92e7efd023246f8acd54",
+  "ai_meta_submodule_pointer_bump_sha": "included in local ai-meta pointer commit",
+  "figma_scope_used": "fallback",
+  "figma_scope_notes": "variables endpoint returned HTTP 403 for the current token scope; nodes endpoint succeeded, so the theme used curated frame-inspection fallback tokens.",
+  "theme": {
+    "tokens_count": 18,
+    "primary_color": "#2F6DF6",
+    "font_family": "Inter, Roboto, system-ui"
+  },
+  "widget_results": {
+    "bot_text": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "user_text": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "typing_indicator": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "clarify_question": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "date_range_picker": { "variants_implemented": ["compact"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "party_picker": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "place_autocomplete_input": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "action_chooser": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "flight_card": { "variants_implemented": ["compact", "full", "in_popover"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "flight_list": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "hotel_card": { "variants_implemented": ["compact", "full", "in_popover", "map_marker"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "hotel_list": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "hotel_compare": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "place_card": { "variants_implemented": ["compact", "full"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "place_list": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "map_view": { "variants_implemented": ["default", "no-key-preview"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "filter_panel": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "property_block": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "itinerary_summary": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "order_confirmation": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "notification": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "error_card": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true },
+    "loading_card": { "variants_implemented": ["default"], "smoke_status": "green", "fixture_envelope_render_ok": true }
+  },
+  "container_build": {
+    "wall_clock_s": 71.11,
+    "image_size_mb": 52.94,
+    "http_200_confirmed": true
+  },
+  "deps_added": [
+    "@fontsource/inter",
+    "@vis.gl/react-google-maps",
+    "date-fns",
+    "react-markdown"
+  ],
+  "validation": [
+    "npm run smoke:widgets",
+    "npm run test",
+    "npm run type-check",
+    "npm run build",
+    "podman build -t noetl-muno:6b-smoke .",
+    "podman run -p 18080:8080 noetl-muno:6b-smoke + curl http://localhost:18080/"
+  ],
+  "cleanup": {
+    "branches": "kadyapam/muno-material-widgets-6b deleted by squash merge",
+    "test_container_removed": true,
+    "test_image_removed": true
+  },
+  "verdict": "GREEN"
+}
