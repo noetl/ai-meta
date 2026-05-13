@@ -1035,3 +1035,19 @@ token and then exchange that ID token with `https://gateway.mestumre.dev/api/aut
 `noetl/travel#22` removed audience from the authorize URL and from Pages,
 Docker, and container build plumbing. Cloudflare Pages main deploy `25810371735`
 passed, and the live bundle contains no `api.travel` or `audience` string.
+
+## 2026-05-13 Round 10 - Travel v1 UX Polish
+
+Round 10 shipped three demoable polish fixes from Tutorial 08's v1 gap list:
+
+- Real photo rendering for place and hotel cards, with Material Skeleton
+  fallback for missing or broken images.
+- Human-readable party formatting such as `2 adults · 1 child (3 yrs)`.
+- Real Duffel test `booking_reference` threading into `order_confirmation`
+  instead of the synthetic `ABC123` placeholder.
+
+`noetl/travel#23` merged at `6609e3a` and Cloudflare Pages production deploy
+`25826497840` passed. `noetl/docs#70` merged at `8cc2975` and removed those
+three now-addressed bullets from Tutorial 08's "What is not covered in v1"
+section. The round is AMBER only pending Kadyapam's incognito browser smoke on
+`https://travel.mestumre.dev`; code, docs, CI, and deploy are GREEN.
