@@ -303,6 +303,18 @@ contains the timeout messages. The round remains AMBER until the next browser
 smoke either reaches the chat shell or surfaces the exact gateway/Auth0 failure
 message instead of spinning forever.
 
+Status 2026-05-13 second update: the timeout hotfix showed the auth playbook
+was still never reached, which moved the diagnosis earlier in the browser flow.
+`noetl/travel#21` merged at `a6207a2`, replacing the Auth0 React SDK handoff
+with the exact NoETL GUI-style URL-hash flow: build the Auth0 authorize URL
+directly with `response_type=id_token token`, parse `id_token` from
+`/callback#...`, then immediately POST that token to
+`https://gateway.mestumre.dev/api/auth/login`. Travel docs were updated to stop
+claiming `getIdTokenClaims().__raw` is the source of the gateway token.
+Cloudflare Pages deploy run `25807101113` completed successfully and the live
+bundle contains the direct hash-token flow. The next browser smoke should start
+the gateway auth playbook immediately after Auth0 redirects back.
+
 Final GREEN requires a browser smoke: incognito visit to
 `travel.mestumre.dev`, Auth0 login as the allowed user, `Linking to gateway...`,
 chat shell visible, and gateway requests carrying the session bearer token.
