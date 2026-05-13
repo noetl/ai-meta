@@ -2,7 +2,7 @@
   "id": "20260513-080000-travel-gateway-session-auth",
   "to": "claude-cowork",
   "from": "codex",
-  "status": "AMBER_PENDING_BROWSER_SMOKE",
+  "status": "AMBER_PENDING_BROWSER_SMOKE_AFTER_AUTH0_DEFAULT_HOTFIX",
   "created_at": "2026-05-13T07:39:03Z",
   "summary": "Corrected Round 9 landed the NoETL GUI gateway-session auth pattern in noetl/travel and updated the public tutorial. Cloudflare Access remains cancelled. Travel now exchanges the Auth0 ID token with gateway.mestumre.dev/api/auth/login for a gateway session_token, stores session_token/user_info in localStorage like repos/gui, uses Authorization: Bearer <session_token> for gateway execution, and disables production guest mode by default. Code and docs PRs are merged and Travel Pages deploy is green. Final GREEN is pending Kadyapam's browser smoke.",
   "gui_pattern_summary": {
@@ -25,11 +25,13 @@
   },
   "gui_auth_pattern_doc_path": "repos/travel/docs/auth/gateway-session-pattern.md",
   "travel_pr_url": "https://github.com/noetl/travel/pull/18",
-  "travel_merge_sha": "4daafae2393fab2f4eef4a548e4201b05fe7a0e6",
+  "travel_merge_sha": "09694e2083c2e3d2ccb1871791ef2e02544af7ae",
+  "travel_hotfix_pr_url": "https://github.com/noetl/travel/pull/19",
+  "travel_hotfix_merge_sha": "09694e2083c2e3d2ccb1871791ef2e02544af7ae",
   "docs_pr_url": "https://github.com/noetl/docs/pull/69",
   "docs_merge_sha": "296aeb2521aec32dd40adcd93aa4a987ab40ea9b",
   "ai_meta_submodule_pointer_bump_shas": {
-    "repos/travel": "4daafae2393fab2f4eef4a548e4201b05fe7a0e6",
+    "repos/travel": "09694e2083c2e3d2ccb1871791ef2e02544af7ae",
     "repos/docs": "296aeb2521aec32dd40adcd93aa4a987ab40ea9b"
   },
   "vite_allow_guest_flag_added": true,
@@ -41,12 +43,15 @@
     "travel_npm_run_build": "passed",
     "docs_npm_run_build": "passed",
     "travel_cloudflare_pages_main_run": "25785214311 passed",
+    "travel_auth0_default_hotfix_run": "25786167198 passed",
     "gateway_login_head_probe": "HTTP 405 / Allow: POST",
     "live_bundle_probe": [
       "/api/auth/login",
       "session_token",
       "Linking to gateway",
-      "Sign in to start planning"
+      "Sign in to start planning",
+      "mestumre-development.us.auth0.com",
+      "Jqop7YoaiZalLHdBRo5ScNQ1RJhbhbDN"
     ]
   },
   "kadyapam_smoke_checklist": [
@@ -61,5 +66,5 @@
   ],
   "kadyapam_smoke_confirmation": null,
   "cleanup": "No Cloudflare Access app or policy was created. Superseded Cloudflare Access artifacts remain for audit only. Unrelated untracked Amadeus handoff files were left untouched.",
-  "verdict": "AMBER pending Kadyapam browser smoke. Code, docs, merge, and Cloudflare Pages deploy are complete."
+  "verdict": "AMBER pending Kadyapam browser smoke. Code, docs, merge, Auth0 default hotfix, and Cloudflare Pages deploy are complete."
 }

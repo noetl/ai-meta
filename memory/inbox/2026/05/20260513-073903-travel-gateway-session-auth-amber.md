@@ -15,6 +15,7 @@ on gateway execution calls.
 Merged PRs:
 
 - `noetl/travel#18` at `4daafae2393fab2f4eef4a548e4201b05fe7a0e6`
+- `noetl/travel#19` at `09694e2083c2e3d2ccb1871791ef2e02544af7ae`
 - `noetl/docs#69` at `296aeb2521aec32dd40adcd93aa4a987ab40ea9b`
 
 Validation:
@@ -25,8 +26,12 @@ Validation:
 - `npm run build` passed in `repos/travel`
 - `npm run build` passed in `repos/docs`
 - Cloudflare Pages main deploy run `25785214311` passed
+- Cloudflare Pages hotfix deploy run `25786167198` passed
 - live bundle contains `/api/auth/login`, `session_token`,
   `Linking to gateway`, and `Sign in to start planning`
+- hotfix live bundle also contains the GUI Auth0 SPA fallback
+  `mestumre-development.us.auth0.com` and public client id, so the sign-in pane
+  should no longer be disabled by missing Pages env values
 
 Status is AMBER pending Kadyapam browser smoke:
 

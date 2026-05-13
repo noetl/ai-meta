@@ -286,10 +286,15 @@ gateway-session request handling, production guest-mode disable by default, and
 `VITE_ALLOW_GUEST=true` for local development. `noetl/docs#69` merged at
 `296aeb2`, updating Tutorial 08 to describe the production sign-in pane and the
 local guest-mode flag. Cloudflare Pages deploy run `25785214311` completed
-successfully and the live bundle contains the gateway-session strings. Final
-GREEN requires a browser smoke: incognito visit to `travel.mestumre.dev`, Auth0
-login as the allowed user, `Linking to gateway...`, chat shell visible, and
-gateway requests carrying the session bearer token.
+successfully and the live bundle contained the gateway-session strings. A
+follow-up hotfix `noetl/travel#19` merged at `09694e2` after the live app showed
+`Auth0 is not configured for this build`; it adds the same public Auth0 SPA
+fallback config used by the NoETL GUI while preserving Vite env overrides. Pages
+deploy run `25786167198` completed successfully and the live bundle now contains
+the fallback Auth0 domain/client id. Final GREEN requires a browser smoke:
+incognito visit to `travel.mestumre.dev`, Auth0 login as the allowed user,
+`Linking to gateway...`, chat shell visible, and gateway requests carrying the
+session bearer token.
 
 ## UI patterns extracted from the Figma
 
