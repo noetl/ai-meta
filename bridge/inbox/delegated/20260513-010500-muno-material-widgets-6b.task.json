@@ -1,0 +1,167 @@
+{
+  "id": "20260513-010500-muno-material-widgets-6b",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T01:05:00Z",
+  "title": "Replace 23 JSON stubs with real Material widget components + Figma-derived theme (trip-planner Round 6b)",
+
+  "description": "Replace the 23 stub components at `muno/src/components/widgets/*.tsx` with real Material UI v6 implementations matching the Adiona Figma design. Implement a real `muno/src/theme.ts` driven by Figma tokens (variables endpoint if `file_variables:read` is available; otherwise inspect frame fills from the `Material Theme` page via the existing `file_content:read` scope). Add the necessary MUI / map / carousel runtime dependencies to `muno/package.json`. Per-widget visual smokes via the existing `npm run smoke:widgets` harness extended with snapshot comparisons. Container build must remain GREEN after the changes (alpine image, no new system packages required). Cap: 1 muno PR. User-action OPTIONAL: regenerate the Figma PAT with `file_variables:read` scope ticked at creation time AND push as a new secret version to `figma-access-token` for clean token extraction; this round falls back to frame inspection if not done. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` UI patterns sections. Runs PARALLEL with round 20260513-010000 (Round 4b — itinerary agent); the two rounds touch disjoint paths in muno.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 21600,
+  "max_iterations": 14,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "OPTIONAL pre-handoff for clean theme extraction. Round can proceed without it.",
+    "optional_step_for_clean_theme": "If you can spare ~3 minutes: generate a fresh Figma PAT with BOTH `File content: Read-only` AND `Variables: Read-only` ticked at creation time, then push as a new version to the existing secret:\n```bash\necho -n '<paste-figd_-with-variables-scope>' | gcloud secrets versions add figma-access-token \\\n  --project=noetl-demo-19700101 --data-file=-\n```\nNote: Figma may not let you retroactively widen scopes on existing tokens — that's why a fresh token is needed.\nWith the wider scope, the round pulls design tokens from the Variables endpoint directly. Without it, the round falls back to inspecting the `Material Theme` page's frame fills via `bash scripts/figma_fetch.sh nodes <file_key> <theme_node_ids>` and reverse-engineering the palette manually — still works, just less precise on edge tokens.",
+    "what_else_is_ready": [
+      "muno main at commit 4143d4c with the bootstrap + alpine fix.",
+      "23 JSON-stub components at `muno/src/components/widgets/*.tsx`.",
+      "24 widget schemas at `muno/playbooks/widget-contract/`.",
+      "Generated TS types at `muno/src/contracts/widgets.ts`.",
+      "WidgetRenderer at `muno/src/components/WidgetRenderer.tsx` with ajv validation + dispatch + bot_text fallback.",
+      "`scripts/figma_fetch.sh` and `figma-access-token` secret for design-system pulls.",
+      "Figma file key: `BSbpbRHzFGF2LmJl7Ekemb` (Adiona/material (Copy))."
+    ]
+  },
+
+  "design_brief_for_codex": {
+    "widget_implementations": "All 23 stub components must be replaced with real Material implementations. Each lives at `muno/src/components/widgets/<TemplateName>.tsx`, takes a typed payload from `muno/src/contracts/widgets.ts`, and renders per the Adiona Figma. Component-by-component shape:\n\n  **Plain text family (4)**:\n  - `BotText.tsx` — bot bubble. MUI `Card` with light grey background, top-left avatar (use the `Avatar/adiona` Figma blue 'A'), markdown-rendered text. Render markdown with `react-markdown` (add to deps). Timestamp top-right.\n  - `UserText.tsx` — user bubble. White MUI `Card` with shadow, right-aligned, user photo avatar top-right. Same timestamp slot.\n  - `TypingIndicator.tsx` — small animated three-dots + bot avatar. Renders without a card (just a thin row anchored bottom-left of the thread).\n  - `ClarifyQuestion.tsx` — MUI `Card` (bot-styled) with the question text + a row of clickable chips for each option. Submits a `widget_cta_click` event to the agent.\n\n  **Interactive inputs (4)**:\n  - `DateRangePicker.tsx` — MUI `DateRangePicker` from `@mui/x-date-pickers-pro` (requires `@mui/x-date-pickers-pro` + `date-fns` deps; the Pro components are MIT-licensed via the open-source bundle for non-commercial use, OR use `react-day-picker` if licensing concerns matter — check during implementation and pick whichever is unencumbered for our use case). Two-month side-by-side view matching Figma. Submit button at bottom emits `widget_submit` event with `{from, to, nights}`.\n  - `PartyPicker.tsx` — MUI `Card` with three stepper rows (Rooms / Adults / Children) using `IconButton` + / − controls. When children > 0, dynamically render per-child age `Select` dropdowns with the year options `< 1 year` through `17 year`. Submit button.\n  - `PlaceAutocompleteInput.tsx` — MUI `Autocomplete` with `freeSolo` mode. Suggestions feed in via the `suggestions` prop from the agent's place lookup. Submit on selection OR on Enter.\n  - `ActionChooser.tsx` — row of MUI `Card`s, each with an illustration (if `illustration_url` provided), a label, and a CTA button. Click on either the card or the button emits `widget_cta_click`.\n\n  **Lists (3)**:\n  - `FlightList.tsx` — wraps N `FlightCard` components in a vertical `Stack`. If `emphasis_offer_id` is set, that card gets a subtle outline + `Box` shadow.\n  - `HotelList.tsx` — N `HotelCard` components vertical stack. If `upsell_banner` is present (the 'Rooms with meals available!' nudge from `Group 320.png`), render it as a MUI `Alert` at the top with the action_label as the action button.\n  - `PlaceList.tsx` — grid of `PlaceCard` components, 2-3 across depending on viewport.\n\n  **Cards (4)**:\n  - `FlightCard.tsx` — MUI `Card`. Variants:\n    - `compact`: airline logo + price + duration + stops in one row. Useful in FlightList.\n    - `full`: header with airline + price; body with itinerary segments (departure/arrival airports + times); footer with cabin + baggage info; `Watch In Detail` + `Book This` actions.\n    - `in_popover`: tightly packed for map markers.\n    Common: emphasis prop adds a subtle outline.\n  - `HotelCard.tsx` — MUI `Card`. Variants:\n    - `compact`: photo on left (use `react-image-gallery` or a simple `useState`-driven carousel), title + star rating + score + price on right. Distance from center if available.\n    - `full`: photo carousel takes top half, body with full info: location, star rating, score `7.8/10`, thumb counts `1760 / 14`, 'Rooms matching request: 54' chip, amenity icons row, About hotel description, `Watch In Detail` + `Show Numbers` CTAs.\n    - `in_popover`: minimal — photo + title + price + 'View Rooms' CTA. For MapView popovers.\n    - `map_marker`: just the price-bubble shape (e.g., '$1006') used as a custom marker on the map. Not a full card; renders inline in `MapView`.\n  - `HotelCompare.tsx` — two `HotelCard.full` instances side-by-side in a Grid. Highlight `comparison_facets` fields with a chip on each card.\n  - `PlaceCard.tsx` — MUI `Card`. `compact` / `full` variants. Photo, name, rating, place types as chips, opening hours collapsed. `Add to itinerary` CTA.\n\n  **Layout (3)**:\n  - `MapView.tsx` — full-bleed map. Use `@vis.gl/react-google-maps` (add to deps) — modern, well-typed, MIT-licensed wrapper around the Google Maps JS API. Loads via the existing `google-maps-widget-key` Secret Manager secret — frontend reads it via a small NoETL endpoint that returns the key value, OR (simpler) the key is exposed as a Vite env var at build time (`VITE_GOOGLE_MAPS_KEY`); since the widget key already has HTTP referrer restrictions (mestumre.dev + gateway.mestumre.dev + *.pages.dev), exposing it to the browser is the intended pattern. Markers render as `HotelCard.map_marker` variants positioned by lat/lng. Selected marker pops up a `HotelCard.in_popover`. Filter panel on right side renders alongside the map.\n  - `FilterPanel.tsx` — right-pane filter UI. MUI `FormGroup` with `Checkbox` (hotel category 5⭐..2⭐), `Slider` (budget range), `FormControlLabel` (guest rating tiers 9.5+ / 9+ / 8.5+). `Clear All` link at top. State changes emit a `widget_cta_click` event with the new filter payload.\n  - `PropertyBlock.tsx` — right-pane slot accumulator. MUI `List` with one `ListItem` per slot; each `ListItem` shows label + value + edit `IconButton` (pencil icon from MUI Icons). Click on pencil emits `widget_cta_click` with `{slot_id}` so the agent re-opens the matching widget.\n\n  **Lifecycle (4)**:\n  - `LoadingCard.tsx` — MUI `Skeleton` array sized to roughly match the expected widget. Includes `tool_name` text below the skeletons.\n  - `ErrorCard.tsx` — MUI `Alert severity='error'` with title + description + retry button (if `retry_action_id` provided) + 'Contact support' link (if `contact_support` is true).\n  - `Notification.tsx` — MUI `Snackbar` + `Alert`. `kind` maps to severity (info/warning/error/success). Dismissible if flagged.\n  - `OrderConfirmation.tsx` — MUI `Card` styled like a receipt: prominent booking_reference, total_amount + currency, list of slices/segments, passenger names. Two CTAs: `View full order` + `New search`.\n\n  **Closure (1)**:\n  - `ItinerarySummary.tsx` — full-width MUI `Card`. Header: destination + dates + party. Body: picked_flight (FlightCard.compact) + picked_hotel (HotelCard.compact) + total cost. Bottom: `Confirm` (primary, emits widget_cta_click) + `Edit` (secondary).",
+
+    "theme_implementation": "Replace `muno/src/theme.ts` (currently placeholder Material colors) with a real Adiona-derived theme.\n\n  **Path A — Variables endpoint** (if `file_variables:read` PAT scope is available):\n  - `bash scripts/figma_fetch.sh variables BSbpbRHzFGF2LmJl7Ekemb > /tmp/figma_vars.json`.\n  - Parse the variables JSON; map Figma variables → MUI theme tokens (`palette.primary.main`, `palette.background.default`, `typography.fontFamily`, spacing scale, etc.).\n  - Generate `muno/src/theme.ts` from the mapping.\n\n  **Path B — Frame inspection fallback** (if `file_variables:read` returns 403):\n  - `bash scripts/figma_fetch.sh nodes BSbpbRHzFGF2LmJl7Ekemb '0:11'` — fetches the `Material Theme` page.\n  - Walk the returned node tree; extract fills + text styles from the swatches/text-style components on that page.\n  - Manually transcribe the palette into `muno/src/theme.ts` (write it as a curated mapping, NOT a generated dump).\n\n  Either way, the theme MUST include:\n  - `palette.primary.main` — Adiona blue (sidebar). From observed screens, this is roughly `#3B82F6` or close.\n  - `palette.primary.dark` — slightly deeper for hover states.\n  - `palette.background.default` — white.\n  - `palette.background.paper` — slight grey (for card backgrounds).\n  - `palette.text.primary` and `palette.text.secondary` — dark navy + grey hierarchy.\n  - `typography.fontFamily` — set to a Material-friendly stack with fallbacks: `'Inter', 'Roboto', system-ui, sans-serif`. Loading Inter via `fontsource-inter` (add as dep) keeps it self-contained.\n  - `shape.borderRadius` — 8-12 px to match Figma corner radii.\n  - Custom shadow scale matching the soft card shadows in Figma.",
+
+    "package_json_changes": "Add the following runtime deps (use latest stable as of 2026-05-13):\n  - `@mui/x-date-pickers-pro` (or `react-day-picker` if Pro licensing is a concern)\n  - `date-fns` (DateRangePicker locale + utilities)\n  - `@mui/icons-material` (already may be there; ensure)\n  - `react-markdown` (for BotText)\n  - `@vis.gl/react-google-maps` (for MapView)\n  - `fontsource-inter` OR `@fontsource/inter`\n  - `react-image-gallery` OR a tiny custom carousel (~30 LOC); prefer custom to avoid the bundle weight if the carousel needs are simple (max 18 photos, prev/next arrows, position indicator).\n\nNo new devDeps unless strictly necessary. `ajv` and `json-schema-to-typescript` stay. Verify `npm install` still resolves cleanly and `npm run build` still emits a buildable dist.",
+
+    "google_maps_key_for_frontend": "MapView needs the Google Maps JS API key at runtime in the browser. The widget API key (`google-maps-widget-key` secret) is already HTTP-referrer-restricted to mestumre.dev + gateway.mestumre.dev + *.pages.dev, so embedding it in the frontend bundle is safe-by-design. Two ways to deliver it:\n  1. Vite env var `VITE_GOOGLE_MAPS_KEY` set at build time. Operator-side: `gcloud secrets versions access latest --secret=google-maps-widget-key > .env.production` (filter to just the key value, written as `VITE_GOOGLE_MAPS_KEY=AIza...`). Dockerfile should pick up `.env.production` at build time.\n  2. Runtime fetch from a NoETL endpoint that returns the key (more complex, defer).\n\nPick option 1 for v1. Document the build-time injection in `muno/docs/deployment/kind-setup.md` and `muno/docs/deployment/gke-setup.md`.",
+
+    "snapshot_smoke_extension": "The existing `muno/scripts/widget_dispatch_smoke.mjs` validates that the renderer routes envelopes to the right stubs. Extend it (or add a sibling `widget_visual_smoke.mjs`) to render each widget to a snapshot file via a headless render (Vitest + `@testing-library/react` work well here — already in dev deps after install). For v1, snapshot test is just 'each widget renders without throwing' — visual regression can wait for Round 7.\n\nOR: use Vite preview + Playwright to take screenshots of each widget on a fixture page. Probably too heavy for this round; defer.",
+
+    "responsive_design": "The Figma is desktop-first. For v1, target 1280px+ width. Mobile responsiveness via MUI breakpoints can be a follow-up round (Round 6c) — the Figma has `mob-map-Filters/*` and other `mob-*` variants that suggest mobile breakpoints were designed but not in scope for this round. Document this scope cap in `muno/docs/architecture/responsive-design.md`.",
+
+    "i18n_strings_for_widgets": "Update `muno/src/locales/en.json` and `ru.json` with the strings the widgets render: button labels (`Submit`, `Watch In Detail`, `Show Numbers`, `Book This`, `Add to itinerary`, `View Rooms`, `Confirm`, `Edit`, `Clear All`, `New search`), placeholder text, etc. ru.json gets reasonable Russian translations (the Figma map screen had `Смотреть Номера` for 'View Rooms', so the project clearly wants RU coverage)."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm muno is at the bootstrap+fix SHA + schemas + stubs are present.",
+      "spec": [
+        "muno main HEAD must match `4143d4c` or later (this round can rebase against parallel 4b commits — see architectural_rules).",
+        "All 24 schemas validate.",
+        "`npm install` succeeds against the current package.json (baseline before this round's deps land).",
+        "`npm run build` succeeds (baseline).",
+        "`npm run smoke:widgets` passes (all 23 stubs route correctly).",
+        "Try `bash scripts/figma_fetch.sh variables BSbpbRHzFGF2LmJl7Ekemb` — record whether it returns 200 (clean theme path) or 403 (fallback path).",
+        "If any baseline check fails: AMBER + STOP (something regressed)."
+      ],
+      "verify": "Baseline GREEN; figma scope status recorded."
+    },
+
+    "2_theme_implementation": {
+      "objective": "Produce `muno/src/theme.ts` with real Adiona-derived tokens.",
+      "spec": [
+        "Path A or B per `design_brief_for_codex.theme_implementation`.",
+        "Theme file is a single TS module exporting `theme: Theme` from `@mui/material/styles.createTheme(...)`.",
+        "Load Inter via `@fontsource/inter` in `muno/src/main.tsx` (add the deps + import the appropriate weights).",
+        "Update `muno/src/App.tsx` to use the new theme via `<ThemeProvider theme={theme}>`."
+      ],
+      "verify": "App renders without theme errors. The default app shell visibly uses Adiona blue (sidebar)."
+    },
+
+    "3_implement_chat_bubble_and_lifecycle_widgets": {
+      "objective": "Replace stubs for BotText, UserText, TypingIndicator, ClarifyQuestion, LoadingCard, ErrorCard, Notification, OrderConfirmation.",
+      "spec": [
+        "Per-widget shapes documented in `design_brief_for_codex.widget_implementations`.",
+        "Each component fully typed against the generated `muno/src/contracts/widgets.ts`.",
+        "Each component has at least one fixture envelope in the smoke harness."
+      ],
+      "verify": "`npm run smoke:widgets` passes; manual eyeball check via `npm run dev` confirms shapes match Figma (no pixel-perfect requirement)."
+    },
+
+    "4_implement_interactive_input_widgets": {
+      "objective": "Replace stubs for DateRangePicker, PartyPicker, PlaceAutocompleteInput, ActionChooser.",
+      "spec": [
+        "Each interactive widget emits a `widget_submit` or `widget_cta_click` event when the user submits/clicks. Wire this via a callback prop the WidgetRenderer passes (extend WidgetRenderer if needed).",
+        "DateRangePicker uses MUI X DatePicker family — pick the unencumbered variant (community OR react-day-picker).",
+        "PartyPicker dynamically renders child-age Selects as children count grows."
+      ],
+      "verify": "Each interactive widget submits a valid event payload matching its schema."
+    },
+
+    "5_implement_card_widgets": {
+      "objective": "Replace stubs for FlightCard, HotelCard, HotelCompare, PlaceCard.",
+      "spec": [
+        "Per-widget variants (compact / full / in_popover / map_marker) implemented as separate render paths inside each component, selected by the `variant` prop.",
+        "Photo carousels use the custom 30-LOC carousel OR react-image-gallery — pick during implementation. Carousel position indicator (`1/18`) is visible.",
+        "Amenity icons strip uses `@mui/icons-material` icons or vectors fetched from the Figma `ic/*` components via `figma_fetch.sh nodes ... --format svg`."
+      ],
+      "verify": "`npm run smoke:widgets` passes including all variants. Sample envelopes from `widget_envelope_examples.md` (created by Round 4b — coordinate via shared muno main rebase) render correctly."
+    },
+
+    "6_implement_list_and_layout_widgets": {
+      "objective": "Replace stubs for FlightList, HotelList, PlaceList, MapView, FilterPanel, PropertyBlock, ItinerarySummary.",
+      "spec": [
+        "MapView needs the Google Maps JS API key at build time via VITE_GOOGLE_MAPS_KEY. Document the operator-side `gcloud secrets versions access` step in `muno/docs/deployment/`.",
+        "MapView renders hotel markers as the `HotelCard.map_marker` variant positioned via `lat/lng`. Selected marker shows a `HotelCard.in_popover`.",
+        "FilterPanel state changes debounced (300 ms) before emitting `widget_cta_click`.",
+        "PropertyBlock pencil icons emit `widget_cta_click` with `{slot_id}` so agent reopens the matching collector widget."
+      ],
+      "verify": "All seven widgets render; MapView loads with a real API key (operator runs the build step with VITE_GOOGLE_MAPS_KEY set, OR a stub key if the secret is unavailable in the codex sandbox — flag accordingly)."
+    },
+
+    "7_container_build_remains_green": {
+      "objective": "Confirm podman build still works with the new deps + assets.",
+      "spec": [
+        "From `repos/muno/` (or muno repo cwd directly): `podman build -t noetl-muno:6b-smoke .`.",
+        "Wall-clock should be roughly comparable to round 20260513-002608's ~76s. Acceptable growth: up to ~3x given MUI X + maps SDK bundle sizes. If much slower, investigate.",
+        "Image size growth check: was ~49 MB after round 4a/6a. Expect 60-90 MB after this round. If much larger, audit deps.",
+        "Run-test: `podman run --rm -d -p 18080:8080 ...` + `curl localhost:18080/` → 200.",
+        "Cleanup the test image after."
+      ],
+      "verify": "Container build GREEN; image runs and serves the dist over nginx."
+    },
+
+    "8_docs_and_close_out": {
+      "objective": "Docs, memory, result JSON.",
+      "spec": [
+        "Update `muno/docs/architecture/widget-contract.md` with a 'Material implementation notes' section linking each schema to its component.",
+        "Author `muno/docs/architecture/responsive-design.md` documenting the desktop-first scope and the deferred mobile work.",
+        "Update `muno/docs/deployment/{kind,gke}-setup.md` with the VITE_GOOGLE_MAPS_KEY build-time injection step.",
+        "Memory entry at `muno/memory/inbox/codex/2026/05/<timestamp>-muno-material-widgets-6b-green.md`. Cross-link from ai-meta.",
+        "Result file: `bridge/outbox/20260513-010500-muno-material-widgets-6b.result.json` with: muno_pr_url, muno_merge_sha, ai_meta_submodule_pointer_bump_sha, figma_scope_used (variables | fallback), theme_token_count, widget_visual_smoke_pass_count (out of 23), container_build {wall_clock_s, image_size_mb, http_200_confirmed}, deps_added, cleanup, verdict.",
+        "Open muno PR: `feat(ui): implement real Material widget components + Adiona theme`. Merge to muno main once self-review passes.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "ai-meta side: bump `repos/muno` submodule pointer to the merged muno commit. Local commit only; Kadyapam pushes ai-meta."
+      ],
+      "verify": "muno PR merged; ai-meta pointer bumped locally; outcome memory written; container build GREEN."
+    }
+  },
+
+  "architectural_rules": [
+    "Lives entirely inside muno. NO changes to repos/ops, repos/docs, repos/noetl.",
+    "NO changes to `muno/playbooks/`. That's Round 4b's territory. If Round 4b's PR merges into muno main during this round: rebase 6b's branch against the new main before merging.",
+    "Theme path: try `file_variables:read`, fall back to frame inspection. Either is acceptable.",
+    "Google Maps JS API key delivered to the browser via Vite build-time env var. The widget key is already referrer-restricted so this is intended.",
+    "No production-mode endpoints. No additional GCP secrets.",
+    "All 23 widgets must validate-and-render their canonical sample envelopes from `muno/playbooks/agent/widget_envelope_examples.md` (created by Round 4b — coordinate via main).",
+    "Container build must remain GREEN after the dep additions. Image size growth target: under 100 MB total.",
+    "Desktop-first responsive scope. Mobile breakpoints documented as deferred.",
+    "muno PR via standard flow (no direct-to-main).",
+    "ai-meta submodule pointer bump is local-only; Kadyapam pushes ai-meta.",
+    "If 4b's PR isn't merged when this round opens its PR: that's fine. Both PRs target different paths; rebase before merge if 4b lands first."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-010500-muno-material-widgets-6b.result.json`. Required fields: id, status, summary, muno_pr_url, muno_merge_sha, ai_meta_submodule_pointer_bump_sha, figma_scope_used, theme {tokens_count, primary_color, font_family}, widget_results: { for each of 23: {name, variants_implemented, smoke_status, fixture_envelope_render_ok} }, container_build {wall_clock_s, image_size_mb, http_200_confirmed}, deps_added (full list), cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md — UI patterns, Figma observations, widget catalogue rationale",
+    "muno/playbooks/widget-contract/*.schema.json — source of truth for what each widget renders",
+    "muno/src/contracts/widgets.ts — TS types generated from the schemas",
+    "muno/src/components/WidgetRenderer.tsx — central dispatcher (extend if interactive widgets need callback wiring)",
+    "scripts/figma_fetch.sh — Figma REST API helper, reads `figma-access-token` from Secret Manager",
+    "Figma file key BSbpbRHzFGF2LmJl7Ekemb — Adiona/material (Copy)",
+    "https://mui.com/material-ui/getting-started/ — MUI v6 docs",
+    "https://visgl.github.io/react-google-maps/ — chosen map binding",
+    "https://github.com/remarkjs/react-markdown — chosen markdown renderer"
+  ]
+}

@@ -1,0 +1,142 @@
+Codex prompt — Replace 23 JSON stubs with real Material widgets + Adiona theme (trip-planner Round 6b)
+                muno/src/components/widgets/*.tsx + muno/src/theme.ts
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-010500-muno-material-widgets-6b.task.json
+Result:        bridge/outbox/20260513-010500-muno-material-widgets-6b.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md
+
+Round goal
+----------
+Replace the 23 stub components at `muno/src/components/widgets/*.tsx`
+(JSON-as-card placeholders from Round 4a/6a) with real Material UI v6
+implementations matching the Adiona Figma. Replace the placeholder
+`muno/src/theme.ts` with a Figma-derived MUI theme. Add the necessary
+runtime deps to `muno/package.json` (MUI X DatePicker family,
+@vis.gl/react-google-maps, react-markdown, fontsource Inter, etc.).
+Container build must remain GREEN after the additions.
+
+Pre-handoff (OPTIONAL, for clean theme extraction)
+--------------------------------------------------
+Generate a fresh Figma PAT with BOTH `File content: Read-only` AND
+`Variables: Read-only` ticked at creation time, then push as a new
+version to the existing `figma-access-token` secret:
+```
+echo -n '<figd_...>' | gcloud secrets versions add figma-access-token \
+  --project=noetl-demo-19700101 --data-file=-
+```
+With the wider scope: theme pulls directly from the /variables/local
+endpoint. Without it: theme falls back to inspecting frame fills on
+the `Material Theme` page via the existing scope. Either is acceptable.
+
+Runs PARALLEL with Round 4b (itinerary-agent-4b). Disjoint paths in
+muno — this round touches `muno/src/` only; 4b touches
+`muno/playbooks/` only. Rebase before merging if the other PR lands
+first.
+
+Stack additions (deps)
+----------------------
+  - @mui/x-date-pickers-pro OR react-day-picker (pick unencumbered)
+  - date-fns
+  - @mui/icons-material (verify present)
+  - react-markdown (for BotText)
+  - @vis.gl/react-google-maps (MapView)
+  - @fontsource/inter
+  - tiny custom carousel for HotelCard photo strip (or react-image-gallery)
+
+No new devDeps unless strictly needed.
+
+Theme tokens to produce
+-----------------------
+  - palette.primary.main — Adiona blue (~#3B82F6 from observation)
+  - palette.primary.dark / light — derive
+  - palette.background.default — white
+  - palette.background.paper — light grey
+  - palette.text.primary / secondary — dark navy + grey
+  - typography.fontFamily — Inter stack with system fallbacks
+  - shape.borderRadius — 8-12px
+  - Custom shadow scale
+
+Widget-by-widget implementation
+-------------------------------
+**Plain text (4)**: BotText (bot bubble + markdown), UserText (user
+bubble), TypingIndicator (animated dots), ClarifyQuestion (text + chip
+options).
+
+**Interactive (4)**: DateRangePicker (two-month side-by-side),
+PartyPicker (steppers + dynamic child-age dropdowns),
+PlaceAutocompleteInput (MUI Autocomplete freeSolo), ActionChooser (row
+of illustrated CTA cards).
+
+**Lists (3)**: FlightList, HotelList (with optional upsell_banner),
+PlaceList.
+
+**Cards (4)**: FlightCard (compact/full/in_popover), HotelCard
+(compact/full/in_popover/map_marker), HotelCompare (side-by-side),
+PlaceCard (compact/full).
+
+**Layout (3)**: MapView (Google Maps JS via @vis.gl/react-google-maps,
+custom price-bubble markers, popover on selected), FilterPanel (right-
+pane with checkboxes + slider + tiers + Clear All), PropertyBlock
+(slot accumulator with edit pencils).
+
+**Lifecycle (4)**: LoadingCard (skeletons), ErrorCard (Alert + retry),
+Notification (Snackbar + Alert), OrderConfirmation (receipt-styled
+card).
+
+**Closure (1)**: ItinerarySummary (full summary + Confirm + Edit).
+
+Google Maps key for the frontend
+--------------------------------
+MapView needs the JS API key at runtime. Use Vite build-time env var
+`VITE_GOOGLE_MAPS_KEY`. The existing `google-maps-widget-key` secret
+is referrer-restricted to mestumre.dev + gateway.mestumre.dev +
+*.pages.dev, so it's safe to embed in the browser bundle. Document
+the operator-side build step:
+```
+export VITE_GOOGLE_MAPS_KEY=$(gcloud secrets versions access latest \
+  --secret=google-maps-widget-key --project=noetl-demo-19700101)
+```
+in muno/docs/deployment/{kind,gke}-setup.md.
+
+Phases (8)
+----------
+  1. Pre-handoff verify: muno baseline GREEN; record whether
+     figma-access-token has variables:read scope.
+  2. Theme: pull tokens (Path A or B); write muno/src/theme.ts.
+     Wire Inter font in main.tsx.
+  3. Plain text + lifecycle widgets (BotText, UserText, TypingIndicator,
+     ClarifyQuestion, LoadingCard, ErrorCard, Notification,
+     OrderConfirmation). 8 widgets.
+  4. Interactive input widgets (DateRangePicker, PartyPicker,
+     PlaceAutocompleteInput, ActionChooser). 4 widgets. Wire
+     widget_submit / widget_cta_click events via WidgetRenderer
+     callback (extend WidgetRenderer if needed).
+  5. Card widgets (FlightCard, HotelCard, HotelCompare, PlaceCard).
+     4 widgets. Implement variants (compact/full/in_popover/map_marker).
+  6. List + layout widgets (FlightList, HotelList, PlaceList, MapView,
+     FilterPanel, PropertyBlock, ItinerarySummary). 7 widgets.
+  7. Container build verify: podman build remains GREEN. Image size
+     under 100 MB target. Run-test HTTP 200.
+  8. Docs + close out. Open muno PR. Merge after self-review.
+
+Architectural rules
+-------------------
+  - Lives entirely inside muno. NO repos/ops/docs/noetl changes.
+  - NO changes to muno/playbooks/ (Round 4b's territory). Rebase
+    against latest muno main before merging if 4b lands first.
+  - Theme: Variables endpoint if available, else frame inspection.
+    Either acceptable.
+  - Google Maps key delivered via Vite env var build-time.
+  - All 23 widgets must validate-and-render against the canonical
+    sample envelopes in muno/playbooks/agent/widget_envelope_examples.md
+    (created by Round 4b). Coordinate via muno main.
+  - Container build must remain GREEN. Image size target under 100 MB.
+  - Desktop-first scope. Mobile responsive deferred (document in
+    muno/docs/architecture/responsive-design.md).
+  - muno PR via standard flow.
+  - ai-meta pointer bump local-only; Kadyapam pushes.
+
+Result file shape mirrors bridge/outbox/20260513-000000-muno-bootstrap-widget-contract.result.json.
+For each of the 23 widgets, record: variants implemented, smoke status,
+sample envelope render OK.
