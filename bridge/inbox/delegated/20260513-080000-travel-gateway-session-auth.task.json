@@ -1,0 +1,161 @@
+{
+  "id": "20260513-080000-travel-gateway-session-auth",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T08:00:00Z",
+  "title": "Mirror repos/gui gateway-session auth pattern into repos/travel (Round 9, corrected)",
+
+  "description": "Replace the now-superseded Cloudflare Access edge-gating plan with the gateway-mediated session auth pattern already used by `repos/gui` (the admin UI behind mestumre.dev). After Auth0 SPA login, travel.mestumre.dev exchanges the Auth0 token at `gateway.mestumre.dev/api/auth/login` for a NoETL session_token, stores it the same way GUI does, and carries it on every playbook execution call. Guest mode is disabled for production builds; preserved for local dev via a Vite env flag. Single identity (kadyapam@gmail.com via Auth0) flows end-to-end. Cap: 1 travel PR + small docs additions. The superseded Cloudflare Access bridge task (`20260513-070000-cloudflare-access-travel.task.json`) stays in place for audit history but is NOT fired. See `memory/inbox/2026/05/20260513-073000-supersede-cloudflare-access-round-9.md`.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 12,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "Minimal. Most of the dependencies already exist from prior rounds.",
+    "what_is_ready": [
+      "Auth0 SPA app for travel.mestumre.dev (callbacks updated, kadyapam@gmail.com authorized; same user as GUI).",
+      "Cloudflare Pages deployment of travel at travel.mestumre.dev (live, public for now — this round closes the gap).",
+      "gateway.mestumre.dev is the public NoETL endpoint (existing infra; mirrors how GUI talks to it).",
+      "NoETL Auth0 login playbook / session endpoint at gateway.mestumre.dev/api/auth/login (already exercised by GUI). Codex inspects GUI to extract the exact request/response shape — DO NOT infer; mirror what GUI does.",
+      "GCP secrets `muno-auth0-domain`, `muno-auth0-client-id`, `muno-auth0-audience` from the prior round are still good (the SPA app didn't change, just its callback URLs)."
+    ],
+    "what_to_verify_before_firing": "Confirm GUI's auth flow actually works end-to-end (Codex re-confirms in phase 1 by examining repos/gui source + maybe a probe). If GUI's auth is broken, this round can't mirror anything from it.",
+    "cloudflare_access_secrets_disposition": "The `cloudflare-access-token` GCP secret (from the superseded round) stays — useful for future CF API work. The `cloudflare-access-allow-rule` secret (if you provisioned it) is harmless and can stay or be deleted. Neither is used by this round."
+  },
+
+  "design_brief_for_codex": {
+    "discovery_phase_in_repos_gui": "The single most important deliverable in phase 1 is a precise map of how `repos/gui` does gateway-session auth. Codex grep + read `repos/gui/src/` for:\n  - Anywhere `gateway.mestumre.dev` or `/api/auth/login` or `session_token` or `sessionToken` appears.\n  - The Auth0 wrapper (likely `@auth0/auth0-react` if GUI also uses it; or a direct OIDC client if it pre-dates that).\n  - The function that exchanges Auth0 token for gateway session_token — capture: endpoint URL, HTTP method, request body shape, request headers (especially how the Auth0 token is delivered), response shape (where session_token lives in the response), what fields the response includes alongside the token (expires_at, refresh_token, user info, etc.).\n  - Storage layer: localStorage / sessionStorage / IndexedDB / in-memory zustand store / etc.\n  - The HTTP client interceptor that attaches session_token to subsequent gateway calls — capture: header name (likely `Authorization: Bearer <token>` or `X-NoETL-Session: <token>` — don't guess), error handling on 401 (refresh? logout?), token expiry awareness.\n  - Logout flow — does GUI invalidate the session at gateway, or just drop the local token?\n\nProduce `repos/travel/docs/auth/gateway-session-pattern.md` documenting the pattern AS IT EXISTS IN GUI before changing anything in travel. This doc is the source of truth for the implementation that follows.",
+
+    "implementation_in_repos_travel": "Mirror the GUI pattern in `repos/travel/src/`:\n\n  - Update `repos/travel/src/api/noetlClient.ts` (or whatever it's called now after the rename) so the base URL points at `https://gateway.mestumre.dev` in production (configurable via Vite env var `VITE_GATEWAY_BASE_URL` with default).\n\n  - Add `repos/travel/src/api/gatewaySession.ts`:\n    - `loginToGateway(auth0Token: string): Promise<{ sessionToken: string, expiresAt?: string, user?: { email, sub, ... } }>` — POSTs to the gateway login endpoint per the pattern doc.\n    - `getStoredSession(): { token: string, expiresAt?: string } | null` — reads from the same storage GUI uses.\n    - `storeSession(token: string, expiresAt?: string)` — writes via the same mechanism.\n    - `clearSession()` — wipes the storage.\n    - `withSessionHeader(headers: HeadersInit, token: string): HeadersInit` — adds the auth header in the same format GUI uses.\n\n  - Update `repos/travel/src/App.tsx` (or the auth-aware root component) to:\n    1. After Auth0 SPA login completes (existing PR #17 flow), call `getAccessTokenSilently()` to get the Auth0 access token.\n    2. Call `loginToGateway(auth0Token)` and store the resulting session_token via `storeSession(...)`.\n    3. Surface a 'Linking to gateway...' loading state during the exchange (LoadingCard widget is fine).\n    4. On 401 from any gateway call: call `clearSession()` + redirect to Auth0 logout + immediate re-login OR show an error and a Sign in button.\n\n  - Update all places that currently call NoETL directly (the existing noetlClient) so they go through the gateway session — apply the session header from `withSessionHeader`. If there's an axios interceptor in GUI, copy that pattern.\n\n  - DELETE or guard the guest-mode code paths in production builds (see `disable_guest_mode_in_production` below).\n\n  - Update sidebar (in muno's existing Sidebar component — preserving the 'Muno' brand from PR #17): when signed in, show the user's email under their name. When not signed in, the only path is the Sign in button — no Guest mode link.",
+
+    "disable_guest_mode_in_production": "Guest mode in muno today is the implicit fallback (any user who doesn't log in still gets a working chat thread under `chat_threads/_anonymous-*` Firestore paths). Production behaviour should be: no login = no app.\n\n  - Add Vite env var `VITE_ALLOW_GUEST` (default `false`).\n  - In production Cloudflare Pages build, do NOT set this var → guest mode disabled.\n  - For local dev: developers can set `VITE_ALLOW_GUEST=true` in their `.env.local` to keep the existing fast iteration loop without needing to spin up the full auth chain.\n  - When guest mode is disabled (the default for prod), the App component renders a full-screen Sign in pane when `!isAuthenticated` instead of the chat thread shell. Includes the Adiona logo + a single 'Sign in to start planning' CTA that triggers `loginWithRedirect()`.\n  - Document the flag in `repos/travel/docs/auth/auth0-setup.md` 'Guest mode' subsection.",
+
+    "what_NOT_to_do": "  - DO NOT touch Cloudflare Access. The cancelled Round 9 stays cancelled.\n  - DO NOT modify Auth0 tenant config (Kadyapam owns Auth0).\n  - DO NOT change Cloudflare Pages settings (the CI/CD pipeline keeps deploying on push to main).\n  - DO NOT touch DNS records.\n  - DO NOT change NoETL's gateway auth endpoint or the Auth0 login playbook in NoETL. This round only changes the travel SPA client side. If gateway needs a fix, that's a separate round.\n  - DO NOT add a second Auth0 application — reuse the existing travel SPA app.\n  - DO NOT touch `repos/gui`. Read-only inspection only.\n  - DO NOT change how Firestore is accessed from the frontend (live listener for calendar_view stays unauthenticated against the permissive v1 rules; tightening that to per-uid is a SEPARATE follow-up round). The session_token gates PLAYBOOK EXECUTION through the gateway, not direct Firestore reads.\n  - DO NOT echo any tokens (Auth0 access tokens, gateway session_tokens, refresh tokens) in stdout, logs, memory, or result JSON. Length and prefix (e.g., first 4 chars) only, if at all.\n  - DO NOT remove the existing in-app Auth0 SPA flow from PR #17 — extend it. The Auth0 → gateway exchange is layered on top of the existing SPA login."
+  },
+
+  "phases": {
+    "1_pre_handoff_and_discovery": {
+      "objective": "Verify the prior round's superseding is recorded, then map GUI's gateway auth pattern.",
+      "spec": [
+        "Read `memory/inbox/2026/05/20260513-073000-supersede-cloudflare-access-round-9.md` — confirms the superseding context.",
+        "Confirm muno/travel main is at the post-PR-#17 SHA (Codex inspects).",
+        "GREP repos/gui for: `gateway.mestumre.dev`, `/api/auth/login`, `session_token`, `sessionToken`, `Bearer`, anything auth-shaped.",
+        "READ the relevant GUI files; produce a comprehensive map of the pattern (endpoint, request body shape, response shape, storage mechanism, header attachment, 401 handling, logout flow).",
+        "Probe gateway endpoint with the operator's gcloud creds to confirm it's reachable (no actual login — just a `curl -I https://gateway.mestumre.dev/api/auth/login` looking for some response, even if 405 for a GET).",
+        "Author `repos/travel/docs/auth/gateway-session-pattern.md` with the full GUI pattern map BEFORE any travel code changes.",
+        "If GUI doesn't actually have a gateway auth flow (e.g., it talks to NoETL via a different mechanism): AMBER + STOP. The 'mirror GUI' premise needs Kadyapam's reality check first.",
+        "If any verify fails: AMBER + STOP."
+      ],
+      "verify": "Pattern doc exists; the implementation path is grounded in what GUI actually does."
+    },
+
+    "2_extract_shared_pattern": {
+      "objective": "If feasible, factor the auth client into a shared module both GUI and travel can use.",
+      "spec": [
+        "If repos/gui and repos/travel are in the same npm monorepo OR can share via a published package: extract `gatewaySession.ts` into a shared place to avoid drift.",
+        "If they are independent repos with no shared layer: just copy the pattern into travel verbatim and document the duplication in the auth docs (with a TODO for future consolidation).",
+        "DO NOT spend more than 30 minutes on monorepo restructuring. If sharing requires meaningful refactor, copy + document is the right move."
+      ],
+      "verify": "Decision recorded in the pattern doc; either shared or copied with rationale."
+    },
+
+    "3_implement_travel_auth_flow": {
+      "objective": "Apply the gateway-session pattern inside repos/travel.",
+      "spec": [
+        "Per `design_brief_for_codex.implementation_in_repos_travel`.",
+        "Add `src/api/gatewaySession.ts`.",
+        "Update `src/api/noetlClient.ts` (or rename to gatewayClient.ts if that matches GUI's naming) to use the gateway base URL + session header.",
+        "Update the App root to do the Auth0 → gateway exchange after Auth0 login completes. Show a LoadingCard while exchanging.",
+        "Wire 401 handling: invalidate session + redirect to Sign in.",
+        "Update locale strings: `auth.linking_gateway`, `auth.session_expired`, `auth.signin_required`, etc.",
+        "`npm run type-check`, `npm run test`, `npm run smoke:widgets`, `npm run build` all GREEN."
+      ],
+      "verify": "All four npm scripts green; type system reflects the new auth state."
+    },
+
+    "4_disable_guest_mode_in_production": {
+      "objective": "Add VITE_ALLOW_GUEST flag (default false); render a Sign in pane when not authenticated.",
+      "spec": [
+        "Per `design_brief_for_codex.disable_guest_mode_in_production`.",
+        "Add `VITE_ALLOW_GUEST` to .env.example with comment.",
+        "Update Cloudflare Pages build settings if needed (most likely VITE_ALLOW_GUEST is simply unset in production env, which Vite reads as `undefined` → falsy → guest disabled).",
+        "Build the production Sign-in pane component (full-screen, logo, single 'Sign in to start planning' CTA).",
+        "Existing chat shell rendering becomes conditional on (isAuthenticated || VITE_ALLOW_GUEST)."
+      ],
+      "verify": "`VITE_ALLOW_GUEST=false npm run build && ...preview` shows the Sign-in pane and no chat shell until login. `VITE_ALLOW_GUEST=true npm run dev` keeps the old behaviour."
+    },
+
+    "5_container_build_and_pages_deploy": {
+      "objective": "Build + Cloudflare Pages deploys via the existing CI.",
+      "spec": [
+        "Push the PR — Cloudflare Pages CI builds it automatically on the preview branch.",
+        "Verify the preview deploy URL is accessible (typically <branch-name>.<pages-project>.pages.dev) and that the preview build shows the Sign-in pane (since VITE_ALLOW_GUEST is unset in preview by default — verify Pages project settings).",
+        "Once merged to main, Cloudflare Pages re-deploys to travel.mestumre.dev."
+      ],
+      "verify": "Preview deploy GREEN; main merge triggers prod deploy."
+    },
+
+    "6_live_smoke_with_kadyapam": {
+      "objective": "Confirm the end-to-end auth flow works against the live gateway.",
+      "spec": [
+        "After main deploys, post a Kadyapam-side smoke checklist in the result JSON (Kadyapam runs in a browser):",
+        "  1. Open https://travel.mestumre.dev/ in an incognito window.",
+        "  2. Expect: Sign in pane (no chat shell, no Guest fallback).",
+        "  3. Click Sign in → complete Auth0 (kadyapam@gmail.com).",
+        "  4. Expect: brief 'Linking to gateway...' indicator → then chat shell loads.",
+        "  5. Start a trip ('Find flights to Paris') → confirm widgets render and the agent responds.",
+        "  6. Open browser devtools → Network tab → verify every gateway request has the session_token Authorization (or whatever header GUI uses).",
+        "  7. (Optional) Manually invalidate the session token in localStorage → next gateway call should return 401 → app should redirect to Sign in OR auto-re-link.",
+        "Codex marks the round AMBER pending Kadyapam's live confirmation; flips to GREEN after Kadyapam confirms steps 1-6 work.",
+        "If Kadyapam reports the auth exchange fails: AMBER + leave PR open. Likely the gateway endpoint expects a different request shape than Codex inferred from GUI — pattern doc + actual gateway response in result JSON for next-agent debugging."
+      ],
+      "verify": "Browser smoke checklist documented; round AMBERs pending Kadyapam confirmation."
+    },
+
+    "7_docs_and_close_out": {
+      "objective": "Memory entry, scoping doc update, ai-meta pointer bumps.",
+      "spec": [
+        "Author `repos/travel/docs/auth/auth0-setup.md` updates: new sections for the gateway exchange flow, the VITE_ALLOW_GUEST flag, the production-vs-local-dev split.",
+        "Update `repos/travel/README.md` 'Live' link to note 'Production requires authenticated kadyapam@gmail.com (or allowed user); local dev with VITE_ALLOW_GUEST=true keeps guest mode'.",
+        "Update `repos/docs/docs/tutorials/08-trip-planner-end-to-end.md` 'Try it yourself' section to reflect: 'Visiting travel.mestumre.dev now shows a Sign in pane; complete Auth0 to access the planner. Local dev with `VITE_ALLOW_GUEST=true` preserves the prior guest-mode flow.' Replace the now-irrelevant Cloudflare Access mention from the previous tutorial draft if it landed.",
+        "Memory entry at `ai-meta/memory/inbox/2026/05/<timestamp>-travel-gateway-session-auth-green.md` (or AMBER if Kadyapam's smoke is pending). Cross-link to the supersede memo.",
+        "Update `ai-meta/sync/issues/2026-05-12-trip-planner-app-scoping.md`: replace the 'Round 9 Cloudflare Access' note with 'Round 9 (corrected): gateway-session auth mirroring GUI'.",
+        "Result file: `bridge/outbox/20260513-080000-travel-gateway-session-auth.result.json`. Required: id, status, summary, gui_auth_pattern_doc_path, travel_pr_url, travel_merge_sha, docs_pr_url, ai_meta_submodule_pointer_bump_shas, browser_smoke_checklist (for Kadyapam), kadyapam_smoke_confirmation (filled in once user confirms), cleanup, verdict.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "Bump `repos/travel` and `repos/docs` submodule pointers locally. Do NOT push ai-meta."
+      ],
+      "verify": "All artefacts written; PRs merged; pattern doc lives in the repo."
+    }
+  },
+
+  "architectural_rules": [
+    "Mirror repos/gui's gateway-session auth pattern verbatim. Inspect-then-implement; do not infer the pattern.",
+    "Auth0 SPA flow (PR #17) preserved and extended; the gateway exchange happens AFTER Auth0 login completes.",
+    "Guest mode disabled by default in production. VITE_ALLOW_GUEST=true preserves it for local dev.",
+    "No Cloudflare Access. No edge gating. The cancelled Round 9 stays cancelled per the supersede memo.",
+    "No Auth0 tenant config changes. No DNS changes. No Cloudflare Pages settings changes (other than maybe ensuring VITE_ALLOW_GUEST is unset for prod).",
+    "Single identity (kadyapam@gmail.com via Auth0) flows through Auth0 → gateway login → session_token → playbook execution.",
+    "No new GCP secrets (the existing Auth0 secrets cover everything needed).",
+    "Read-only inspection of repos/gui; do NOT modify gui in this round.",
+    "Frontend Firestore live reads (calendar_view live mode) stay unauthenticated against v1 permissive rules. Tightening Firestore-side auth is a separate follow-up round.",
+    "Never echo Auth0 access tokens, gateway session_tokens, or refresh tokens in stdout / logs / memory / result JSON. Length + first-4-chars only if absolutely needed.",
+    "If gateway exchange fails during Kadyapam's smoke: AMBER + leave PR open with the pattern doc + actual gateway error response captured for next-agent debugging.",
+    "PR via standard flow on noetl/travel main.",
+    "ai-meta pointer bumps local-only; Kadyapam pushes ai-meta."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-080000-travel-gateway-session-auth.result.json`. Required: id, status (GREEN once Kadyapam confirms browser smoke; AMBER pending is a valid intermediate state), summary, gui_pattern_summary {endpoint, method, request_shape, response_shape_fields_only, storage_mechanism, session_header_name}, travel_pr_url, travel_merge_sha, docs_pr_url, ai_meta_submodule_pointer_bump_shas, vite_allow_guest_flag_added (bool), guest_mode_disabled_in_prod_build (bool), kadyapam_smoke_checklist, kadyapam_smoke_confirmation (initially empty; user fills in via a follow-up commit when complete), cleanup, verdict.",
+
+  "references": [
+    "memory/inbox/2026/05/20260513-073000-supersede-cloudflare-access-round-9.md (cancels prior round)",
+    "memory/inbox/2026/05/20260513-062528-travel-pages-auth0-stage-report.md (Pages + Auth0 SPA state going in)",
+    "memory/inbox/2026/05/20260513-070000-handed-cloudflare-access-travel-to-codex.md (the superseded handoff — for context only)",
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md",
+    "repos/gui/ (SOURCE OF TRUTH for the pattern to mirror — read-only)",
+    "noetl/travel#17 (in-app Auth0 SPA — the foundation this round extends)",
+    "https://travel.mestumre.dev/ (live deployment; public until this round lands)",
+    "https://gateway.mestumre.dev/ (the NoETL gateway; auth endpoint discovered in phase 1)"
+  ]
+}
