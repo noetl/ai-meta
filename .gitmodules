@@ -42,6 +42,6 @@
 	url = https://github.com/mlflowio/chatui.git
 	update = none
 	ignore = all
-[submodule "repos/muno"]
-	path = repos/muno
-	url = git@github.com:noetl/muno.git
+[submodule "repos/travel"]
+	path = repos/travel
+	url = git@github.com:noetl/travel.git

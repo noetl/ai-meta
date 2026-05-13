@@ -49,7 +49,8 @@ Tutorial outcomes the app demonstrates:
    (Chat-Main.png, Chat-Main-{1,2,3}.png, Group 320.png, Mail.svg) plus
    the prototype URL the user shared. UI patterns extracted in the
    "UI patterns" section below.
-5. **UI repo**: `git@github.com:noetl/muno.git` (empty, just created).
+5. **UI repo**: `git@github.com:noetl/travel.git` (renamed from
+   `noetl/muno` on 2026-05-13).
    Bootstrap as React 18 + TypeScript + Vite + MUI (Material UI v6+ for
    Material Design 3). Matches `repos/gui`'s tooling for cross-app code
    sharing (API client, types, build pipeline) but uses MUI instead of
@@ -183,9 +184,9 @@ per-user OAuth consent flow until we have real user accounts. When the
 muno app grows real auth (Round 6+), we can flip to user-owned
 calendars.
 
-### Round 6 — muno repo bootstrap (frontend + playbooks + docs + memory + .claude)
+### Round 6 — travel repo bootstrap (frontend + playbooks + docs + memory + .claude)
 
-Bootstrap `git@github.com:noetl/muno.git` as the full project home base
+Bootstrap `git@github.com:noetl/travel.git` as the full project home base
 per the "muno is the home base" section above — not just a frontend
 scaffold. Initial commit lays down:
 
@@ -211,7 +212,7 @@ scaffold. Initial commit lays down:
   docs and the memory dir.
 - Docker + nginx packaging analogous to `repos/gui`.
 
-After the initial commit, add as `repos/muno` submodule under
+After the initial commit, add as `repos/travel` submodule under
 ai-meta.
 
 This round produces the working chat shell + the project's home base
@@ -219,12 +220,12 @@ for everything that follows. Auth is "Guest" only initially (matches
 the Figma). The renderer can display widgets the moment Round 4's
 agent emits them.
 
-Status 2026-05-13: AMBER with bootstrap complete. `noetl/muno` was
+Status 2026-05-13: AMBER with bootstrap complete. `noetl/travel` was
 initialized on `main` at `ec43ade` with 23 widget payload schemas plus
 the envelope schema, generated `src/contracts/widgets.ts`, React 18 +
 TS + Vite + MUI v6 shell, AJV widget validation, JSON stub renderers,
 docs, scripts, memory skeleton, `.claude`, Dockerfile, and nginx config.
-`ai-meta` added `repos/muno` as a local submodule commit `a201c6a`.
+`ai-meta` added `repos/travel` as a local submodule commit `a201c6a`.
 Validation passed for `npm install`, schema compile, `npm run
 type-check`, `npm run build`, and `npm run smoke:widgets`. The only
 unfinished check is container build verification: local `docker` is not
@@ -483,7 +484,7 @@ tighten when real auth lands.
 ## muno is the home base for this project (LOCKED)
 
 Kadyapam's call: everything trip-planner-specific lives **inside the
-muno repo**, not split across ai-meta/repos. The repo is the
+travel repo**, not split across ai-meta/repos. The repo is the
 project's monorepo for code + playbooks + docs + AI memory. Bridge
 orchestration stays in ai-meta (where the codex infra lives); muno
 holds the project-specific work product.
@@ -492,8 +493,8 @@ holds the project-specific work product.
 
 | Lives in | Contents |
 |---|---|
-| **`noetl/muno`** | React frontend (`src/`), trip-planner playbooks (the LLM-driven itinerary agent), widget template schemas, project documentation (architecture, deployment, auth, tutorial), AI session memory (Claude + Codex), `.claude/` config, project-scoped scripts. |
-| **`noetl/ai-meta`** | Submodule pointer to `repos/muno`. Cross-repo coordination notes that bridge muno + ops + docs. Bridge round artefacts (task JSONs, codex prompts). Project-wide ai-meta memory (other tracks, not trip-planner-internals). |
+| **`noetl/travel`** | React frontend (`src/`), trip-planner playbooks (the LLM-driven itinerary agent), widget template schemas, project documentation (architecture, deployment, auth, tutorial), AI session memory (Claude + Codex), `.claude/` config, project-scoped scripts. |
+| **`noetl/ai-meta`** | Submodule pointer to `repos/travel`. Cross-repo coordination notes that bridge muno + ops + docs. Bridge round artefacts (task JSONs, codex prompts). Project-wide ai-meta memory (other tracks, not trip-planner-internals). |
 | **`noetl/ops`** | Shared MCP infrastructure: `mcp/duffel.yaml` (gains `create_order` etc.), `mcp/firestore.yaml`, `mcp/google-places.yaml`, `mcp/google-calendar.yaml`. Things any agent could use, not trip-planner-only. |
 | **`noetl/docs`** | General NoETL docs + the end-user tutorial that links into muno. |
 | **`noetl/noetl`** | Core engine — no trip-planner code lands here. |
@@ -516,7 +517,7 @@ infrastructure (an MCP tool other agents could call), it lives in
   credential in the browser.
 - react-i18next for the `EN` / `RU` language toggle from the Figma.
 
-### Initial muno repo shape
+### Initial travel repo shape
 
 ```
 muno/
@@ -634,12 +635,12 @@ After the first muno commit lands:
 
 ```bash
 cd /Volumes/X10/projects/noetl/ai-meta
-git submodule add git@github.com:noetl/muno.git repos/muno
-git commit -m "chore(sync): add repos/muno submodule for trip-planner project"
+git submodule add git@github.com:noetl/travel.git repos/travel
+git commit -m "chore(sync): add repos/travel submodule for trip-planner project"
 ```
 
-Submodule pointer bumps follow the existing `chore(sync): bump muno
-to <sha>` pattern after each muno PR merges.
+Submodule pointer bumps follow the existing `chore(sync): bump travel
+to <sha>` pattern after each travel PR merges.
 
 ### Memory entries — where each one lives
 
@@ -942,4 +943,5 @@ contract doc is approved. Rounds 5 and 7 strictly wait on prior rounds.
 - `/Volumes/X10/projects/adiona/figma/Adiona_material/` — Figma exports.
 - `https://www.figma.com/proto/jMHCnYMQ2dbfzu4ZsqfJCf/Adiona-material` —
   prototype.
-- `git@github.com:noetl/muno.git` — empty UI repo awaiting bootstrap.
+- `git@github.com:noetl/travel.git` — trip-planner home base repo, renamed
+  from `noetl/muno` on 2026-05-13.
