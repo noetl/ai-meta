@@ -1,0 +1,139 @@
+Codex prompt — Firestore-backed calendar view in muno (trip-planner Round 5)
+                Reshaped: NO Google Calendar — Firestore-only storage + Material widget
+=====================================================================================================
+
+Bridge task:   bridge/inbox/delegated/20260513-020000-firestore-calendar-view.task.json
+Result:        bridge/outbox/20260513-020000-firestore-calendar-view.result.json
+Scoping doc:   sync/issues/2026-05-12-trip-planner-app-scoping.md (Firestore data model section)
+
+Round goal
+----------
+Add a new `calendar_view` widget to the muno catalogue (24th template),
+extend the itinerary agent to write calendar event documents to
+Firestore on order confirmation, and implement the Material
+`<CalendarView />` component that renders the events.
+
+Reshaped from the original Round 5 scope: Kadyapam locked storage to
+Firestore-only. No Google Calendar API integration in this round (or
+ever — post-tutorial roadmap entry only). The trip-planner data plane
+stays inside Firestore + muno.
+
+Lives ENTIRELY in muno. No repos/ops/docs/noetl changes. No new GCP
+setup. No new MCP tools. No new secrets.
+
+Pre-handoff: NONE.
+
+Calendar event document schema
+------------------------------
+Stored at `users/{uid}/trips/{tripId}/events/{eventId}` (or
+`chat_threads/{threadId}/trip/events/{eventId}` for guest threads):
+
+  {
+    type: 'flight_depart' | 'flight_arrive' | 'check_in' | 'check_out' |
+          'activity' | 'user_note',
+    start_at: ISO 8601 with tz offset,
+    end_at: ISO 8601 with tz offset, nullable,
+    timezone: IANA name,
+    title: short label,
+    location: free string,
+    notes: nullable string,
+    source_order_id: nullable (Duffel order id),
+    source_hotel_id: nullable,
+    created_at, updated_at: server timestamps,
+    google_calendar_event_id: null  // reserved-but-unused in v1
+  }
+
+Document in muno/docs/architecture/data-model.md.
+
+New widget template — calendar_view
+-----------------------------------
+Schema: `muno/playbooks/widget-contract/calendar_view.schema.json`
+
+Payload:
+  {
+    trip_id,
+    events_path,                 // Firestore collection path
+    display_events?,             // denormalized array (static mode)
+    editable,                    // bool
+    empty_state_text?
+  }
+
+Variants: `compact` | `full` | `read_only`.
+
+Mutual exclusion: `display_events` (static snapshot) XOR live subscribe
+via `events_path`. Agent picks based on context:
+  - Inside `itinerary_summary` → static `display_events`.
+  - Standalone "show me my schedule" → live `events_path`.
+
+Run `npm run contracts` after adding the schema to regenerate
+`muno/src/contracts/widgets.ts`.
+
+Agent extension (muno/playbooks/itinerary-planner.yaml)
+-------------------------------------------------------
+- After `mcp/duffel.create_order` succeeds: write flight_depart +
+  flight_arrive event docs for each segment. Path follows the rule
+  above (user_uid or guest).
+- After hotel pick confirmation: write check_in (default 15:00 local)
+  + check_out (default 11:00 local) docs. location = full hotel address.
+- After user-typed note that the LLM extracts as a calendar request
+  ('add a 3pm meeting on Wednesday'): write user_note doc.
+- When emitting `itinerary_summary`: ALSO emit a `calendar_view` with
+  variant=compact and display_events=<denormalized snapshot>.
+- When user asks "show me my schedule": emit `calendar_view` with
+  variant=full and editable=true and events_path=<live>.
+
+Material component (muno/src/components/widgets/CalendarView.tsx)
+-----------------------------------------------------------------
+- Imports Firebase JS SDK `onSnapshot` for live mode (verify the SDK
+  is in package.json from Round 6b's MapView/listener wiring; add if
+  missing).
+- Variants:
+  - compact: MUI List with date · time · type-icon · title · location.
+  - full: MUI Table with sortable columns + edit pencils per row.
+  - read_only: same as full minus the pencil column.
+- Type → icon map: flight_depart/flight_arrive → FlightTakeoff/FlightLand;
+  check_in/check_out → Hotel/MeetingRoom; activity → Event;
+  user_note → Notes (all from @mui/icons-material).
+- Edit pencil click: widget_cta_click event with {event_id, action: 'edit_event'}.
+- date-fns for date formatting (already in deps).
+- Test fixture exercises both static and live modes (mock onSnapshot
+  if Firestore emulator isn't set up).
+
+Firestore security rules
+------------------------
+Author muno/firestore.rules with v1 permissive ruleset (public read on
+chat_threads/* + trips/* + users/*; writes blocked from clients — only
+worker SA writes via mcp/firestore). DOCUMENT in
+muno/docs/deployment/firestore-rules.md that the rules are demo-permissive
+and Kadyapam deploys via `firebase deploy --only firestore:rules` OR
+`gcloud firestore` after the round merges. Do NOT deploy in this round.
+
+Phases (8)
+----------
+  1. Pre-handoff verify: baseline build GREEN; Firebase SDK present
+     (add if missing).
+  2. Add calendar_view schema + regenerate TS types.
+  3. Extend itinerary agent: confirmation paths write calendar event
+     docs; chat step emits calendar_view widgets.
+  4. Implement CalendarView component (static + live modes + tests).
+  5. Author firestore.rules + deployment docs.
+  6. Podman container build verify (image size growth < 60 MB total).
+  7. Author muno/docs/architecture/calendar-design.md (rationale +
+     post-tutorial roadmap).
+  8. Open muno PR + result JSON + memory cross-link + ai-meta pointer
+     bump (local-only).
+
+Architectural rules
+-------------------
+  - Firestore-only. NO Google Calendar API, NO ICS export.
+  - Lives entirely in muno.
+  - Catalogue grows additively from 23 to 24 widgets.
+  - Live mode uses unauthenticated Firebase SDK reads against v1
+    permissive rules. Document this clearly.
+  - muno PR via standard flow.
+  - ai-meta pointer bump local-only.
+  - Container build must remain GREEN.
+
+Result file shape mirrors bridge/outbox/20260513-010500-muno-material-widgets-6b.result.json.
+If 4b's outcome (itinerary agent) introduced any path that conflicts
+with this round's agent extensions: rebase muno PR before merging.

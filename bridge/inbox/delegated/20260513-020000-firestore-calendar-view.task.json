@@ -1,0 +1,160 @@
+{
+  "id": "20260513-020000-firestore-calendar-view",
+  "from": "claude-cowork",
+  "to": "codex",
+  "created_at": "2026-05-13T02:00:00Z",
+  "title": "Firestore-backed calendar view in muno (trip-planner Round 5)",
+
+  "description": "Add a `calendar_view` widget template to the muno catalogue, extend the itinerary agent to write calendar event documents into Firestore on order confirmation, and implement the Material `<CalendarView />` component that subscribes to those events via Firebase JS SDK. Replaces the previously-scoped Google Calendar integration — Kadyapam's call locked storage to Firestore-only; no external calendar sync in this round (post-tutorial roadmap item if ever). Pure muno work — no repos/ops changes, no new GCP setup, no new MCP tools, no new secrets. Catalogue grows from 23 to 24 templates (additive; no schema_version bump on existing widgets). Cap: 1 muno PR. Pre-handoff: NONE. Scoping reference: `sync/issues/2026-05-12-trip-planner-app-scoping.md` 'Firestore data model' section.",
+
+  "kind": "goal-directed",
+  "approval": "auto",
+  "timeout_seconds": 14400,
+  "max_iterations": 10,
+
+  "pre_handoff_for_kadyapam": {
+    "status": "DONE. Nothing required from Kadyapam.",
+    "what_is_ready": [
+      "muno main at fdd7dc9 (after 6b merged): 23 widgets implemented in Material, theme wired, container build GREEN.",
+      "muno/playbooks/itinerary-planner.yaml shipped in 4b (e777030).",
+      "mcp/firestore v6 (set_doc, append_event, etc.) on GKE.",
+      "Firestore Native (default) db in us-central1 with worker SA datastore.user.",
+      "Firebase JS SDK should already be in muno/package.json from Round 6b's MapView/live-listener wiring; verify in phase 1 and add if missing."
+    ]
+  },
+
+  "design_brief_for_codex": {
+    "scope_locked_to_firestore": "Kadyapam explicitly rejected Google Calendar integration after the original scoping. The reasons: avoids the calendar-creation UI gating in his Google Workspace, keeps everything inside the project's existing data plane, and the Firestore events are already the source of truth in the event-sourced model. Round 5 ships ONLY the Firestore-backed calendar view. External Calendar push (ICS export, Google Calendar sync) is documented as a post-tutorial roadmap item in `muno/docs/architecture/calendar-design.md`.",
+
+    "calendar_event_document_schema": "Stored at `users/{uid}/trips/{tripId}/events/{eventId}` (or `chat_threads/{threadId}/trip/events/{eventId}` for guest mode — the agent decides path based on whether the chat thread has a user_uid). Fields:\n\n```\n{\n  type: 'flight_depart' | 'flight_arrive' | 'check_in' | 'check_out' | 'activity' | 'user_note',\n  start_at: <ISO 8601 datetime with tz offset>,\n  end_at: <ISO 8601 datetime with tz offset, nullable for instantaneous events>,\n  timezone: <IANA tz name, e.g. 'America/New_York'>,\n  title: <short label>,\n  location: <free-form string — airport code, hotel address, etc.>,\n  notes: <free text, nullable>,\n  source_order_id: <Duffel order id, nullable>,\n  source_hotel_id: <hotel id, nullable>,\n  created_at: <server timestamp>,\n  updated_at: <server timestamp>,\n  // Reserved for future sync — never read/written in this round:\n  google_calendar_event_id: null\n}\n```\n\nDocument the schema in `muno/docs/architecture/data-model.md` alongside the existing chat_threads / trips / orders data models.",
+
+    "new_widget_template": "Add `muno/playbooks/widget-contract/calendar_view.schema.json` (JSON Schema draft-07). Payload:\n\n```\n{\n  trip_id: <string>,\n  events_path: <string — Firestore collection path the widget subscribes to>,\n  display_events?: <array of event docs — denormalized for static rendering when live subscribe isn't desired>,\n  editable: <bool — when true, each row has an edit pencil emitting widget_cta_click with {event_id}>,\n  empty_state_text?: <string — shown when events are empty>\n}\n```\n\nVariants:\n- `compact`: vertical list of event rows, one line each (date · time · title · location).\n- `full`: MUI Table with columns Date / Time / Type / Title / Location / Notes / Actions.\n- `read_only`: same as full but no edit pencils.\n\nDecision: `display_events` and live subscription are mutually exclusive. If `display_events` is set, the widget renders statically. Otherwise it subscribes to `events_path` via Firebase JS SDK and re-renders on changes. The agent picks based on context — static for `itinerary_summary` (point-in-time snapshot) and live for standalone calendar views.\n\nUpdate `muno/playbooks/widget-contract/_envelope.schema.json` only if needed (the existing envelope already accommodates the new widget_type).\n\nUpdate generated `muno/src/contracts/widgets.ts` via `npm run contracts` (now `node scripts/generate_widget_contracts.mjs`).",
+
+    "agent_extension_in_itinerary_planner": "Extend `muno/playbooks/itinerary-planner.yaml`:\n\n1. After a successful `mcp/duffel.create_order` call (when the agent confirms a flight order): generate calendar event docs for each segment of each itinerary slice. For a one-way SFO→JFK trip, that's 1 `flight_depart` and 1 `flight_arrive`. For a round trip, 2 of each. Write each via `mcp/firestore.set_doc` at `users/{uid}/trips/{trip_id}/events/{auto_event_id}`. If the chat thread is guest (no user_uid), write to `chat_threads/{thread_id}/trip/events/{auto_event_id}` and document the difference in `data-model.md`.\n\n2. After a successful hotel pick (when agent emits `order_confirmation` for hotel — or equivalent, the agent's confirmation event for the hotel selection): write 2 calendar events: `check_in` at the hotel's check-in time (default 15:00 local) and `check_out` at check-out time (default 11:00 local). location = hotel's full address.\n\n3. When user types a free-form note like \"add a 3pm meeting on Wednesday\": the LLM extraction step produces a `user_note` calendar event request. Same path under `events/`.\n\n4. When the agent emits the `itinerary_summary` widget, ALSO emit a `calendar_view` widget after it (variant `compact`, `display_events` set to the events the agent just wrote — denormalized snapshot so the summary is stable).\n\n5. When the user asks something like \"show me my schedule\" / \"what's on my calendar\": emit a `calendar_view` widget with `variant: full` and `editable: true`, using `events_path` (no `display_events`) so the widget subscribes live.\n\nUpdate `muno/playbooks/agent/widget_envelope_examples.md` with example calendar_view envelopes.\n\nUpdate `muno/playbooks/agent/system_prompt_chat.md` to include calendar_view in the widget catalogue summary and the rules above.",
+
+    "calendar_view_react_component": "`muno/src/components/widgets/CalendarView.tsx`:\n\n- Imports the live-listener helper from `muno/src/api/firestoreClient.ts` (or extends it if needed) — use Firebase JS SDK's `onSnapshot` on the `events_path` collection, ordered by `start_at` ASC.\n- When `display_events` is set: skip the subscribe; render the array statically.\n- Variant rendering:\n  - `compact`: MUI `List` with `ListItem` rows; each shows date · time · type-icon · title · location chip.\n  - `full`: MUI `Table` with sortable columns. `ListItemIcon` per row. Edit pencil if `editable` true.\n  - `read_only`: same as full minus the pencil column.\n- Empty state: when subscribed and 0 docs, show `empty_state_text` (default 'No events yet. Confirm a flight or hotel to populate the schedule.').\n- Type → icon map (use existing MUI Icons): flight_depart/flight_arrive → `FlightTakeoff`/`FlightLand`; check_in/check_out → `Hotel`/`MeetingRoom`; activity → `Event`; user_note → `Notes`.\n- Edit pencil click: emit `widget_cta_click` event via the WidgetRenderer callback with `{event_id, action: 'edit_event'}`. The agent re-opens the matching collector.\n- Use `date-fns` (already in deps after 6b) for date formatting in the user's locale via the existing i18n context.\n- A snapshot test fixture confirms the component renders for both static (`display_events`) and live (`events_path`) modes.",
+
+    "firebase_js_sdk_verification": "Verify in phase 1: `firebase` is in muno/package.json dependencies. If 6b didn't add it, add it in this round + initialize via `muno/src/api/firestoreClient.ts` with project id `noetl-demo-19700101`. Firebase config does NOT use a service-account key — only the public project-id + an API key (which can be a Firestore-restricted version of the existing widget API key, or a new public web API key created via gcloud). For this round, the live listener uses an UNAUTHENTICATED Firestore read against open read security rules — DOCUMENT this is fine for guest mode in v1; real auth comes later. The Firestore security rules need to allow public read on `chat_threads/*` and `trips/*` for the demo; tighten when Firebase Auth lands in a post-tutorial round.",
+
+    "firestore_security_rules": "Add `muno/firestore.rules` documenting the v1 permissive ruleset. Don't deploy it from this round — Kadyapam can apply it via `firebase deploy --only firestore:rules` from his local environment OR via gcloud after the round merges. Sample:\n```\nrules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /chat_threads/{thread}/{document=**} {\n      allow read: if true;  // v1 permissive; tighten when Firebase Auth lands\n      allow write: if false; // writes happen via worker SA only\n    }\n    match /trips/{trip}/{document=**} {\n      allow read: if true;\n      allow write: if false;\n    }\n    match /users/{uid}/{document=**} {\n      allow read: if true;  // v1 demo; per-user rules in post-tutorial round\n      allow write: if false;\n    }\n  }\n}\n```\nDocument in `muno/docs/deployment/firestore-rules.md` that these rules are demo-permissive and the deployment step is manual.",
+
+    "no_breaking_changes": "Existing 23 widgets unchanged. Itinerary agent's existing per-turn loop unchanged; the calendar event writes are NEW append-only side effects after order confirmation. WidgetRenderer dispatches the new widget_type the same way it dispatches existing ones — the `bot_text` fallback path remains the safety net."
+  },
+
+  "phases": {
+    "1_verify_pre_handoff": {
+      "objective": "Confirm muno main is at fdd7dc9 (post 6b), baseline build is GREEN, Firebase JS SDK is wired (or add if missing).",
+      "spec": [
+        "muno main HEAD must match `fdd7dc9` or later.",
+        "`npm install` clean.",
+        "`npm run smoke:widgets` passes for all 23 existing widgets.",
+        "`npm run test` passes the existing contract fixture test.",
+        "`npm run build` succeeds.",
+        "Inspect `muno/package.json` for `firebase` dep. If missing, add it (latest stable Firebase JS SDK v10+) and initialize in `muno/src/api/firestoreClient.ts`.",
+        "`gcloud firestore databases describe --database='(default)' --project=noetl-demo-19700101 --format='value(type,locationId)'` — must show FIRESTORE_NATIVE + us-central1.",
+        "If any check fails: AMBER + STOP."
+      ],
+      "verify": "Baseline GREEN; Firebase SDK present."
+    },
+
+    "2_add_calendar_view_schema": {
+      "objective": "Add the new widget template + regenerate TS types.",
+      "spec": [
+        "Author `muno/playbooks/widget-contract/calendar_view.schema.json` per the design brief.",
+        "Run `npm run contracts` to regenerate `muno/src/contracts/widgets.ts` with the new type.",
+        "Validate the schema via ajv compile (mirrors the existing schema validation pattern)."
+      ],
+      "verify": "Schema validates; generated TS types include CalendarViewPayload."
+    },
+
+    "3_extend_itinerary_agent_with_calendar_writes": {
+      "objective": "Wire calendar event writes into the agent's confirmation paths.",
+      "spec": [
+        "Edit `muno/playbooks/itinerary-planner.yaml`: after successful Duffel create_order, write flight_depart + flight_arrive event docs via mcp/firestore.set_doc. After hotel pick confirmation, write check_in + check_out docs. After user-typed note that the LLM extracts as a calendar request, write user_note doc.",
+        "Update `muno/playbooks/agent/system_prompt_chat.md` to include the new widget_type + the calendar event emission rules.",
+        "Add a calendar_view envelope example to `muno/playbooks/agent/widget_envelope_examples.md`.",
+        "Update `muno/docs/architecture/data-model.md` documenting the calendar event document schema, the path strategy (users/.../trips/... vs chat_threads/.../trip/... for guest), and the rule that google_calendar_event_id is reserved-but-never-used in v1."
+      ],
+      "verify": "Agent emits calendar_view envelopes alongside itinerary_summary; calendar events appear in Firestore after smoke order confirmations."
+    },
+
+    "4_implement_calendar_view_component": {
+      "objective": "Real Material `<CalendarView />` component with static + live modes.",
+      "spec": [
+        "Author `muno/src/components/widgets/CalendarView.tsx` per the design brief.",
+        "Implement the type → MUI Icon map.",
+        "Wire the widget_cta_click callback for the edit pencil.",
+        "Add a fixture test exercising both static (display_events) and live (events_path) modes — for the live mode, mock Firebase's onSnapshot or use the Firestore emulator if available. If emulator setup is non-trivial, mock onSnapshot and document the limitation.",
+        "`npm run smoke:widgets` passes; the new widget is registered in the renderer dispatch table."
+      ],
+      "verify": "Component renders both modes; tests pass; dispatch table includes calendar_view."
+    },
+
+    "5_firestore_security_rules_doc": {
+      "objective": "Document the demo-permissive Firestore rules.",
+      "spec": [
+        "Author `muno/firestore.rules` with the rules from the design brief.",
+        "Author `muno/docs/deployment/firestore-rules.md` explaining: v1 ruleset is demo-permissive; deploy via `firebase deploy --only firestore:rules` OR `gcloud firestore databases ...`; post-tutorial round will tighten to per-user auth.",
+        "Do NOT deploy the rules from this round. Document the operator-side command only."
+      ],
+      "verify": "Rules file lints (firebase rules syntax) if firebase tooling available; otherwise just JSON-valid."
+    },
+
+    "6_container_build_remains_green": {
+      "objective": "Confirm podman build still passes with the Firebase SDK (if added) and the new widget.",
+      "spec": [
+        "From muno's directory: `podman build -t noetl-muno:r5-smoke .`.",
+        "Image size growth check: was ~52.94 MB after 6b. Firebase SDK adds ~150 KB gzipped to the bundle; image growth should be <2 MB.",
+        "Run-test: `podman run -d -p 18080:8080 ... && curl localhost:18080/` returns 200.",
+        "Cleanup."
+      ],
+      "verify": "Container build GREEN; image size growth bounded."
+    },
+
+    "7_calendar_design_doc": {
+      "objective": "Capture the calendar design + post-tutorial roadmap (Google Calendar sync, ICS export).",
+      "spec": [
+        "Author `muno/docs/architecture/calendar-design.md`. Sections:\n  - Firestore-only storage rationale (Kadyapam's locked decision).\n  - Event document schema (mirror data-model.md).\n  - Widget lifecycle: when the agent writes events, when the UI renders them.\n  - Post-tutorial roadmap: optional ICS export, optional Google Calendar push via a per-user OAuth flow (NOT the SA-owned calendar approach we considered and rejected)."
+      ],
+      "verify": "Doc renders cleanly as markdown."
+    },
+
+    "8_close_out": {
+      "objective": "Result JSON, memory entries, muno PR.",
+      "spec": [
+        "Result file: `bridge/outbox/20260513-020000-firestore-calendar-view.result.json`. Required: id, status, summary, muno_pr_url, muno_merge_sha, ai_meta_submodule_pointer_bump_sha, baseline_smokes (install/test/build/widget-smokes), calendar_view_renders_for_both_modes (bool), agent_calendar_writes_smoke (event documents appear in Firestore post-order), container_build, cleanup, verdict.",
+        "Append a paragraph to `ai-meta/bridge/outbox/codex-spike-green-validation.md`.",
+        "Memory entry at `muno/memory/inbox/codex/2026/05/<timestamp>-firestore-calendar-view-green.md`. Cross-link from ai-meta.",
+        "Open muno PR: `feat(ui+agent): Firestore-backed calendar view + agent calendar event writes`.",
+        "Merge after self-review.",
+        "Bump ai-meta repos/muno pointer locally; do NOT push ai-meta — Kadyapam pushes."
+      ],
+      "verify": "muno PR merged; ai-meta pointer bumped locally; outcome memory written; container build GREEN."
+    }
+  },
+
+  "architectural_rules": [
+    "Lives entirely in muno (playbooks + src + docs + firestore.rules). NO repos/ops/docs/noetl changes.",
+    "NO external calendar integration. No Google Calendar API, no ICS export. Firestore only.",
+    "Catalogue grows from 23 to 24 widgets (additive; existing schema_version unchanged).",
+    "Firestore rules are documented but not deployed from this round.",
+    "Live mode uses an unauthenticated Firebase SDK read against the permissive v1 rules. Document this as demo-only; per-user auth comes post-tutorial.",
+    "If 5b/4b interaction surfaces (likely none): rebase against latest muno main before merging.",
+    "muno PR via standard flow (no direct-to-main).",
+    "ai-meta pointer bump local-only; Kadyapam pushes.",
+    "Container build must remain GREEN. Image size growth target: < 60 MB total."
+  ],
+
+  "result_file_instructions": "Write `bridge/outbox/20260513-020000-firestore-calendar-view.result.json`. Required fields: id, status, summary, muno_pr_url, muno_merge_sha, ai_meta_submodule_pointer_bump_sha, schemas_count_after (24), firebase_sdk_was_added (bool), agent_calendar_writes_smoke {flight_order_confirm_writes_2_or_4_events, hotel_pick_confirm_writes_2_events, user_note_writes_1_event}, calendar_view_modes {static_render_ok, live_render_ok}, container_build {wall_clock_s, image_size_mb, http_200_confirmed}, cleanup, verdict.",
+
+  "references": [
+    "sync/issues/2026-05-12-trip-planner-app-scoping.md — Firestore data model section",
+    "memory/inbox/2026/05/20260513-010000-itinerary-agent-4b-green.md (4b outcome — pending; reference if needed via muno main HEAD)",
+    "memory/inbox/2026/05/20260513-010500-muno-material-widgets-6b-green.md (6b outcome — pending)",
+    "memory/inbox/2026/05/20260512-235900-firestore-mcp-event-sourcing-green.md (Round 3 outcome; mcp/firestore tools)",
+    "muno/playbooks/widget-contract/_envelope.schema.json (existing envelope shape)",
+    "muno/src/components/WidgetRenderer.tsx (dispatcher to extend)",
+    "https://firebase.google.com/docs/firestore/query-data/listen (Firebase JS onSnapshot)",
+    "https://mui.com/material-ui/react-table/ (MUI Table for the full variant)"
+  ]
+}
