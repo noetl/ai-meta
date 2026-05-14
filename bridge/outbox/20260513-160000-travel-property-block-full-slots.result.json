@@ -1,0 +1,46 @@
+{
+  "id": "20260513-160000-travel-property-block-full-slots",
+  "status": "GREEN_PENDING_BROWSER_SMOKE",
+  "summary": "Travel now mirrors the GUI gateway callback execution pattern and renders a full right-pane property_block from the itinerary agent's final_slot_state. This fixes the post-submit 404 caused by polling gateway /api/executions, which is not exposed on gateway.mestumre.dev, and closes the Tutorial 08 right-pane gap.",
+  "prs": {
+    "travel": {
+      "url": "https://github.com/noetl/travel/pull/26",
+      "merge_sha": "e27f28ae4cdb180d26294ae71cd8d3bf96a19bdc",
+      "title": "fix(ui): use gateway callbacks and surface all trip slots"
+    },
+    "docs": {
+      "url": "https://github.com/noetl/docs/pull/71",
+      "merge_sha": "785e79cbb0b4db78f2c0057b0e7557a8341a0016",
+      "title": "docs(tutorials): note full travel slot pane"
+    }
+  },
+  "changes": [
+    "Travel GraphQL execution now opens the authenticated gateway SSE stream, passes clientId into executePlaybook, and resolves from playbook/result callbacks.",
+    "Travel no longer relies on GET https://gateway.mestumre.dev/api/executions/{id} for authenticated production runs.",
+    "ChatThread accepts final callback payloads with data.render and data.final_slot_state.",
+    "RightPane renders Region, Dates, Party, Star rating, Budget, Bed type, and Amenities from final_slot_state using the existing property_block widget and edit-pencil rows.",
+    "Tutorial 08 now describes the full right-pane slot surface and removes the stale v1 limitation."
+  ],
+  "validation": [
+    "repos/travel: npm run test (9 files, 19 tests)",
+    "repos/travel: npm run type-check",
+    "repos/travel: npm run smoke:widgets",
+    "repos/travel: npm run build",
+    "repos/docs: npm run build",
+    "travel#26 PR checks passed",
+    "travel Cloudflare Pages main deploy 25834193886 passed",
+    "docs Cloudflare Pages main deploy 25834194053 passed"
+  ],
+  "browser_smoke": [
+    "Hard-refresh https://travel.mestumre.dev/",
+    "Sign in through Auth0/gateway session",
+    "Submit: find ticket from sfo to NY next week",
+    "Expected: no generic Request failed with status code 404 from /api/executions polling",
+    "Expected: widget result appears from gateway SSE callback",
+    "Expected: right pane updates captured slots as the agent returns final_slot_state"
+  ],
+  "notes": [
+    "Kadyapam-side browser smoke remains the final user-visible gate because the live session token is browser-local.",
+    "The remaining extraction misspelling/normalization quality for inputs like 'NY next weeek' belongs to a future agent prompt/parser polish round if needed."
+  ]
+}
