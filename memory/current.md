@@ -66,6 +66,56 @@ inbox titles.
   monitoring system can call to detect or nudge the same recovery
   path, not the thing that actually fixes commands.
 
+### GKE runtime reaper + PFT v2 validation amber (2026-05-15)
+
+- GKE deploy completed to
+  `gke_noetl-demo-19700101_us-central1_noetl-cluster` with:
+  NoETL `pft-reaper-20260515-181717`, PFT test server
+  `pft-reaper-20260515-181717`, runtime reaper doctor
+  `pft-reaper-detect-healthy-20260515-190740`.
+- GKE PFT v2 execution `627490002867323540` was later cancelled during
+  tutorial validation because it was saturating the NoETL API/database
+  pool. Before cancellation, facility 1 had completed and validated all
+  domains including MDS (`22630/22630`), and the playbook had advanced
+  into facility 2.
+- Runtime reaper doctor fixes were made locally in `repos/doctor`:
+  `provision_doctor_mcp.yaml` now patches optional DSN env separately
+  instead of splicing fragile YAML; `detect_stuck_executions.yaml` no
+  longer flags long-running `CLAIMED/RUNNING` commands when their worker
+  is healthy and heartbeating. Local `cargo test` and `cargo clippy -D
+  warnings` were green before rebuilding `noetl-doctor`.
+- GKE observations to preserve:
+  NATS briefly rescheduled during facility-1 MDS
+  (`ConnectionRefusedError ... 34.118.228.11:4222`, pod event
+  `Multi-Attach error` then recovery); NoETL API status intermittently
+  hit DB pool pressure (`the pool 'noetl_server' has already 50 requests
+  waiting`, `couldn't get a connection after 30.00 sec`). Direct
+  in-cluster SQL probes were more reliable during the heavy MDS phase.
+- Detailed handoff note:
+  `memory/archive/2026/05/20260515-193100-gke-runtime-reaper-pft-v2-amber.md`.
+
+### Internet → Postgres → GCS tutorial validation (2026-05-15)
+
+- New runnable tutorial playbooks live in `repos/e2e` under
+  `fixtures/playbooks/tutorials/internet_postgres_gcs/`:
+  `internet_postgres_gcs_hmac.yaml` and
+  `internet_postgres_gcs_workload_identity.yaml`.
+- New user-facing tutorial lives in `repos/docs`:
+  `docs/tutorials/09-internet-postgres-gcs.md`. It covers credential
+  registration, playbook registration, execution, status checks, and
+  expected results for local kind and GKE.
+- GKE demo validation used NoETL API `http://127.0.0.1:18082`,
+  Postgres credential `pg_k8s`, HMAC credential `gcs_hmac_local`,
+  Workload Identity bucket `noetl-demo-output`, and HMAC bucket
+  `noetl-demo-19700101`.
+- Fresh GKE executions completed successfully:
+  Workload Identity execution `627592523359191239` wrote
+  `gs://noetl-demo-output/noetl/tutorial/demo-workload-identity/github_repo_627592523359191239.csv`;
+  HMAC execution `627592528442687692` wrote
+  `gs://noetl-demo-19700101/noetl/tutorial/demo-hmac/github_repo_627592528442687692.csv`.
+  Command-table validation showed every command row `COMPLETED` with
+  `error = null`.
+
 ### File-based cross-agent handoff convention (2026-05-15)
 
 - New `handoffs/` tree codifies how Claude / Codex / Cursor / Gemini /
