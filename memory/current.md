@@ -1,99 +1,191 @@
 # Current Memory
 
+Snapshot of the working state as of **2026-05-15**. Older detail has
+been compacted into `memory/compactions/` and archived under
+`memory/archive/`. Read the latest compaction
+(`memory/compactions/20260515-173703.md`) if you need the full
+inbox titles.
+
 ## Active Focus
 
-- Maintain cross-repo orchestration quality and consistency.
-- Keep submodule pointers aligned with merged upstream changes.
-- Keep release/distribution workflows reproducible.
-- **Travel agent flagship — three-phase arc closes GREEN** (May 10, 2026): Phase 1 widget flagship (round-by-round AMBER→GREEN over 9 design rules pinned in `repos/docs/docs/reference/playbook_authoring_guide.md`), Phase 2 Amadeus calls routed through `automation/agents/mcp/amadeus` via `tool: agent framework: noetl` (ops#58, docs#48), Phase 3 Vertex AI as third provider via `automation/agents/mcp/vertex-ai` agent hop (ops#59 + ops#60 fixing the GKE project default from `noetl-cluster` to `noetl-demo-19700101`, docs#50). All three travel intents validated GREEN on GKE with `effective_provider=vertex-ai`, no fallback. Travel runtime now catalog v2 on GKE (id `623381857714832176`). Pattern proven: travel agent is a thin dispatcher around two MCP playbooks (Amadeus tooling + Vertex inference) plus one urllib step (OpenAI/Anthropic). "MCP is just a playbook" thesis is load-bearing in three places (Amadeus, Vertex-AI, plus the `vertex-ai-stub` pointer-swap pattern that preceded it).
-- **Cloudflare GKE edge deployment playbook merged** (April 30, 2026): `noetl/ops#21` merged at `repos/ops` `e26da23`. New local-runtime playbook `automation/cloudflare/gke_gateway_edge.yaml` deploys the NoETL GUI to Cloudflare Pages and exposes the private GKE Gateway `ClusterIP` service through Cloudflare Tunnel. It creates/configures the remotely managed Tunnel, updates DNS CNAMEs, deploys `cloudflared` replicas to namespace `cloudflare`, supports multiple gateway hostnames, and fails fast unless a rotated `CLOUDFLARE_API_TOKEN` is exported locally.
-- **Cloudflare Pages GUI + GKE Tunnel Gateway runbook merged** (April 30, 2026): `noetl/docs#18` merged at `repos/docs` `6365986`, replacing the earlier Cloud Run-default runbook. New operations doc `docs/operations/cloudflare-pages-gui-tunnel-gateway.md` records the intended public-edge split: Cloudflare Pages serves `https://mestumre.dev`, Cloudflare Tunnel exposes `https://gateway.mestumre.dev` to the private GKE Gateway `ClusterIP` service `gateway.gateway.svc.cluster.local:8090`, and GKE keeps NoETL server/workers/NATS/PgBouncer private. Multiple gateway domains can share one Gateway by adding multiple Tunnel public hostnames and configuring Gateway CORS/Auth0 origins per GUI domain. `CLOUDFLARE_API_TOKEN` should be a scoped Cloudflare API token, not the Global API Key: Account → Cloudflare Pages → Edit, optional Zone → DNS → Edit, and separate Tunnel/Connector write scope only when automating Tunnel configuration.
-- **GKE Gateway Auth0 login repaired** (April 30, 2026): root cause was stale `api_integration/auth0/auth0_login` catalog content after the distributed runtime began exposing compacted Python step output through `prepare_session_cache.context.*`. Older playbook versions produced successful Gateway callbacks with null user fields, yielding `Invalid email` / failed browser login. `repos/e2e` commit `031ec71` updates the playbook result-shape handling and callback/cache paths; it was registered in GKE as catalog version 76 and a synthetic Auth0-token smoke returned HTTP 200 with populated user metadata. `repos/docs` commit `25bd7c5` documents GKE/Gateway/Auth0 deployment, playbook refresh, and troubleshooting without storing real passwords.
-- **Codex cross-repo refresh + PFT rerun on kind** (April 28, 2026): ai-meta submodule pointers bumped to `repos/noetl` `f4c221af` (`v2.24.2-2-gf4c221af`, PRs #386–#390 covering MCP-as-playbook tooling, catalog agent discovery, embedded UI build removal, indexed execution observability, idempotent event constraint DDL), `repos/gateway` `635a4b0` (`v2.9.0-4`, agent execution contract refresh), `repos/gui` `e3bfea2` (`v1.1.1`, MCP terminal commands routed through agents + direct MCP proxy removed), and `repos/ops` `58db847` (Kubernetes runtime agent playbook, structured MCP agent args, GUI MCP proxy off by default). `repos/docs` pointer held at `88580e8` until feature branch `kadyapam/catalog-discovered-mcp-terminal-docs` (HEAD `e03707e`, 10 ahead of `origin/main` `519e707`) is merged upstream.
-- **Local kind test API server live** (April 28, 2026): namespace `test-server`, pod `paginated-api-586794ddb5-dfv57` (1/1 Running), service `paginated-api.test-server.svc.cluster.local:5555`, NodePort `30555`; from inside the NoETL server pod `/health` returns `{"status":"ok"}` and the patient endpoint paginates correctly.
-- **PFT regression rerun in flight** (April 28, 2026): execution `614768929377878676` for `tests/fixtures/playbooks/pft_flow_test/test_pft_flow` is RUNNING; test server logs show 200 OK calls from NoETL workers to `/api/v1/patient/assessments` and `/api/v1/patient/conditions`. Track to validation_log GO/NO-GO.
-- **MDS batch worker `end` step renders `{{ start.* }}` literally after `loop.done`** (April 28, 2026): sub-playbook `tests/fixtures/playbooks/pft_flow_test/test_mds_batch_worker` execution `614782701987430447` reports `failed` in GUI v1.1.1 (`invalid literal for int() with base 10: '{{ start.batch_number }}'`) although the actual MDS HTTP fetch + Postgres saves completed. Same `start.*` refs render fine pre-loop. Sync issue + hypotheses + mitigation plan captured in `sync/issues/2026-04-28-bug-mds-batch-worker-end-step-template-hydration.md`.
-- **PFT clean rerun — MDS end-step fix proven** (April 28, 2026): execution `614955937991754550` ran 21m21s on local kind via `http://722-2.local:8082` against patched sub-playbook v7. All 50 visible sub-execs COMPLETED, 0 FAILED — the `int()` literal-template error is gone. `pft_test_validation_log` shows facilities 1, 2, 3 all at GO criterion `1000/1000` for assessments / conditions / medications / vital_signs / demographics. Patient-loss race not triggering. Parent FAILED at facility 4 mid `run_mds_batch_workers` for an unrelated worker-pool/dispatch issue (only 3 workers ready, capacity 1 each, 208 offline zombies). Captured in `memory/inbox/2026/04/20260428-114722-pft-clean-rerun-...md`.
-- **GUI login/nginx log noise reduced** (April 28, 2026): `repos/gui` branch `kadyapam/quiet-nginx-and-frontend-logs` at `79063db` silences `/env-config.js`, static-asset, `/favicon.ico`, `/robots.txt` access logs in nginx, drops the Axios interceptor 401 spam (which fired on every parallel poll during session expiry), and removes a leftover `🔍 PARSING PLAYBOOK CONTENT` console.log. `error_log` and meaningful warnings still surface. Local-only; push + bump ai-meta gitlink after PR merges.
-- **e2e + gui pointers bumped after PRs merged** (April 28, 2026): `noetl/gui#13` and `noetl/e2e#3` merged. ai-meta gitlinks bumped to `repos/gui` `311ff96` (`v1.1.2`) and `repos/e2e` `3f7dcb3` via `0fb4c76 chore(sync): bump e2e, gui to merged SHAs`. Pushed to `origin/main`.
-- **docs pointer bumped after merge** (April 28, 2026): `repos/docs` fast-forwarded to `35a778c` (`heads/main`) via `1c86b24 chore(sync): bump docs to merged SHAs`. All submodules now clean.
-- **Latest releases redeployed to kind** (April 28, 2026): `noetl-server` and 3× `noetl-worker` running `ghcr.io/noetl/noetl:v2.24.2`; `noetl-gui` running `ghcr.io/noetl/gui:v1.1.2`. test-server + kubernetes-mcp-server survived. Smoke probes 200 across `/api/health`, `/api/executions`, `/`, `/catalog`, `/env-config.js`. New execution `615068195786850757` of `tests/fixtures/playbooks/pft_flow_test/test_pft_flow` is RUNNING cleanly with `run_mds_batch_workers` issuing/claiming/completing commands and `call.done` cycles healthy.
-- **Nushell-style theme branch landed** (April 28, 2026): `repos/gui` topic branch `kadyapam/nushell-themes` at `4276931` rebuilds dark + light themes around a hybrid nushell.sh aesthetic (sans-serif chrome with mono terminal/data, slate-and-cream surfaces, type-tag tokens for shell-style structured values, gradient accent line under menubar, runtime context chip). Push to origin pending; PR + visual review next.
-- **Theme PR #14 merged** (April 28, 2026): `noetl/gui#14` (nushell-style themes) opened and merged. Awaiting semantic-release `v1.1.3` cut on origin/main, then redeploy to kind. ai-meta `repos/gui` gitlink bump pending.
-- **Catalog/MCP/UI architecture sketched** (April 28, 2026): `sync/issues/2026-04-28-architecture-mcp-catalog-and-friendly-playbook-launcher.md` captures the design for managing MCP servers as first-class lifecycle-aware catalog resources (deploy/redeploy/undeploy/status/restart/discover via lifecycle agent playbooks) AND a friendly playbook launcher in the GUI (workload form generation from YAML + inline result panel). Five phases: noetl primitives → gateway shim → ops templates → GUI run dialog + Mcp tab → docs + e2e. Phase 1 scoped for `noetl/noetl` v2.25.x; Phase 4 for `noetl/gui` v1.2.x.
-- **GUI v1.2.0 deployed to kind** (April 28, 2026): theme PR #14 merged → semantic-release auto-bumped to v1.2.0 → ai-meta `repos/gui` gitlink bumped to `b2e6586` via `65a130d`; helm release `noetl-gui` revision 3 running `ghcr.io/noetl/gui:v1.2.0`.
-- **Agent noop-end discards result bug** (April 28, 2026): `automation/agents/kubernetes/runtime` v1's `end` step is `kind: noop`, so `playbook.completed.result.context = {step: "end", status: "noop"}` and the GUI terminal renders nothing for `mcp/kubernetes` commands like `pods`. Mitigation in `repos/ops` branch `kadyapam/runtime-agent-return-summary` at `5468f2f` → merged as `noetl/ops#13`; agent re-registered as catalog v2; ai-meta `repos/ops` gitlink bumped via `7fb8cdf`. Engine-side fix tracked in `sync/issues/2026-04-28-bug-agent-noop-end-step-discards-result.md`.
-- **Phase 1 MCP catalog work merged as v2.25.0** (April 28, 2026): `noetl/noetl#392` merged; semantic-release auto-bumped to `v2.25.0`. Adds `noetl.server.api.mcp` with three new endpoints (`POST /api/mcp/{path}/lifecycle/{verb}`, `POST /api/mcp/{path}/discover`, `GET /api/catalog/{path}/ui_schema`) plus workload-form inference. Resource model unchanged. Cleanup follow-up at `noetl/noetl#393` (branch `kadyapam/mcp-followup-pass-2-fixes`) addresses the eight Copilot pass-2 findings: cache-mutation (shallow-copy payload), error mapping (503 not 404 for IO errors), workload_overrides reserved-keys check, async DNS via `loop.getaddrinfo`, unused imports, stale docstring, multi-directive `finditer` parser, 2+ space indent regex.
-- **Phase 4 GUI run dialog PR open** (April 28, 2026): `noetl/gui#16` (branch `kadyapam/playbook-run-dialog` at `e3f213f`) adds a `Run` button per catalog row that opens `PlaybookRunDialog` — fetches `/api/catalog/{path}/ui_schema`, renders metadata.description as markdown, generates one antd input per workload field by inferred kind, polls `/api/executions/{id}` every 2 s and renders the agent's text via the existing terminal fallback chain. Existing JSON Payload modal stays as power-user fallback.
-- **E2E fixture split landed** (April 2026): dedicated `noetl/e2e` repo now owns integration-test fixtures and docs; credential JSON templates may be committed, but local credential JSON values must remain uncommitted.
-- **Execution observability typed and released** (April 26, 2026): `repos/noetl` release `v2.23.2` includes typed execution list/detail responses, AI explain fixes, and API review fixes. Remember `noetl.execution` is a projection; `noetl.command` + `noetl.event` are source-of-truth execution state tables together with the projection.
-- **GUI terminal workspace shipped** (April 26, 2026): `repos/gui` release `v1.0.7` contains the terminal-first workspace, old Mac style theme, header/footer menus, runtime `/env-config.js` injection, direct/gateway API modes, resizable and maximizable terminal/dashboard panes, improved AI explain rendering, and Kubernetes MCP terminal commands.
-- **Local kind GUI + MCP deploy baseline** (April 26, 2026): deployed `ghcr.io/noetl/gui:v1.0.7` to namespace `gui` using `repos/ops/automation/development/gui.yaml` with `action=deploy`, `image_pull_policy=Always`, `api_mode=direct`, `api_base_url=http://722-2.local:8082`, and `mcp_kubernetes_url=/mcp/kubernetes`; deployed `quay.io/containers/kubernetes_mcp_server:v0.0.61` to namespace `mcp` using `repos/ops/automation/development/mcp_kubernetes.yaml`.
-- **Kubernetes MCP terminal verified** (April 26, 2026): browser validation at `http://localhost:38081/catalog` confirmed `mcp status` reports `kubernetes :: healthy url=/mcp/kubernetes tools=13`, `k8s namespaces` lists local kind namespaces, and `k8s pods mcp` returns the `kubernetes-mcp-server` pod `1/1 Running`.
-- **MCP-as-agent-playbook architecture implemented in draft PRs** (April 26, 2026): MCP access is now designed to run through NoETL agent playbooks, not direct GUI/browser calls. Draft PRs opened: `noetl/noetl#386` adds `tool.kind: mcp`, executable `agent` catalog resources, and `mcp`/`memory` resource kinds; `noetl/ops#11` adds `automation/agents/kubernetes/runtime`; `noetl/gui#11` routes terminal `mcp`/`k8s` commands through the agent execution; `noetl/gateway#8` refreshes the gateway execution contract and GraphQL `resourceKind`; `noetl/docs#12` documents catalog resources and MCP agent execution. Local kind validation registered the Kubernetes runtime agent as `resource_type=agent` and completed executions `614016805878628425` (`tools/list`) and `614016931808411774` (`pods_list_in_namespace`).
-- Track and drive fixes for Jira bug set `AHM-4280..AHM-4284` mirrored to `noetl/noetl` issues `#261..#265`.
-- Enforce NoETL release commit subject format without scope braces (`fix: ...`, not `fix(scope): ...`) so automation triggers.
-- Keep GCP project context explicit: `noetl-demo-19700101` is operated under Adiona.org organization context.
-- **CLI + Ops cross-thread sync completed** (March 30, 2026 UTC): `noetl/cli` release `v2.13.0` published with asset `noetl-v2.13.0-darwin-arm64`; `repos/cli` is pinned at commit `fd4c3ee`, `repos/ops` at `9ce7924`, and `ai-meta` at `fa15612`.
-- **Runtime binary baseline confirmed** (March 29, 2026 local): active local CLI path is `/Volumes/X10/dev/cargo/bin/noetl` and reports `noetl 2.13.0`; use this binary for ops/deploy/test automation commands.
-- **DSL Refactoring in progress** (March 2026): Use the two canonical spec documents below as instructions when performing any NoETL DSL refactoring work.
-- **DSL fixture migration execution started** (March 28, 2026): `repos/noetl/tests/fixtures/playbooks/pagination` migrated from legacy DSL fields (`args`, `outcome`, `set_ctx`, `set_iter`) toward target model (`input`, `output`, `set`) without touching Python source files.
-- **DSL fixture migration aligned to PR #347 completed** (March 28, 2026): 126 fixture playbooks under `repos/noetl/tests/fixtures/playbooks/**` were migrated to canonical DSL v2 field/routing model (`input`, `output`, scoped `set`, arc `set`) and validated via full YAML parse + residual-pattern scan.
-- **DSL runtime validation blocked post-PR #347 deploy** (March 28, 2026): local kind deploy + fixture registration succeeded (139/139), but distributed `/api/execute` currently fails with `"'Command' object has no attribute 'args'"` (server command context path still reading `cmd.args`), preventing end-to-end regression execution in cluster mode.
-- **Runtime command-context fix prepared in PR #349** (March 28, 2026): server command emission now uses canonical `input` (with legacy `args` read alias), `cmd.args` crash path removed, and local kind validation confirms `/api/execute` starts distributed runs again.
-- **Over-dispatch/replay tracked with live matrix repro** (March 29, 2026): updated `noetl/noetl#345` with fresh evidence from `tooling_non_blocking` fixture execution (`593446259529089845`) showing `run_duckdb_probe` over-dispatch (`issued=12`, expected `5`) while HTTP/Postgres remain `5/5`; separate runtime fix and unit tests prepared in `engine.py` + `tests/unit/dsl/v2/test_loop_parallel_dispatch.py`.
-- **Tooling non-blocking matrix fixture added** (March 29, 2026): new fixture `tests/fixtures/playbooks/load_test/tooling_non_blocking/tooling_non_blocking.yaml` validates non-blocking overlap for core tools (`http`, `postgres`, `duckdb`) with optional probes for `snowflake`, `nats kv`, and `nats object store`, all in canonical DSL (`input`, `output`, `set`).
-- **PR #352 opened for replay guard + tooling matrix** (March 29, 2026): https://github.com/noetl/noetl/pull/352 contains loop missing-index age-gating fix, targeted unit tests, restored async probe server behavior, and new tooling matrix fixture wiring.
-- **Post-PR #352 replay/idempotency follow-up validated** (March 29, 2026): additional engine/API fixes prevent duplicate actionable event fan-out and reconstruct task-sequence loop progress from `call.done` during replay; live kind execution `593473735189856942` completed with core probes at expected counts (`issued=5`, `started=5`, `call.done=5` per step) and high concurrency (`max_parallel=5` for HTTP/Postgres/DuckDB in DB timeline).
-- **Issue tracking updated** (March 29, 2026): `noetl/noetl#345` now includes the final post-fix execution evidence, SQL metrics, and validated non-blocking report for mandatory tooling probes.
-- **test_pft_flow regression execution started** (April 14, 2026): execution `604876797720658689` launched against `tests/fixtures/playbooks/pft_flow_test/test_pft_flow` (catalog_id `604681050903544449`) on local kind cluster with NoETL image `local/noetl:2026-04-14-06-21`. Processes 1000 patients × 10 facilities with 5 sequential data types (assessments → conditions → medications → vital_signs → demographics). Status: RUNNING — assessments ✅ 1000/1000, conditions ✅ 1000/1000, medications ~38% in progress at last check, vital_signs/demographics pending, validation_log 0/10. GO criterion: validation_log = 10 rows with all 1000/1000 per facility.
-- **Repo cleanup** (April 14, 2026): 3 one-off patch scripts from PR #352 work deleted from `scripts/ai_meta_tools/` (`fix_test_sql_assert.py`, `fix_worker_tests.py`, `time_test.py`). Notebook `tests/fixtures/playbooks/pft_flow_test/monitor_pft_execution.ipynb` outputs cleared + committed (`a25f098e` on noetl, `1a2de4b` on ai-meta). Both pushed to remote.
+### Cross-repo orchestration (durable)
+
+- This is `ai-meta`: the meta-repo coordinating NoETL submodules.
+  Implement product code in submodules; commit only AI instructions,
+  orchestration docs, memory, and submodule pointer bumps here.
+- Standard cross-repo workflow: branch in submodule → upstream PR
+  merges → bump submodule pointer here with
+  `chore(sync): bump <repo> to <short-sha>`.
+- Local kind deploys must use the configured Podman machine
+  (`noetl-dev`); never fall back to Colima/Docker. Mount
+  `/Volumes:/Volumes` for kind extraMounts to work.
+- Local NoETL CLI baseline: `noetl 2.14.x` at
+  `/Volumes/X10/dev/cargo/bin/noetl`. Use for all ops/deploy/test
+  automation.
+- GCP project `noetl-demo-19700101` is operated under the **Adiona.org**
+  organization context.
+- Logging hygiene: suppress access logs or use DEBUG for
+  high-frequency health/poll endpoints; any change that may increase
+  request log volume needs a flood check.
+
+### Runtime self-healing landed (2026-05-14 → 2026-05-15)
+
+- **In-process command reaper** (`repos/noetl`) reinstated in
+  `noetl/server/command_reaper.py`. Scans `noetl.command` for
+  non-terminal commands whose execution is still live and
+  republishes the original NATS notification under a `RuntimeLease`
+  (`task_name="command_reaper"`). The existing `/api/commands/.../claim`
+  endpoint and `noetl.claim_policy.decide_reclaim_for_existing_claim`
+  stay the authority for reclaim correctness; the reaper never
+  duplicates claim policy or forces completion. Env knobs:
+  `NOETL_COMMAND_REAPER_{ENABLED,INTERVAL_SECONDS,WORKER_STALE_SECONDS,
+  HEALTHY_HARD_TIMEOUT_SECONDS,PENDING_RETRY_SECONDS,MAX_PER_RUN}`.
+- **Out-of-process runtime reaper surface** (`repos/doctor`) shipped
+  as a Rust crate `noetl-doctor`: thin wrapper over the `noetl` Rust
+  CLI that shells out to `noetl run --runtime local --set k=v ...`
+  against bundled YAML playbooks under `playbooks/`. Playbooks follow
+  the canonical `repos/ops` shape (`workload.action` dispatch with
+  `help` default, `kind: shell` + psql/curl/jq, `ensure_kube_context`
+  guard). Five bundled playbooks: `detect_stuck_executions`,
+  `inspect_stale_commands`, `reachability_smoke`,
+  `trigger_command_reaper`, `provision_doctor_mcp`. CLI exposes
+  `detect / reachability / repair {trigger-reaper, run-playbook} /
+  provision <verb> / mcp serve / playbooks`. The MCP HTTP surface
+  mirrors the CLI 1:1 over `POST /tools/<name>/invoke`.
+- **PFT v2 validation GREEN** (2026-05-15): execution
+  `627209422065893596` for
+  `fixtures/playbooks/pft_flow_test/test_pft_flow_v2` completed in
+  `3h 54m 21s`. 10/10 facilities validated; each at `1000/1000` for
+  assessments / conditions / medications / vital signs / demographics
+  with non-zero MDS complete (facility 10 `22521/22521`). Final
+  command table: 26199 COMPLETED, zero non-terminal. Server log shows
+  the in-process reaper auto-recovered **two batches of 20 orphaned
+  `fetch_mds_details:task_sequence` commands**
+  (`[COMMAND-REAPER] Re-published 20/20 recovered commands` twice).
+  Doctor was not on the critical path; doctor is the surface a
+  monitoring system can call to detect or nudge the same recovery
+  path, not the thing that actually fixes commands.
+
+### File-based cross-agent handoff convention (2026-05-15)
+
+- New `handoffs/` tree codifies how Claude / Codex / Cursor / Gemini /
+  any future agent pass work to each other through files rather than
+  chat. Threads live at `handoffs/active/<YYYY-MM-DD-slug>/` as
+  numbered `round-NN-prompt.md` + `round-NN-result.md` pairs with
+  YAML frontmatter (`thread / round / from / to / status`). Closed
+  threads move verbatim to `handoffs/archive/`.
+- Two slash commands: `/handoff-open <slug> "<description>"`
+  (dispatcher) and `/handoff-result <slug>` (executor).
+- Behavioral rules: `agents/rules/handoffs.md`. Full convention with
+  per-tool enter/exit instructions: `handoffs/README.md` and the
+  matching section in the root `README.md`.
+
+### Travel agent + AI OS platform (durable, arc closed 2026-05-13)
+
+- **Travel agent flagship** closed GREEN end-to-end on GKE
+  (2026-05-10): three-phase arc proved the "MCP is just a playbook"
+  thesis. Phase 1 — widget flagship (9 design rules pinned in
+  `repos/docs/docs/reference/playbook_authoring_guide.md`). Phase 2 —
+  Amadeus calls routed through `automation/agents/mcp/amadeus` via
+  `tool: agent framework: noetl`. Phase 3 — Vertex AI as third
+  provider via `automation/agents/mcp/vertex-ai`. All three intents
+  validated GREEN on GKE with `effective_provider=vertex-ai`, no
+  fallback. Travel runtime is catalog v2 (id `623381857714832176`).
+- Travel domain renamed from `muno` to `travel`. The travel app runs
+  on Cloudflare Pages at `https://travel.mestumre.dev` with
+  Cloudflare Access in front and Auth0 for end-user auth.
+- Cloudflare edge stack for the GUI/Gateway split is documented and
+  automated in `repos/ops/automation/cloudflare/gke_gateway_edge.yaml`
+  + `repos/docs/docs/operations/cloudflare-pages-gui-tunnel-gateway.md`.
+
+### MCP-as-agent-playbook architecture (durable, shipped April–May 2026)
+
+- `noetl/noetl v2.25.0+` exposes `noetl.server.api.mcp` with
+  `POST /api/mcp/{path}/lifecycle/{verb}`,
+  `POST /api/mcp/{path}/discover`, and
+  `GET /api/catalog/{path}/ui_schema`. MCP servers are first-class
+  catalog resources managed by lifecycle agent playbooks.
+- `repos/ops/automation/agents/kubernetes/` holds the runtime +
+  lifecycle agent fleet. The GUI run-dialog (`noetl/gui v1.2.0+`)
+  uses `/api/catalog/{path}/ui_schema` to render workload forms per
+  catalog row.
+- Kubernetes MCP terminal commands are routed through the
+  Kubernetes runtime agent (no direct browser → MCP calls).
+
+### DSL v2 baseline (durable, shipped March–April 2026)
+
+- All fixture playbooks migrated to canonical DSL v2
+  (`input` / `output` / `set` / `next.arcs[].set`). The legacy
+  field names (`args`, `outcome`, `set_ctx`, `set_iter`,
+  `next.arcs[].args`) are retired.
+- See "DSL Refactoring Reference Documents" below for the spec docs
+  every agent must follow when authoring or refactoring playbooks.
 
 ## DSL Refactoring Reference Documents
 
-These documents are the authoritative instructions for the current DSL refactoring effort:
+Authoritative for any DSL refactoring work:
 
-- **Assignment and Reference Spec** — `docs/features/noetl_dsl_assignment_and_reference_spec.md` in `noetl/docs` repo
-  - Defines `set`, scope model (`workload`, `ctx`, `step`, `iter`, `input`, `output`), `_ref` naming rules, reference object contract, cross-step propagation patterns.
-- **DSL Refactoring Spec** — `docs/features/noetl_dsl_refactoring_spec.md` in `noetl/docs` repo
-  - Defines target DSL model: `workflow`, `step`, `tool`, `input`, `output`, `set`, `spec`, `next`. Migration map: `args`→`input`, `outcome`→`output`, `result`→`output.data`, `result_ref`→`output.ref`, `set_ctx`/`set_iter`→`set`, `next.arcs[].args`→`next.arcs[].set` or step-level `set`.
+- **Assignment and Reference Spec** —
+  `docs/features/noetl_dsl_assignment_and_reference_spec.md` in
+  `noetl/docs`. Defines `set`, scope model (`workload`, `ctx`, `step`,
+  `iter`, `input`, `output`), `_ref` naming rules, reference object
+  contract, cross-step propagation.
+- **DSL Refactoring Spec** —
+  `docs/features/noetl_dsl_refactoring_spec.md` in `noetl/docs`.
+  Defines the target model (`workflow`, `step`, `tool`, `input`,
+  `output`, `set`, `spec`, `next`) and migration map.
 
-**Key refactoring rules (for AI execution):**
-1. Replace `args` with `input`, `outcome` with `output`, `set_ctx`/`set_iter` with `set`
-2. `set` is top-level (never under `spec`)
-3. `_ref` suffix required for unresolved references; hydrated data must not use `_ref`
-4. Cross-step data via `set` + consumer `input`, not `next.arcs[].args`
-5. Workers do not synthesize nodes; server is sole routing authority
+**Key rules:**
+
+1. Replace `args` with `input`, `outcome` with `output`,
+   `set_ctx` / `set_iter` with `set`.
+2. `set` is top-level (never under `spec`).
+3. `_ref` suffix required for unresolved references; hydrated data
+   must not use `_ref`.
+4. Cross-step data via `set` + consumer `input`, not
+   `next.arcs[].args`.
+5. Workers do not synthesize nodes; the server is the sole routing
+   authority.
 
 ## Recent Compaction
 
-- None yet.
+- 2026-05-15 — `memory/compactions/20260515-173703.md` archived 244
+  inbox entries spanning 2026-04-07 → 2026-05-15. Cleared the
+  pre-runtime-reaper backlog.
 
 ## Open Items
 
-- Track PFT execution `614768929377878676` to terminal state and run `monitor_pft_execution.ipynb` for GO/NO-GO; on GO, capture per-facility validation_log counts and confirm assessments→conditions→medications→vital_signs→demographics all hit 1000/1000.
-- Resolve the `test_mds_batch_worker` post-`loop.done` render-scope bug (execution `614782701987430447`): apply the fixture-level `{{ workload.* }}` mitigation in `repos/e2e/fixtures/playbooks/pft_flow_test/test_mds_batch_worker.yaml` to unblock PFT, then open a `noetl/noetl` issue + PR to fix the input renderer scope for `loop.done`-arc destinations and add a regression test under `tests/integration/dsl/v2/`.
-- Track Copilot pass-3 review on `noetl/noetl#393`; merge once green. Then trigger `BumpAndDeployV3` (or its successor) to roll v2.25.1 onto kind so the lifecycle/discover/ui_schema endpoints are live with the cleanup fixes.
-- Track Copilot review on `noetl/gui#16`; merge once green. Then redeploy gui (likely v1.3.0 since `feat:` triggers a minor bump) so the friendly playbook run dialog is visible.
-- After both PRs are merged, bump ai-meta gitlinks for `repos/noetl` and `repos/gui` in a single `chore(sync)` commit.
-- Open the remaining architecture issues — Phase 2 (gateway shim with route-aware `check_playbook_access` for `/api/mcp/...`) and Phase 3 (ops lifecycle agent templates + curated `Mcp` registration playbook) — mirroring `sync/issues/2026-04-28-architecture-mcp-catalog-and-friendly-playbook-launcher.md`.
-- Review + merge `noetl/noetl#392` after wiring admin-role auth on the lifecycle endpoints, adding a kind smoke test, and writing the `Mcp` resource model docs in `repos/docs`. Then start Phase 2 (gateway shim + GraphQL `Mcp.lifecycle` field) and Phase 3 (ops templates: split runtime vs. lifecycle agents under `automation/agents/kubernetes/`, register `Mcp` resource via refactored `automation/development/mcp_kubernetes.yaml`).
-- Track execution `615068195786850757` to terminal state. If it hits the same empty-error `command.failed` cluster on `run_mds_batch_workers` around facility 4 like the previous run, scale `noetl-worker` past 3 replicas first (current `max_in_flight=5` × 3 children expects ≥48 worker capacity per the playbook comment; we currently have 3).
-- Investigate the empty-error `command.failed` cluster on `run_mds_batch_workers` under low worker capacity (parent execution `614955937991754550` failed at facility 4): 3 workers ready / 208 offline in `/api/worker/pools` is well under the flow's assumed `3 × 16 = 48` capacity. Reap zombie workers, scale up, then rerun on the patched sub-playbook v7.
-- File two follow-up `noetl/noetl` issues separately from the `loop.done` render-scope one: (a) sub-execution top-level status not transitioning to COMPLETED after `end` step finishes when parent advances via `call.done`; (b) empty-error `command.failed` cluster on `run_mds_batch_workers` under low worker capacity (likely lease/timeout drop without enriched error context).
-- Merge `repos/docs` branch `kadyapam/catalog-discovered-mcp-terminal-docs` upstream, then bump ai-meta gitlink for `repos/docs` from `88580e8` to the merged tip (currently 10 commits ahead of `origin/main` `519e707`).
-- After PFT completes successfully, draft the `chore(release): version 2.24.3` cut for `repos/noetl` if the schema-reapply + observability fixes warrant a new tagged release.
-- Sync Jira ticket summaries and acceptance criteria into GitHub issues `#261..#265`.
-- Start implementation branches and PRs for each mirrored bug once reproduction details are confirmed.
-- Run runtime validation for refactored fixture playbooks on local `noetl-kind` after building/deploying the post-PR #347 NoETL image.
-- Unblock distributed runtime execution for DSL v2 by resolving server-side `cmd.args` attribute usage, then rerun regression playbooks on local `noetl-kind`.
-- Merge `noetl/noetl` PR #349, redeploy promoted image, and complete full regression completion/failure summary capture.
-- Deploy/redeploy image containing loop missing-index age-gating fix (`NOETL_TASKSEQ_LOOP_MISSING_MIN_AGE_SECONDS`) and rerun `tooling_non_blocking`; mandatory pass criteria: each core step has `issued_count==5`, `terminal_count==5`, `max_parallel>=2`.
-- After core pass, enable optional probes (`snowflake`, `nats kv`, `nats object store`) in `tooling_non_blocking` workload and capture per-tool non-blocking report.
-- Track status endpoint parity: `noetl status --json` can show `completion_inferred=true` with sparse `completed_steps` even when `/api/executions/{id}` is terminal/complete; decide whether to fix status reconstruction or rely on executions API for matrix reporting.
-- Before any local redeploy/retest sequence, verify CLI baseline with `noetl --version` and require `2.13.0` (or newer approved release) to avoid mixing old `tool.args` behavior.
-- **Complete test_pft_flow validation** (April 14, 2026): execution `604876797720658689` still RUNNING — wait for validation_log to reach 10/10. Run `monitor_pft_execution.ipynb` for GO/NO-GO report. On GO, mark `noetl/noetl` issues `#261..#265` (patient-loss race condition) as verified fixed.
-- Extend MCP terminal integration beyond read-only Kubernetes observability after the `v1.0.7` baseline, keeping GUI commands safe-by-default and ops deployments playbook-driven.
+### Unpushed local ai-meta commits (awaiting human review/push)
+
+- `61203b3 docs(agents): add file-based cross-agent handoff convention`
+- `9294b55 chore(sync): bump doctor to 002b118`
+- `84e7d46 chore(sync): bump doctor for cli 2.14.2 default`
+- `1265258 chore(sync): bump cli, doctor for release assets`
+- `f5e60a0` and `6a635d8` in `repos/doctor` were merged via
+  `noetl/doctor#5` and are reflected in pointer `9294b55`.
+
+### Operational follow-ups
+
+- **MDS=0 caveat resolved by 2026-05-15 PFT v2 run.** The 2026-05-14
+  PFT v2 rerun had reported `mds_expected=0` because the local test
+  server was freshly seeded; the 2026-05-15 rerun on the new image
+  exercised the full MDS path and the in-process reaper recovered the
+  expected orphan batches. No further action.
+- **Travel arc**: no in-flight items; treat as durable baseline.
+  New travel work opens fresh sync notes under
+  `sync/issues/YYYY-MM-DD-*.md`.
+- **Logging hygiene rule** (`agents/rules/logging.md`) still
+  load-bearing; honor it on any new endpoint that runs on a
+  high-frequency poll.
+
+### Conventions to honor
+
+- When a task spans more than one AI session, use a file-based
+  handoff (`handoffs/active/<slug>/`) instead of pasting briefs into
+  chat. See `handoffs/README.md`.
+- NoETL release commit subjects use no scope braces
+  (`fix: ...`, not `fix(scope): ...`) so semantic-release
+  automation triggers correctly.
 
 ## Compaction 2026-03-03T19:25:41Z
 
@@ -192,3 +284,251 @@ These documents are the authoritative instructions for the current DSL refactori
 - Source: `memory/compactions/20260406-103434.md`
 - Entries compacted:
 - Added GEMINI.md files and updated root instructions
+## Compaction 2026-05-15T17:37:03Z
+
+- Source: `memory/compactions/20260515-173703.md`
+- Entries compacted:
+- tooling_non_blocking probe execution
+- Status parity and state load fixes
+- Validate PR 375 and multi-pass loop deduplication
+- E2E Deployment and PR 375 Verification
+- Persist loop payloads PR 376
+- test_pft_flow Metrics Analysis
+- residual-debug-traces-removed
+- status-api-fix-completed
+- loop.done race fix
+- Refactor nested engine and stabilize loop execution
+- Optimize server batch throughput and fix replay tests
+- Worker item pipeline execution time optimized
+- Removed O(N^2) SQL parsing bottlenecks
+- Worker item pipeline optimization merged
+- Fix regex bug in Postgres SQL parser
+- Local deployment and validation of v2.17.20
+- Eliminated array-based state bloat in engine
+- Loop reconciliation queries optimized from 1410ms to 3ms
+- Optimize worker initial event bounds
+- test_pft_flow execution 604876797720658689 tracking
+- NoETL Distributed Processing Enhancement Plan
+- Engine Pipeline Stabilization & Loop Re-sync
+- Phase 0 Refactor: Correctness and Deduplication
+- Phase 1 Refactor: Schema and Storage Layer
+- Colima Migration + Envelope Validator Fix Deployed
+- Data Plane Separation + Distributed Loop Fix Chain (April 17 2026)
+- state-refactor-pushed-and-rerun-request
+- status parity and trigger cleanup
+- engine internals doc moved to docs and minio guidance
+- Command table write-path gap
+- pft perf fixes and fresh test 608606943497683474
+- minio local provisioning and storage guidance integration
+- pft performance and reliability fixes
+- minio local setup documentation
+- phase-0 RisingWave storage alignment landed
+- podman runtime migration + phase-0 validated + phase-1 branch opened
+- phase-1 DiskCacheBackend landed with two-pool split and cloud spill
+- phase-1 validation: end-to-end disk + MinIO spill green
+- PFT injected SYNTAX_ERROR fixture removed; facility 1 1000/1000 green
+- PFT parallel DAG + command hash-partition migration drafted
+- command_id BIGINT refactor + hash partitioning applied
+- barrier-4 stall root cause: reference-only envelopes + strict arc eval
+- PFT redeploy session — multiple engine fixes, test still not green
+- PFT v105 partial success — barriers fire, fetch loop.done race remains
+- PFT v108 green=1/10 — wait_for_all_barriers works; facility 2 hits fetch-loop stuck claims
+- cursor-loop infrastructure complete phases 1-5
+- cursor-loop infrastructure landed; PFT multi-facility race remains
+- row-preservation fix unblocks ctx.facility_mapping_id threading; multi-facility cursor loops green
+- PFT cursor run blocked on MDS child command pending backlog
+- PFT 10/10 GREEN — cursor-loop + MDS max_in_flight fix
+- PR #383 merged to noetl main — cursor-loop shipped
+- Ops GHCR deploy playbooks merged
+- GUI terminal workspace, e2e split, typed execution, and GHCR deploy flow
+- GUI Kubernetes MCP deployed and verified
+- Codex submodule refresh and PFT execution rerun on kind
+- MDS batch worker end step template not hydrated after loop.done
+- PFT clean rerun — MDS end-step fix validated, facilities 1 and 2 GO
+- GUI quiet nginx + frontend login-related logs
+- Bumped e2e + gui pointers after PRs merged
+- Deploy latest releases to kind + nushell-style theme branch
+- Phase 1 — MCP lifecycle / discover / ui_schema PR #392
+- PR #392 merged as v2.25.0; follow-up #393 + GUI Phase 4 PR queued
+- Phase 3 — ops MCP lifecycle agent fleet (PR #15)
+- Phase 2 merged + pointers bumped + lifecycle agents registered
+- MCP architecture verified end-to-end on kind v2.27.0
+- MCP architecture end-to-end on kind: pod Running, GUI showing it
+- GKE Gateway Auth0 login repair
+- GKE private GUI deployment profile live
+- Cloudflare Pages GUI and Cloud Run Gateway runbook merged
+- Cloudflare Tunnel for GKE Gateway docs merged
+- Cloudflare GKE edge deployment playbook merged
+- Session refresh after cleanup-repo bumps
+- Rust CLI distribution cleanup
+- 2026-05-04 — Spike Gaps 2 + 5 merged
+- 2026-05-04 — Spike additions audited for optional-dependency contract
+- 2026-05-04 — Claude ↔ Codex bridge: first round-trip
+- 2026-05-05 — Autonomous Codex deploy + spike smoke (AMBER outcome, 6 findings)
+- 20260505-153729-gap1-carveout-tool-error.md
+- 20260505-163002-gap41-spike-green-with-followups.md
+- 20260505-191122-v2358-regression-sweep-amber.md
+- 20260505-211618-three-followups-green.md
+- 20260505-220055-full-regression-gemma4-amber.md
+- 20260506-032648-docs-only-green.md
+- Today (in-cluster Ollama):
+- repos/e2e/fixtures/playbooks/spike/spike_e2e_test.yaml (post-#9)
+- 20260506-060840-gke-vertex-amber-model-availability.md
+- 20260506-153850-arc-closed-gke-vertex-production.md
+- 20260506-163551-worker-key-forwarding-green.md
+- 20260506-213402-alias-removal-green.md
+- 20260507-010751-arc-closed-amber-tail-latency.md
+- 20260507-023206-adaptive-backoff-amber-projection-deep-nested.md
+- 20260507-035806-projection-recursive-green-audit-vindicated.md
+- 20260507-221619-pft-action-batch-local-kind-green.md
+- GUI: chatui-aligned widget renderer for NoetlPrompt (round 2)
+- AI-OS round 2 widget renderer handed to Codex for local kind deploy
+- noetl render projection allow-path round 2 unblock
+- AI-OS round 2 GREEN — widget renderer + render projection + e2e all-widget coverage
+- Handed AI-OS docs text pass to Codex (post-round-2 polish)
+- Docs widget tutorial deployed + local LAN access note
+- Widget LAN access + visibility handover to Claude
+- GUI LAN auto-rewrite + run auto-render widgets — round 2.x design + handoff
+- GUI LAN auto-rewrite + run auto-render widgets — GREEN
+- Round 2.x GREEN — GUI LAN auto-rewrite + run auto-render shipped
+- Round 2.x.1 designed widgets-everywhere — handoff to Codex
+- Travel agent + Amadeus MCP + tutorial designed — flagship widget demo handoff
+- Travel agent flagship AMBER — audit SQL runtime blocker
+- Travel agent flagship AMBER — log_classification SQL fix designed and handed to Codex
+- Travel agent AMBER-to-GREEN round remains AMBER — SQL fixed, Amadeus/keychain path next
+- Travel keychain bare-refs fix designed — AMBER round 2 to GREEN handoff
+- Travel keychain round AMBER — token binding fixed, Amadeus upstream/error handling remains
+- Travel + Amadeus MCP urllib wrappers designed — AMBER round 3 to GREEN handoff
+- Travel urllib round AMBER — MCP green, travel friendly-error renderer still marks failed
+- Travel render-failure ok-status fix designed — AMBER round 4 to GREEN (one-line)
+- Travel failure-status fix backend-green, UI still AMBER
+- Travel render-bubble + canvas wiring designed — AMBER round 5 to GREEN
+- Travel render bubble still AMBER — final tail cannot see selected render
+- Travel render_X-as-tail designed — AMBER round 6 to GREEN
+- Travel render tail terminal GREEN, canvas AMBER
+- Canvas form-submit + report formatter polish designed — AMBER round 7 to GREEN
+- Canvas form-submit fixed; widget rerun button remains AMBER
+- Travel canvas widget rerun GREEN
+- Travel agent flagship round CLOSED GREEN — full arc retrospective
+- Handed playbook authoring guide to Codex — pin 11 rules from 9-round travel agent arc
+- Playbook authoring guide GREEN — 11 rules pinned, flagship arc fully closed
+- Handed travel multi-provider Anthropic round to Codex
+- Handed travel Anthropic re-smoke to Codex — pending GCP secret provisioning
+- Handed travel-via-Amadeus-MCP Phase 2 to Codex
+- Phase 2 GREEN — travel agent uses Amadeus MCP playbook internally
+- Handed travel vertex-ai Phase 3 to Codex (third provider via MCP playbook hop)
+- Travel agent vertex-ai Phase 3 — AMBER (code GREEN, GCP auth blocker)
+- Travel agent vertex-ai Phase 3 closes GREEN — three-provider flagship complete
+- Handed authoring-guide workload-defaults rule to Codex (12th rule from the flagship arc)
+- Handed travel hotels/activities round to Codex (closes Phase 1 stub)
+- Travel hotels/activities round closes GREEN — four-branch travel agent live
+- Handed travel app:form refinement round to Codex (3 PRs: gui + ops + docs)
+- Travel app:form refinement round closes GREEN — refinement UX live in canvas + terminal
+- Handed travel render-audit side-effect round to Codex (executes the round 6 forward-pointer)
+- Travel render-audit side-effect round closes GREEN — round 6 forward-pointer executed
+- Handed travel Anthropic re-smoke v2 to Codex (refreshed for post-Phase-3 state)
+- Travel Anthropic re-smoke v2 AMBER - secret fixed, model access mismatch
+- Handed travel Ollama Phase 4 to Codex (fourth provider via new mcp/ollama playbook)
+- Travel Ollama Phase 4 closes GREEN — multi-provider arc reaches its cap
+- Amadeus 500 investigation closed - sandbox/service-side verdict
+- Handed Amadeus test API 500 investigation to Codex (diagnostic round)
+- Handed authoring-guide python-globals rule to Codex (13th rule from the travel arc)
+- Handed classifier prompt single-source refactor to Codex (load-bearing debt cleanup)
+- Classifier prompt single-source refactor closes GREEN — full deferred-list retrospective
+- Handed travel Anthropic model flip to Codex (Path A — minimum diff to GREEN)
+- Travel Anthropic model flip closes GREEN — four-provider arc fully shipping
+- Handed travel Path B + tutorial 08 to Codex (final architectural-purity round + ship docs)
+- Path B + Tutorial 08 close GREEN — ops+docs arc reaches full completion
+- Handed noetl agent → MCP result hydration fix to Codex (engine round — Claude coded, Codex verifies + deploys)
+- Noetl agent result hydration closes GREEN — entire deferred list cleared
+- 2026-05-11 — GKE parity sync closed AMBER
+- Handed GKE parity sync round to Codex (config + deploy + audit)
+- GKE parity sync closes AMBER — catalog + engine parity fixed; GUI gap + storage tier finding
+- MinIO eliminated; SeaweedFS/RustFS chooser AMBER
+- 2026-05-11 — Gateway terminal surface traced to Cloudflare Pages, deploy blocked on token
+- Handed Path A — gateway terminal surface trace + gui v1.11.0 bump to Codex
+- Handed MinIO elimination + SeaweedFS/RustFS chooser round to Codex
+- MinIO elimination round closes AMBER — local GREEN, noetl PR blocked on review, GKE deferred
+- Handed object-store chooser GKE rollout to Codex (closes MinIO-elimination AMBER)
+- Object-store chooser GKE rollout GREEN
+- Handed travel runtime workaround cleanup to Codex (post-v2.37.8 belt-and-suspenders removal)
+- Travel hydration workaround cleanup GREEN
+- Authoring guide kind-to-GKE parity rule GREEN
+- Queued four remaining deferred rounds for Codex (session wind-down)
+- Ollama bridge on GKE option A GREEN
+- Amadeus production API switch code-only GREEN
+- Cloud-tier router decision GREEN
+- GKE cloud spill tier switched to GCS
+- Handed cloud-tier GCS implementation on GKE to Codex (Round D execution)
+- Handed Ollama backend provisioning on GKE to Codex (Round B option A → option B)
+- Ollama backend on GKE provisioned
+- Handed Amadeus production credentials + smoke to Codex (closes Round C)
+- Handed Google Places enrichment round to Codex (opt-in supplementary layer, Pattern C hybrid auth, free-tier disciplined)
+- Pattern C precondition state: GKE wired correctly; kind worker pod has separate ADC blocker
+- Ollama backend on GKE stopped for cost control
+- SeaweedFS object store on GKE stopped for cost control
+- Google Places enrichment AMBER, activities GREEN
+- Handed Duffel flights MCP integration to Codex (search-only, default duffel, test env, non-breaking opt-out to amadeus)
+- Duffel flights MCP GREEN
+- Duffel test orders GREEN
+- Handed Duffel test-env order creation tools to Codex (Round 1 of trip-planner project)
+- Duffel Stays unavailable on test account — Round 2 closed, hotels source stays Amadeus
+- Handed Firestore MCP + event-sourcing tools + replay helper to Codex (trip-planner Round 3)
+- Firestore MCP event-sourcing GREEN
+- Handed muno bootstrap + widget contract to Codex (trip-planner Round 4a/6a)
+- Muno bootstrap widget contract AMBER
+- muno bootstrap container build — AMBER (bash missing in alpine)
+- muno bootstrap container build — GREEN
+- Handed LLM-driven itinerary agent to Codex (trip-planner Round 4b)
+- Muno itinerary agent 4b GREEN
+- Handed real Material widget components to Codex (trip-planner Round 6b)
+- Muno Material widgets 6b GREEN
+- Firestore calendar view Round 5 GREEN
+- Handed Firestore-backed calendar view to Codex (trip-planner Round 5 — RESHAPED)
+- Handed end-to-end trip-planner tutorial to Codex (trip-planner Round 7 — cap-stone)
+- 2026-05-13 — Tutorial 08 end-to-end trip-planner capstone GREEN
+- Handed muno deployment + Auth0 to Codex (post-tutorial Round 8)
+- 2026-05-13 — Muno Auth0 deploy AMBER at pre-handoff
+- Muno Auth0 Deploy — DNS Handoff
+- Muno GKE UI Removed
+- Muno Cloudflare Pages CI
+- Trip-Planner Repo Renamed to Travel
+- Travel Public Domain Rename
+- Travel Pages + Auth0 stage report
+- Cloudflare Access travel AMBER — pre-handoff secrets missing
+- Handed Cloudflare Access protection of travel.mestumre.dev to Codex (URGENT — Round 9)
+- Supersede — Cloudflare Access Round 9 cancelled, replaced by gateway-session Round 9'
+- Travel gateway-session auth AMBER pending browser smoke
+- Travel gateway-link timeout hotfix
+- Travel mirrors GUI Auth0 hash-token flow
+- Handed travel gateway-session auth to Codex (Round 9 corrected — supersedes Cloudflare Access plan)
+- Travel gateway CORS tunnel hotfix
+- Travel Auth0 audience hotfix
+- Handed travel v1 UX polish to Codex (Round 10 — first post-Round-9 functional iteration)
+- Travel v1 UX polish AMBER preflight
+- Travel v1 UX polish shipped, pending browser smoke
+- 2026-05-13 — Travel shell submit/menu hotfix GREEN
+- Handed travel PropertyBlock full slot surfacing to Codex (Round 11)
+- 2026-05-13 — Travel PropertyBlock full slot surfacing GREEN pending browser smoke
+- 2026-05-13 — Travel itinerary catalog path hotfix GREEN
+- 2026-05-13 — Travel cancel planning request GREEN
+- Travel itinerary callback result hotfix GREEN
+- Travel itinerary Gateway callback hotfix GREEN
+- Travel place_list null rating hotfix GREEN
+- Travel place result layout polish GREEN
+- Travel place selection state GREEN
+- Travel slot-state loader hotfix GREEN
+- Travel Duffel flight contract hotfix GREEN
+- Travel gateway auth fail-fast and self-cleanup
+- Travel callback timeout poll fallback shipped
+- Travel gateway NoETL API polling fix shipped
+- Travel terminal event payload extraction shipped
+- Travel full widget envelope event extraction shipped
+- Travel fetches enough execution events for widget extraction
+- Travel itinerary helper scope fix shipped
+- Travel flight CTA order routing fix
+- GKE paginated-api HPA
+- Travel Duffel order passenger fix
+- NoETL command reaper self-healing handoff
+- NoETL command reaper + repos/doctor runtime reaper scaffold
+- Runtime reaper documentation refresh after PFT v2 green

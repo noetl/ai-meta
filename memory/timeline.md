@@ -25,3 +25,4 @@
 - Closed the GKE Vertex AI triage arc through NoETL `v2.37.1`, including adaptive diagnosis-fetch telemetry and recursive projection preservation.
 - Reworked the PFT fixture from cursor-heavy patient/page orchestration to action-controlled bounded batches; validated 10,000 patients on GKE in `1m 53s` and on local kind in `54s`.
 - Documented the PFT speedup in `repos/e2e/fixtures/playbooks/pft_flow_test/SPEEDUP_EXPLANATION.md` and opened `noetl/ops#47` so local kind deploys build the test-server from `repos/e2e` instead of the stale noetl fixture path.
+- Compaction `20260515-173703` from inbox entries.
