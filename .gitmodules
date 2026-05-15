@@ -45,3 +45,6 @@
 [submodule "repos/travel"]
 	path = repos/travel
 	url = git@github.com:noetl/travel.git
+[submodule "repos/doctor"]
+	path = repos/doctor
+	url = git@github.com:noetl/doctor.git
