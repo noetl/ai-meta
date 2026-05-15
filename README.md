@@ -14,6 +14,7 @@ The meta-repository (`ai-meta`) for coordinating all NoETL repositories via Git 
 - `CLAUDE.md` - Claude-specific entry point and context rules.
 - `GEMINI.md` - Gemini-specific entry point and context rules.
 - `agents/` - AI-specific instructions.
+- `handoffs/` - file-based cross-agent prompts + results (see below).
 - `memory/` - long-term AI memory (entries, compactions, current state).
 - `playbooks/` - orchestration workflows/checklists.
 - `sync/` - cross-repo synchronization procedures.
@@ -104,3 +105,106 @@ Use this repo when a change spans multiple NoETL repositories (server/worker/CLI
 - [ ] Do not commit secrets, tokens, private credentials, or customer data.
 - [ ] Keep memory entries public-safe and vendor-neutral.
 - [ ] Prefer linking to upstream PRs/issues rather than copying large diffs into `ai-meta`.
+
+## AI agent handoffs (file-based, cross-tool)
+
+Long-running tasks that span more than one AI session are passed
+between agents through files under `handoffs/`, not through chat.
+This lets Claude, Codex, Cursor, Gemini, and any future tool collaborate
+on the same thread, with the executor's report captured at a known
+path so the dispatcher can pick up exactly where it left off — days
+later, on a different machine, or with a different model.
+
+Full convention: [`handoffs/README.md`](handoffs/README.md).
+Behavioral rules: [`agents/rules/handoffs.md`](agents/rules/handoffs.md).
+
+### Shape
+
+```
+handoffs/
+  active/<YYYY-MM-DD-slug>/
+    round-01-prompt.md     ← dispatcher writes (claude / human)
+    round-01-result.md     ← executor writes back (codex / claude / …)
+    round-02-prompt.md     ← dispatcher follow-up
+    round-02-result.md
+  archive/<slug>/          ← closed threads moved here
+  templates/               ← copyable prompt.md / result.md
+```
+
+Each file carries YAML frontmatter with `thread / round / from / to /
+status`. Prompts declare `expects_result_at: round-NN-result.md`;
+executors write to that path and pick a result `status` of
+`complete | partial | blocked`.
+
+### Enter handoff mode
+
+#### Claude Code
+
+```
+Open a handoff to codex about <topic>. Slug it
+<YYYY-MM-DD-short-topic>. Phase A is sanity checks (no remote writes),
+B is push PR (gated on "push <thing>"), …
+```
+
+Claude calls `/handoff-open`, writes the prompt body to
+`handoffs/active/<slug>/round-01-prompt.md`, and tells you the path to
+hand to Codex.
+
+To read a result that has been written back:
+
+```
+Read handoffs/active/<slug>/round-01-result.md and tell me what to do
+next.
+```
+
+#### Codex
+
+Pass the absolute prompt path on launch:
+
+```
+You are operating in /Volumes/X10/projects/noetl/ai-meta. Read the
+handoff prompt at handoffs/active/<slug>/round-NN-prompt.md
+end-to-end, follow handoffs/README.md, do the work inside the phase
+gates, then write your final report to
+handoffs/active/<slug>/round-NN-result.md with the matching
+frontmatter (status: complete | partial | blocked).
+```
+
+Codex reads the prompt, executes the phases, and writes the result
+file at the declared path. It commits the result so it shows up in
+`git log` for review.
+
+#### Cursor / Gemini / other tools
+
+Any agent operating in this repo can join a thread by following the
+same two rules: read the highest-numbered `round-NN-prompt.md` under
+`handoffs/active/<slug>/`, then write the matching `round-NN-result.md`
+using `handoffs/templates/result.md` as a guide.
+
+### Return to regular conversation mode
+
+There is no flag to flip. The convention only applies when the agent
+is asked to write or read a handoff file. To return to ordinary
+chat-driven work, just keep talking — ask the agent to explain code,
+make a small edit, review a diff, etc., and it will respond in chat
+as normal. The handoff thread on disk stays as-is; reopen it whenever
+the next round is needed.
+
+### Close a thread
+
+When the work is done:
+
+```
+Close the handoff <slug>.
+```
+
+The agent runs `git mv handoffs/active/<slug> handoffs/archive/<slug>`
+and commits with `handoff(close): <slug>`. The thread is preserved
+verbatim for posterity.
+
+### When NOT to use a handoff
+
+- A question the current agent can answer in one chat turn.
+- A trivial edit the current session will finish.
+- Anything where the convention overhead exceeds the value of having
+  a durable record.

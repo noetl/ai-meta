@@ -6,6 +6,10 @@ Read these files at session start (in order):
 2. `memory/current.md` — active working state
 3. Latest entries in `memory/inbox/` — recent uncompacted work
 4. `sync/issues/` — in-flight cross-repo tracking
+5. `handoffs/active/` — in-flight cross-agent handoffs whose latest
+   round is a prompt with no matching result yet, or whose latest
+   result has status `partial` / `blocked` (see
+   `handoffs/README.md` and `agents/rules/handoffs.md`)
 
 ## Project structure
 
@@ -21,6 +25,10 @@ agents/                          # SHARED (all agents)
   agents/                        #   Claude-specific subagent definitions (frontmatter + @import)
 .github/copilot-instructions.md  # Copilot entry point (references agents/)
 .cursorrules                     # Cursor entry point (references agents/)
+handoffs/                        # File-based cross-agent prompts + results
+  active/                        #   in-flight threads (round-NN-prompt.md + round-NN-result.md)
+  archive/                       #   closed threads
+  templates/                     #   copyable prompt.md / result.md
 memory/                          # Git-tracked shared memory
 playbooks/                       # operational runbooks
 scripts/                         # memory_add.sh, memory_compact.sh
@@ -34,6 +42,8 @@ repos/                           # Git submodules (the actual codebases)
 - `/memory-compact` — compact inbox entries into a summary
 - `/sync-note "<topic>"` — create a sync note from the template
 - `/bump-pointer "<repo>"` — update a submodule pointer after upstream merge
+- `/handoff-open <slug> "<description>"` — open a cross-agent handoff thread (dispatcher side)
+- `/handoff-result <slug>` — scaffold the result file for the latest prompt in a thread (executor side)
 
 ## Quick commands (manual)
 
@@ -50,3 +60,7 @@ repos/                           # Git submodules (the actual codebases)
 - `memory(curate): <scope>`
 - `chore(sync): bump <repo> to <short-sha>`
 - `docs(agents): <description>`
+- `handoff(open): <slug>` — when writing `round-01-prompt.md`
+- `handoff(prompt): <slug> round NN` — when writing a follow-up prompt
+- `handoff(result): <slug> round NN` — when writing a result
+- `handoff(close): <slug>` — when moving a thread to `handoffs/archive/`

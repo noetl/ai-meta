@@ -21,9 +21,12 @@ This file defines mandatory behavior for AI agents operating in this repository.
    - orchestration docs/checklists
    - submodule pointer updates
    - AI memory entries and compactions
+   - cross-agent handoff threads (`handoffs/active/`, `handoffs/archive/`)
 4. Memory updates must be append-only through Git history.
 5. Prefer minimal, atomic pointer updates per change set.
 6. Never rewrite history on `main`.
+7. Cross-agent handoffs are append-only: never edit a prior round's
+   prompt or result, open a new round instead.
 
 ## Submodule handling
 
@@ -71,6 +74,29 @@ Currently tracked references:
 If a reference needs to evolve into an actively-modified dependency, fork
 it under `noetl/` first and re-add at the new path under `repos/`.
 
+## Cross-agent handoffs
+
+When work needs to span more than one agent session (typically Claude
+dispatching to Codex, or vice versa), use the file-based handoff
+convention rather than pasting briefs into chat. Threads live under
+`handoffs/active/<YYYY-MM-DD-slug>/`, each round is a pair of
+`round-NN-prompt.md` (dispatcher) and `round-NN-result.md` (executor),
+both with YAML frontmatter declaring `thread / round / from / to /
+status`. Closed threads move verbatim to `handoffs/archive/<slug>/`.
+
+Full convention: `handoffs/README.md`.
+Behavioral rules every agent must follow: `agents/rules/handoffs.md`.
+Slash commands: `/handoff-open`, `/handoff-result`.
+
+Use a handoff when:
+
+- the receiver will not have the dispatcher's chat history;
+- the work touches shared state and needs explicit human gates;
+- the dispatcher wants a structured report back at a known path.
+
+Stay in chat for one-shot edits or questions a single session can
+finish.
+
 ## Suggested commit message format
 
 - `chore(sync): bump <repo1>, <repo2> to merged SHAs`
@@ -78,6 +104,10 @@ it under `noetl/` first and re-add at the new path under `repos/`.
 - `memory(add): <topic>`
 - `memory(compact): <scope or date>`
 - `memory(curate): refresh current.md for <scope>`
+- `handoff(open): <slug>`
+- `handoff(prompt): <slug> round NN`
+- `handoff(result): <slug> round NN`
+- `handoff(close): <slug>`
 
 ## Validation before merge
 
