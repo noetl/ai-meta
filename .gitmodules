@@ -51,3 +51,6 @@
 [submodule "repos/glut-probe-design"]
 	path = repos/glut-probe-design
 	url = https://github.com/kadyapam/glut-probe-design
+[submodule "repos/noetl-wiki"]
+	path = repos/noetl-wiki
+	url = git@github.com:noetl/noetl.wiki.git
