@@ -1,6 +1,12 @@
 # AI Memory
 
-This directory is the long-lived memory store for cross-repo AI work.
+This directory is the long-lived memory store for NoETL platform,
+deployment, submodule pointer, and cross-repo AI orchestration work.
+
+Project-specific memory belongs in the project repository that owns the work.
+For example, `glut-probe-design` task plans, scientific data decisions,
+tenant playbook notes, and implementation session records must be stored under
+`repos/glut-probe-design/memory/`, not in `ai-meta/memory/`.
 
 ## Structure
 
@@ -15,7 +21,8 @@ This directory is the long-lived memory store for cross-repo AI work.
 1. Keep entries factual and actionable.
 2. Never store tokens, secrets, or credentials.
 3. Keep one topic per memory entry.
-4. Compact regularly to keep `current.md` small and useful.
+4. Store project-specific memory in the owning submodule repository.
+5. Compact regularly to keep `current.md` small and useful.
 
 ## Commands
 
