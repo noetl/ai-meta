@@ -1,0 +1,104 @@
+# Wiki Maintenance Rule
+
+The NoETL wiki at https://github.com/noetl/noetl/wiki is the operator
+and developer reference for the platform. It mirrors the code tree
+under `noetl/noetl` and lives in the `noetl-wiki` submodule at
+`repos/noetl-wiki`.
+
+This rule keeps documentation coverage growing in **lockstep with the
+code** rather than as a separate sweep that drifts toward stale.
+
+## Rule 1 — deep-dive docs on first touch
+
+When development work touches a module that **does not yet have a
+dedicated wiki page**:
+
+1. Before merging the code change, add a wiki page for the module
+   following the slug + content conventions established in the wiki.
+2. Cross-link the new page from `Home.md` and `_Sidebar.md`.
+3. Bump the `noetl-wiki` submodule pointer in the same coordinated
+   change set.
+
+Skeleton / placeholder modules with no real surface yet are exempt —
+list them under the parent package's "Skeleton modules" or "What's
+deliberately not here" section instead of opening empty pages.
+
+## Rule 2 — validate the wiki against code changes
+
+When development changes the public surface of a documented module
+(new env var, new API endpoint, new schema field, removed feature,
+renamed type, changed default):
+
+1. Update the wiki page **in the same change set** as the code.
+2. Verify cross-links still resolve, especially any links that
+   reference a renamed or removed surface.
+3. Mention the wiki update in the PR description (so reviewers see
+   that the doc moved with the code).
+
+If an existing page is stale or incomplete, treat the touched
+change as hitting an un-covered module and refresh it.
+
+## What "covered" means
+
+A module is **covered** when:
+
+- A wiki page exists at the conventional path (mirror of the code
+  path, with a disambiguating slug if the basename would collide).
+- The page documents: purpose, public API or YAML surface, key
+  invariants, configuration env vars, error taxonomy, and at least
+  one `Related` cross-link.
+- Source links use absolute GitHub URLs into `noetl/noetl@main`.
+
+The Home table and `_Sidebar.md` both list the page.
+
+## Coordination with the handoff convention
+
+Wiki edits ride the same coordination pattern as code changes:
+
+- Wiki content lives in `repos/noetl-wiki/`. Edit, commit, push.
+- The code PR in `repos/noetl/` references the wiki update in its
+  body.
+- After both land, bump pointers in `ai-meta`:
+  - `chore(sync): bump noetl-wiki to <sha>`
+  - `chore(sync): bump noetl to <sha>`
+
+For cross-session work (a multi-PR engineering effort that adds a
+new subsystem), open a handoff under `handoffs/active/<slug>/` per
+`agents/rules/handoffs.md`. The handoff prompt should call out
+which new modules need wiki coverage so the executor doesn't merge
+code with un-covered modules.
+
+## Page conventions (quick reference)
+
+- **Slugs avoid generic names.** Use `dsl_engine` instead of
+  `engine`. The page itself states the chosen slug if it diverges
+  from the basename.
+- **Source links are absolute** GitHub URLs into the canonical
+  branch.
+- **Inter-wiki links use basenames**: `[Outbox](outbox)`.
+- **Code snippets reflect the current source** — copy-paste from
+  the file, then trim. Don't paraphrase signatures.
+- **Mirror the code path.** A page at `noetl/core/foo/bar.md`
+  documents the code package or file at `noetl/core/foo/bar` or
+  `noetl/core/foo/bar.py`.
+
+## When the rule doesn't fire
+
+- One-line type aliases, generated `__init__.py` re-exports, and
+  trivial private helpers.
+- Internal-only refactors that don't change any public surface or
+  user-observable behavior.
+- Sweeping renames that the wiki's existing pages already describe
+  abstractly (the rule fires when behavior or shape changes, not
+  on every cosmetic shuffle).
+
+## Tooling
+
+- `repos/noetl-wiki/` is a Git submodule tracked in `.gitmodules`.
+  After a fresh clone of `ai-meta`, run
+  `git submodule update --init --recursive` to bring it in.
+- The wiki is a normal Git repo — no special tooling. Push to
+  `origin master` and the wiki updates immediately on
+  `https://github.com/noetl/noetl/wiki`.
+- Page list and slug index lives in the wiki's `Home.md` and
+  `_Sidebar.md`.

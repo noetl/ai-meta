@@ -27,6 +27,10 @@ This file defines mandatory behavior for AI agents operating in this repository.
 6. Never rewrite history on `main`.
 7. Cross-agent handoffs are append-only: never edit a prior round's
    prompt or result, open a new round instead.
+8. Wiki maintenance is part of every code change that touches an
+   un-covered module or alters a documented public surface — see
+   `agents/rules/wiki-maintenance.md`. Add the wiki page **with**
+   the code, not as a separate sweep.
 
 ## Memory ownership
 
