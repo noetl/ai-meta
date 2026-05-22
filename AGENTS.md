@@ -20,13 +20,25 @@ This file defines mandatory behavior for AI agents operating in this repository.
    - AI instruction files
    - orchestration docs/checklists
    - submodule pointer updates
-   - AI memory entries and compactions
+   - AI memory entries and compactions for NoETL/platform or cross-repo orchestration state
    - cross-agent handoff threads (`handoffs/active/`, `handoffs/archive/`)
 4. Memory updates must be append-only through Git history.
 5. Prefer minimal, atomic pointer updates per change set.
 6. Never rewrite history on `main`.
 7. Cross-agent handoffs are append-only: never edit a prior round's
    prompt or result, open a new round instead.
+
+## Memory ownership
+
+- Keep `ai-meta/memory/` focused on NoETL platform, orchestration, submodule
+  pointer, deployment, and cross-repo coordination state.
+- Keep all `glut-probe-design` project-specific AI memory inside
+  `repos/glut-probe-design/memory/`.
+- If a GLUT task requires a NoETL platform change, record the GLUT scientific
+  or tenant-project context in the GLUT repository, and record only the NoETL
+  platform decision, compatibility note, or pointer/deploy state in `ai-meta`.
+- Do not duplicate GLUT project memory into `ai-meta`; link or reference the
+  upstream GLUT PR/commit when ai-meta needs to bump a pointer.
 
 ## Submodule handling
 

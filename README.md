@@ -15,7 +15,7 @@ The meta-repository (`ai-meta`) for coordinating all NoETL repositories via Git 
 - `GEMINI.md` - Gemini-specific entry point and context rules.
 - `agents/` - AI-specific instructions.
 - `handoffs/` - file-based cross-agent prompts + results (see below).
-- `memory/` - long-term AI memory (entries, compactions, current state).
+- `memory/` - NoETL platform/cross-repo AI memory (entries, compactions, current state).
 - `playbooks/` - orchestration workflows/checklists.
 - `sync/` - cross-repo synchronization procedures.
 - `repos/` - all NoETL code repositories as Git submodules.
@@ -58,7 +58,7 @@ Do not add product source code to this repo.
 
 ## AI Memory workflow
 
-Add a memory entry:
+Add a NoETL platform or cross-repo memory entry:
 
 ```bash
 ./scripts/memory_add.sh "<title>" "<summary>" "<tags>"
@@ -76,6 +76,12 @@ git commit -m "memory(compact): <date/scope>"
 
 This keeps a durable memory chain in Git commits and a compact working state in `memory/current.md`.
 
+Project-specific memory belongs in the owning repository. For
+`glut-probe-design`, keep task/session/science/data-catalog/tenant playbook
+memory under `repos/glut-probe-design/memory/`. Use `ai-meta/memory/` only when
+recording NoETL platform decisions, deployment state, submodule pointer syncs,
+or cross-repo coordination.
+
 ## Contributor checklist (cross-repo / ecosystem changes)
 
 Use this repo when a change spans multiple NoETL repositories (server/worker/CLI/gateway/plugins/docs).
@@ -83,7 +89,9 @@ Use this repo when a change spans multiple NoETL repositories (server/worker/CLI
 ### Before you start
 - [ ] Confirm the list of impacted repos under `repos/` (submodules).
 - [ ] Create a short plan: what changes per repo, expected order, and compatibility concerns.
-- [ ] Add a memory entry if this is a non-trivial effort (decision record / plan).
+- [ ] Add a memory entry if this is a non-trivial NoETL/cross-repo effort
+      (decision record / plan). For project-specific work, write memory in the
+      owning submodule instead.
 
 ### Implementing changes
 - [ ] Make code changes inside the appropriate submodule(s), not in `ai-meta` root.
@@ -96,7 +104,8 @@ Use this repo when a change spans multiple NoETL repositories (server/worker/CLI
   - commit: `chore(sync): bump submodules for <topic>`
 - [ ] Add a sync note under `sync/YYYY/MM/` with:
   - summary, repo scope, PR links, and resulting SHAs/tags
-- [ ] Add a memory entry capturing decisions, compatibility notes, and follow-ups.
+- [ ] Add an ai-meta memory entry only for NoETL/platform decisions,
+      compatibility notes, pointer/deploy state, and cross-repo follow-ups.
 - [ ] Run memory compaction periodically:
   - `./scripts/memory_compact.sh`
   - commit: `memory(compact): <scope>`
