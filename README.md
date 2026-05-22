@@ -8,6 +8,38 @@ The meta-repository (`ai-meta`) for coordinating all NoETL repositories via Git 
 - Provide shared AI instructions and change orchestration rules.
 - Track exact submodule SHAs used for coordinated releases.
 
+## Long-term Vision: NoETL as a Chemistry Lab Cloud
+
+NoETL — coordinated through this meta-repo — is being built toward a
+**shared chemistry lab cloud**: universities, research laboratories,
+biotech companies, and individual scientists running molecular workflows
+on pooled computation resources, with results published in a
+reproducible, citable, peer-review-ready way.
+
+The active pilot tenant is [`repos/glut-probe-design`](repos/glut-probe-design)
+— AI-driven probe design for the GLUT glucose-transporter family. The
+in-flight workstream `kadyapam/ligand-prep-worker-local-deps` lands
+**pluggable per-task dependencies** in NoETL workers so any tenant can
+declare its own scientific toolchain (RDKit, Meeko, AutoDock,
+AutoDock-GPU, OpenMM, REINVENT, Qiskit, …) in playbook YAML instead of
+baking it into the platform image. That capability is the substrate on
+which the chemistry cloud is built: each lab registers a tenant
+playbook, pulls in its scientific dependencies, runs on shared
+CPU/GPU/TPU/quantum backends, and has raw artifacts, metadata,
+checksums, and provenance captured in the platform's data registry for
+citation and replication.
+
+**For AI agents:** treat NoETL features as multi-tenant platform
+primitives (auth, quotas, plugin isolation, reproducible compute, data
+lineage, event-store provenance) — not as one-off helpers for a single
+project. When in doubt, generalize.
+
+**For humans:** this framing explains why we invest in worker plugin
+isolation, structured event stores, strict data-catalog boundaries, and
+runtime self-healing even when only one tenant is live today. Today's
+GLUT pipeline is the load-bearing example for tomorrow's open
+chemistry cloud.
+
 ## Layout
 
 - `AGENTS.md` - global AI rules for this orchestration repo.
