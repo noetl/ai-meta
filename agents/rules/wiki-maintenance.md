@@ -1,12 +1,37 @@
 # Wiki Maintenance Rule
 
-The NoETL wiki at https://github.com/noetl/noetl/wiki is the operator
-and developer reference for the platform. It mirrors the code tree
-under `noetl/noetl` and lives in the `noetl-wiki` submodule at
-`repos/noetl-wiki`.
+NoETL has **two wikis**, mirroring the code-vs-ops repo split:
+
+- **<https://github.com/noetl/noetl/wiki>** — application
+  reference: Python API, DSL semantics, core architecture.
+  Mirrors `noetl/noetl/`. Lives at `repos/noetl-wiki`.
+- **<https://github.com/noetl/ops/wiki>** — operational
+  reference: Kubernetes manifests, Helm install recipes,
+  deployment playbooks, infrastructure tuning. Mirrors
+  `noetl/ops/`. Lives at `repos/noetl-ops-wiki`.
 
 This rule keeps documentation coverage growing in **lockstep with the
 code** rather than as a separate sweep that drifts toward stale.
+
+## Rule 0 — pick the right wiki
+
+When adding or updating documentation:
+
+- **Python API, DSL, core architecture, replay semantics, event
+  shape, etc.** → `noetl/noetl` wiki.
+- **Manifests, Helm charts, kubectl recipes, deployment
+  automation playbooks, cluster-side install/verify/tuning** →
+  `noetl/ops` wiki.
+- **Hybrid topics** (e.g. a generator that lives in
+  `noetl/noetl` but produces manifests that live in
+  `noetl/ops`): split — generator API in noetl wiki, the
+  apply/verify/tuning operational guide in ops wiki, each
+  cross-linked with a prominent callout. Don't try to combine
+  them on one page.
+
+If the right home isn't obvious, ask: "Where does the code this
+documents live? Where is the artifact a reader needs in front
+of them?"
 
 ## Rule 1 — deep-dive docs on first touch
 
@@ -94,11 +119,16 @@ code with un-covered modules.
 
 ## Tooling
 
-- `repos/noetl-wiki/` is a Git submodule tracked in `.gitmodules`.
+- Both wikis live as Git submodules tracked in `.gitmodules`:
+  - `repos/noetl-wiki/` → `noetl/noetl.wiki.git` (application docs)
+  - `repos/noetl-ops-wiki/` → `noetl/ops.wiki.git` (operational docs)
   After a fresh clone of `ai-meta`, run
-  `git submodule update --init --recursive` to bring it in.
-- The wiki is a normal Git repo — no special tooling. Push to
-  `origin master` and the wiki updates immediately on
-  `https://github.com/noetl/noetl/wiki`.
-- Page list and slug index lives in the wiki's `Home.md` and
-  `_Sidebar.md`.
+  `git submodule update --init --recursive` to bring both in.
+- Each wiki is a normal Git repo — no special tooling. Push to
+  `origin master` and the wiki updates immediately at
+  `https://github.com/noetl/{noetl,ops}/wiki`.
+- Page list and slug index lives in each wiki's own `Home.md`
+  and `_Sidebar.md`.
+- Cross-wiki links: use full GitHub URLs
+  (`https://github.com/noetl/<repo>/wiki/<slug>`) — there's no
+  shared slug namespace across wikis.
