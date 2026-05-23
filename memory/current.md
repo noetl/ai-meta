@@ -582,3 +582,31 @@ Authoritative for any DSL refactoring work:
 - NoETL command reaper self-healing handoff
 - NoETL command reaper + repos/doctor runtime reaper scaffold
 - Runtime reaper documentation refresh after PFT v2 green
+
+## Compaction 2026-05-23T05:25:25Z
+
+- Source: `memory/compactions/20260523-052525.md`
+- Entries compacted:
+- Tutorial arc closed + post-amber cleanup PRs merged
+- GKE gateway CORS regression dropped travel.mestumre.dev
+- Travel booking unblocked - phone + calendar persist chain
+- Booking widget envelope empty - cross-step scope erosion on first_widget
+- Travel View full order CTA routed to hotel search
+- Travel order_confirmation widget upgraded to inline expand + PDF link
+- Travel order_confirmation null document_url crashed widget validator
+- Travel sidebar history + new search button shipped
+- Distributed runtime + event store v2 spec authored
+- mermaid-diagram-support
+- GLUT memory ownership rule
+- Wiki maintenance rule landed
+- v2 distributed-runtime spec — Phase 1 (frame projections) landed
+- v2 distributed-runtime spec — Phase 6 (stage-planner wiring) landed
+- v2 spec Phase 3 audit refreshed + IPC observability landed
+- v2 spec Phase 5 round 1 — payload-store port landed
+- v2 spec Phase 5 round 2 — S3 payload-store adapter landed
+- v2 spec Phase 5 round 3 — GCS payload-store adapter landed
+- v2 spec Phase 5 round 4 — Azure Blob payload-store adapter + SeaweedFS docs landed
+- v2 spec Phase 5 complete — port/adapter event/projection/payload
+- v2 spec Phase 4 round 1 — URN extension landed
+- v2 spec Phase 4 round 2 — KEDA scaler landed
+- v2 distributed-runtime spec complete — all seven phases done
