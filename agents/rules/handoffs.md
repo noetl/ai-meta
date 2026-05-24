@@ -87,6 +87,13 @@ contents, moved verbatim. Do not edit archived threads.
    forward is found.
 3. **One thread per topic.** If the work pivots to a different topic,
    close the current thread (move to `archive/`) and open a new one.
+4. **Stale-active check.** When picking up an "active" thread that
+   has not moved in days, first verify the upstream work has not
+   shipped independently outside the handoff channel — check
+   submodule `git log`, PR list, and the referenced branch SHAs
+   against current `main`. If the work merged via direct review,
+   close the thread as superseded rather than re-running the
+   prepped phases.
 
 ## Slash commands
 
