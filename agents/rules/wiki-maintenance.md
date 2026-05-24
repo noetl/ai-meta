@@ -1,6 +1,6 @@
 # Wiki Maintenance Rule
 
-NoETL has **two wikis**, mirroring the code-vs-ops repo split:
+NoETL has **three wikis**, each pinned to its own repository:
 
 - **<https://github.com/noetl/noetl/wiki>** — application
   reference: Python API, DSL semantics, core architecture.
@@ -9,6 +9,12 @@ NoETL has **two wikis**, mirroring the code-vs-ops repo split:
   reference: Kubernetes manifests, Helm install recipes,
   deployment playbooks, infrastructure tuning. Mirrors
   `noetl/ops/`. Lives at `repos/noetl-ops-wiki`.
+- **<https://github.com/noetl/travel/wiki>** — developer
+  reference for the travel SPA as the worked example of a
+  domain-specific application built on NoETL (widget
+  contract, orchestrator playbook walkthrough, gateway
+  integration, fork-for-your-domain guide). Mirrors
+  `noetl/travel/`. Lives at `repos/noetl-travel-wiki`.
 
 This rule keeps documentation coverage growing in **lockstep with the
 code** rather than as a separate sweep that drifts toward stale.
@@ -22,6 +28,13 @@ When adding or updating documentation:
 - **Manifests, Helm charts, kubectl recipes, deployment
   automation playbooks, cluster-side install/verify/tuning** →
   `noetl/ops` wiki.
+- **Domain-SPA patterns built on NoETL** (widget contract,
+  per-domain orchestrator playbooks, SPA shell, gateway
+  integration patterns for a SPA, fork-and-adapt workflow)
+  → `noetl/travel` wiki. The travel wiki is the engineer-
+  facing tutorial for building any-industry NoETL SPAs;
+  pages are written generically where possible and use
+  travel as the worked example.
 - **Hybrid topics** (e.g. a generator that lives in
   `noetl/noetl` but produces manifests that live in
   `noetl/ops`): split — generator API in noetl wiki, the
@@ -119,14 +132,15 @@ code with un-covered modules.
 
 ## Tooling
 
-- Both wikis live as Git submodules tracked in `.gitmodules`:
+- All three wikis live as Git submodules tracked in `.gitmodules`:
   - `repos/noetl-wiki/` → `noetl/noetl.wiki.git` (application docs)
   - `repos/noetl-ops-wiki/` → `noetl/ops.wiki.git` (operational docs)
+  - `repos/noetl-travel-wiki/` → `noetl/travel.wiki.git` (reference-SPA developer docs)
   After a fresh clone of `ai-meta`, run
-  `git submodule update --init --recursive` to bring both in.
+  `git submodule update --init --recursive` to bring all in.
 - Each wiki is a normal Git repo — no special tooling. Push to
   `origin master` and the wiki updates immediately at
-  `https://github.com/noetl/{noetl,ops}/wiki`.
+  `https://github.com/noetl/{noetl,ops,travel}/wiki`.
 - Page list and slug index lives in each wiki's own `Home.md`
   and `_Sidebar.md`.
 - Cross-wiki links: use full GitHub URLs

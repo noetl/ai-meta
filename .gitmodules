@@ -57,3 +57,6 @@
 [submodule "repos/noetl-ops-wiki"]
 	path = repos/noetl-ops-wiki
 	url = git@github.com:noetl/ops.wiki.git
+[submodule "repos/noetl-travel-wiki"]
+	path = repos/noetl-travel-wiki
+	url = git@github.com:noetl/travel.wiki.git
