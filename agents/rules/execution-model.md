@@ -39,6 +39,36 @@ gateway never reaches a database to satisfy a client request.
 If your proposal places data-touch logic in the gateway or in
 the client, the proposal is in the wrong shape.
 
+## Secrets and credentials rule
+
+Business-logic secrets do **not** live in worker or gateway
+environment variables.
+
+- **Business-logic credentials** (third-party API tokens like
+  Auth0 / Duffel / Amadeus / OpenAI / Anthropic, tenant database
+  DSNs, OAuth client secrets, signing keys, encryption keys —
+  anything a playbook step needs to act against an external
+  system) live in the **NoETL keychain** and are referenced by
+  credential alias inside playbook steps, e.g.
+  `auth: "{{ db_credential }}"`. The keychain can resolve from
+  secret managers, wallets, or other secret storage.
+- **Platform / runtime credentials** (the worker's own NATS
+  connection, its own state DB, the gateway's session-signing
+  key, internal mTLS) are runtime, not business logic. They may
+  live in pod env / configmaps / k8s Secrets at the platform
+  layer.
+- **Already-in-place trust** — GKE workload identity, IAM
+  service accounts, established SSH tunnels — can be used
+  as-is from worker / gateway processes. They are already
+  authenticated at the pod or process boundary; do not
+  re-mediate through the keychain.
+
+If a proposal adds a third-party API token, a tenant database
+DSN, or any other business-logic secret to a worker or gateway
+env var, push back. The credential goes in the keychain; the
+playbook references it by alias; the tool resolves it at step
+execution time.
+
 ## Ephemeral execution rule
 
 NoETL does not retain persistent per-tenant AI-agent processes
