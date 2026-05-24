@@ -1,9 +1,10 @@
-# Decision needed — GKE Postgres topology
+# Decision — GKE Postgres topology
 
-**Status:** awaiting decision
+**Status:** decided (Option A)
 **Owner:** Kadyapam
 **Created:** 2026-05-24
-**Blocks:** `handoffs/active/2026-05-23-gke-playbook-hardening/round-01-prompt.md`
+**Decided:** 2026-05-24
+**Unblocks:** GKE-hardening follow-up (`handoffs/active/2026-05-23-gke-playbook-hardening/` archived; new A-shaped thread to open separately)
 
 ## Context
 
@@ -186,11 +187,58 @@ Pick one of A / B / C, write it inline below this header in
 this file, commit, and the `gke-playbook-hardening` round can
 move forward.
 
-### Decision (fill in)
+### Decision
 
 ```
-Option: [A | B | C]
-Rationale (1-2 sentences):
+Option: A — keep Helm + Cloud SQL on GKE
+Rationale: Cloud SQL gives production-grade Postgres (PITR, IAM
+auth, HA, managed upgrades) and PgBouncer is already pooling
+connections cluster-wide. The two-paths maintenance cost is real
+but acceptable; kind stays on the ops-manifest dev playbook for
+local iteration, and the Helm chart is the canonical GKE deploy
+spec. Revisit only if catalog-routing or multi-cluster work
+forces a single topology.
 Decided by: Kadyapam
-Date:
+Date: 2026-05-24
 ```
+
+## Consequences
+
+Locked in as of 2026-05-24:
+
+- **GKE deploy spec = Helm chart** at `repos/ops/automation/helm/noetl/`.
+  Cloud SQL + PgBouncer stays. The dev playbook does **not** grow a
+  `target=gke` branch.
+- **kind deploy spec = `automation/development/noetl.yaml`** with
+  ops-manifest Postgres on a hostPath PV.
+- **KEDA `ScaledObject`** for GKE should become a first-class chart
+  artifact (currently applied as an external file with live
+  patches). The chart needs to template the account / monitoring
+  endpoint / stream / consumer correctly for the Helm NATS shape.
+- **HPA conflict** already fixed (ops PR #115; `worker.autoscaling.enabled`
+  defaults to `false` in the GKE provision playbook).
+- **Worker durable consumer drift** already addressed (noetl PR #600
+  `_recover_fetch_subscription` self-heal).
+- **Operational wiki split**: `noetl/ops` wiki documents the Helm + Cloud
+  SQL path for GKE; `noetl/noetl` wiki keeps the application API/DSL
+  reference. The kind / dev-playbook install also lives in `noetl/ops`.
+- **Stale Pending PVCs** in the GKE `noetl` and `postgres` namespaces
+  remain cleanup-eligible (cosmetic).
+
+## Follow-up threads to open
+
+A fresh handoff thread under the A profile will scope:
+
+1. Promote external KEDA `ScaledObject` to a chart-templated artifact
+   (parameterize account, monitoring endpoint, stream, consumer).
+2. Wiki: write `noetl/ops/wiki/gke-helm-install` covering Cloud SQL +
+   PgBouncer + KEDA + supercluster.
+3. Document the dev playbook scope: "kind only — not for GKE." Add a
+   guard or doc note.
+4. PgBouncer connection budget docs in the ops wiki.
+5. Stale Pending PVCs cleanup recipe.
+
+The original `2026-05-23-gke-playbook-hardening` thread was framed
+before this decision (item 4 of its round-01 was "decide topology"),
+so it's archived rather than continued. The new thread will be
+scope-clean.
