@@ -69,6 +69,12 @@ env var, push back. The credential goes in the keychain; the
 playbook references it by alias; the tool resolves it at step
 execution time.
 
+HTTP responses that surface execution state, variables, events, or
+result payloads must mask resolved credential values before they leave
+the server. See the noetl wiki's
+[Secrets and Response Redaction](https://github.com/noetl/noetl/wiki/secrets-and-redaction)
+page for the response-boundary contract.
+
 ## Ephemeral execution rule
 
 NoETL does not retain persistent per-tenant AI-agent processes
