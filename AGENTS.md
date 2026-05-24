@@ -12,6 +12,27 @@ This file defines mandatory behavior for AI agents operating in this repository.
 - Keep centralized instructions accurate and current.
 - Maintain deterministic submodule SHAs for reproducible cross-repo states.
 
+## Foundational execution model — read first
+
+Before designing any feature, integration, deployment change, or
+operational fix, measure the proposal against the execution-model
+boundary: **gateway = gatekeeper, worker = atomic compute, playbook
+= ephemeral blueprint, shared cache = state vehicle, event log =
+source of truth.** Data touches happen only inside playbook steps;
+no client or gateway reaches a database directly; no persistent AI-
+agent or MCP-server processes are retained between requests;
+callbacks resume work block-by-block without holding worker slots.
+
+- Behavioral rule for AI agents: `agents/rules/execution-model.md`.
+- Full architecture doc:
+  `repos/docs/docs/architecture/ephemeral_blueprints.md`.
+
+If a proposal places data-touch logic in the gateway, holds process
+state in a worker for the duration of an external wait, or stands
+up a persistent per-tenant agent service, that proposal is in the
+wrong shape under this model and must be reshaped before
+implementation.
+
 ## Hard rules
 
 1. This repository is public; never store secrets or sensitive values.

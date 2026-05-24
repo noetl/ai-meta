@@ -3,10 +3,12 @@
 Read these files at session start (in order):
 
 1. `AGENTS.md` — mandatory rules for this repo
-2. `memory/current.md` — active working state
-3. Latest entries in `memory/inbox/` — recent uncompacted work
-4. `sync/issues/` — in-flight cross-repo tracking
-5. `handoffs/active/` — in-flight cross-agent handoffs whose latest
+2. `agents/rules/execution-model.md` — the foundational shape every
+   feature, integration, and operational change must honor
+3. `memory/current.md` — active working state
+4. Latest entries in `memory/inbox/` — recent uncompacted work
+5. `sync/issues/` — in-flight cross-repo tracking
+6. `handoffs/active/` — in-flight cross-agent handoffs whose latest
    round is a prompt with no matching result yet, or whose latest
    result has status `partial` / `blocked` (see
    `handoffs/README.md` and `agents/rules/handoffs.md`)
