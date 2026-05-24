@@ -610,3 +610,17 @@ Authoritative for any DSL refactoring work:
 - v2 spec Phase 4 round 1 — URN extension landed
 - v2 spec Phase 4 round 2 — KEDA scaler landed
 - v2 distributed-runtime spec complete — all seven phases done
+
+## Compaction 2026-05-24T00:20:05Z
+
+- Source: `memory/compactions/20260524-002005.md`
+- Entries compacted:
+- Phase 4 round 3 live-kind validation — three NATS supercluster bugs caught + fixed (PR #596)
+- Scope A — KEDA + NATS supercluster manifests moved from noetl to ops repo
+- Two-wiki convention codified — noetl/noetl wiki + noetl/ops wiki
+- Scope B — ci/manifests fully consolidated into noetl/ops
+- Scope B post-validation — fresh kind redeploy + KEDA + supercluster + playbook smoke
+- Operator-friendliness fixes + v2-spec close-out doc + GKE handoff prepared
+- GKE provision validation — codex report received; live stack diverges from ops-manifest assumption
+- noetl-worker consumer-drift root-caused — recovery in PR #600
+- noetl#600 merged — worker consumer-drift fix shipped in v2.100.3

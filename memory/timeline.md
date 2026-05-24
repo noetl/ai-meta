@@ -27,3 +27,4 @@
 - Documented the PFT speedup in `repos/e2e/fixtures/playbooks/pft_flow_test/SPEEDUP_EXPLANATION.md` and opened `noetl/ops#47` so local kind deploys build the test-server from `repos/e2e` instead of the stale noetl fixture path.
 - Compaction `20260515-173703` from inbox entries.
 - Compaction `20260523-052525` from inbox entries.
+- Compaction `20260524-002005` from inbox entries.
