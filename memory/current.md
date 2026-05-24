@@ -624,3 +624,17 @@ Authoritative for any DSL refactoring work:
 - GKE provision validation — codex report received; live stack diverges from ops-manifest assumption
 - noetl-worker consumer-drift root-caused — recovery in PR #600
 - noetl#600 merged — worker consumer-drift fix shipped in v2.100.3
+
+## Compaction 2026-05-24T05:51:40Z
+
+- Source: `memory/compactions/20260524-055140.md`
+- Entries compacted:
+- noetl#601 merged — NATS URL credential redaction shipped in v2.100.4
+- noetl#602 merged — catalog scope semantic fix shipped in v2.100.5
+- v2.100.5 deployed to GKE — all three fixes verified live; HPA conflict surfaced
+- GKE worker HPA conflict resolved — playbook default flipped, cluster patched
+- KEDA ScaledObject promoted to chart-templated NATS-JetStream artifact (GKE Option A)
+- Writing-style preference: never use the word 'canonical'
+- GKE Helm install wiki page published; manifests-keda clarified for kind vs GKE profile
+- Drove items #4/#5/#2/#3 of GKE Option-A follow-up list (PR #117 + wiki commit e0a9b4e)
+- Archived two stale-active handoff threads (shared-memory docs + pluggable-deps)
