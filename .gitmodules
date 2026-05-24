@@ -60,3 +60,21 @@
 [submodule "repos/noetl-travel-wiki"]
 	path = repos/noetl-travel-wiki
 	url = git@github.com:noetl/travel.wiki.git
+[submodule "repos/noetl-gateway-wiki"]
+	path = repos/noetl-gateway-wiki
+	url = git@github.com:noetl/gateway.wiki.git
+[submodule "repos/noetl-cli-wiki"]
+	path = repos/noetl-cli-wiki
+	url = git@github.com:noetl/cli.wiki.git
+[submodule "repos/noetl-doctor-wiki"]
+	path = repos/noetl-doctor-wiki
+	url = git@github.com:noetl/doctor.wiki.git
+[submodule "repos/noetl-e2e-wiki"]
+	path = repos/noetl-e2e-wiki
+	url = git@github.com:noetl/e2e.wiki.git
+[submodule "repos/noetl-gui-wiki"]
+	path = repos/noetl-gui-wiki
+	url = git@github.com:noetl/gui.wiki.git
+[submodule "repos/noetl-apt-wiki"]
+	path = repos/noetl-apt-wiki
+	url = git@github.com:noetl/apt.wiki.git

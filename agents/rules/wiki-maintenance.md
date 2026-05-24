@@ -79,11 +79,13 @@ The bump → wiki update is a single coordinated change. Do not
 land the bump and leave the wiki for "later" — that is exactly
 how drift starts.
 
-Repos with wikis today: `noetl/noetl`, `noetl/ops`,
-`noetl/travel`. Repos without wikis as of this writing:
-`noetl/gateway`, `noetl/cli`, `noetl/doctor`, `noetl/e2e`,
-`noetl/gui`, `noetl/apt`. (`noetl/docs` is itself a Docusaurus
-site and does not need a separate wiki.)
+Repos with wikis today (all production submodules):
+`noetl/noetl`, `noetl/ops`, `noetl/travel`, `noetl/gateway`,
+`noetl/cli`, `noetl/doctor`, `noetl/e2e`, `noetl/gui`,
+`noetl/apt`. (`noetl/docs` is itself a Docusaurus site and
+does not need a separate wiki.) If a new production submodule
+is added, enable its wiki before merging the first code change
+that touches a public surface.
 
 ## Rule 2 — validate the wiki against code changes
 
@@ -156,10 +158,16 @@ code with un-covered modules.
 
 ## Tooling
 
-- All three wikis live as Git submodules tracked in `.gitmodules`:
+- All wikis live as Git submodules tracked in `.gitmodules`:
   - `repos/noetl-wiki/` → `noetl/noetl.wiki.git` (application docs)
   - `repos/noetl-ops-wiki/` → `noetl/ops.wiki.git` (operational docs)
   - `repos/noetl-travel-wiki/` → `noetl/travel.wiki.git` (reference-SPA developer docs)
+  - `repos/noetl-gateway-wiki/` → `noetl/gateway.wiki.git` (gateway developer docs)
+  - `repos/noetl-cli-wiki/` → `noetl/cli.wiki.git`
+  - `repos/noetl-doctor-wiki/` → `noetl/doctor.wiki.git`
+  - `repos/noetl-e2e-wiki/` → `noetl/e2e.wiki.git`
+  - `repos/noetl-gui-wiki/` → `noetl/gui.wiki.git`
+  - `repos/noetl-apt-wiki/` → `noetl/apt.wiki.git`
   After a fresh clone of `ai-meta`, run
   `git submodule update --init --recursive` to bring all in.
 - Each wiki is a normal Git repo — no special tooling. Push to
