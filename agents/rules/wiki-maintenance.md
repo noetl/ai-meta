@@ -61,6 +61,30 @@ Skeleton / placeholder modules with no real surface yet are exempt —
 list them under the parent package's "Skeleton modules" or "What's
 deliberately not here" section instead of opening empty pages.
 
+## Rule 1b — every pointer bump checks the wiki
+
+When `ai-meta` bumps a submodule pointer for a merged PR:
+
+1. Identify the relevant wiki for the submodule.
+2. If the wiki has page(s) covering the changed surface, update
+   them in the same change set (or its immediate follow-up) so
+   the wiki tracks the merged code.
+3. If no relevant page exists yet, follow Rule 1 (add a deep-
+   dive page on first touch).
+4. **If the submodule has no wiki at all**, stop and ask the
+   user to enable the wiki and create a Home page. Do not
+   silently skip the wiki step — it accumulates drift.
+
+The bump → wiki update is a single coordinated change. Do not
+land the bump and leave the wiki for "later" — that is exactly
+how drift starts.
+
+Repos with wikis today: `noetl/noetl`, `noetl/ops`,
+`noetl/travel`. Repos without wikis as of this writing:
+`noetl/gateway`, `noetl/cli`, `noetl/doctor`, `noetl/e2e`,
+`noetl/gui`, `noetl/apt`. (`noetl/docs` is itself a Docusaurus
+site and does not need a separate wiki.)
+
 ## Rule 2 — validate the wiki against code changes
 
 When development changes the public surface of a documented module
@@ -111,8 +135,8 @@ code with un-covered modules.
 - **Slugs avoid generic names.** Use `dsl_engine` instead of
   `engine`. The page itself states the chosen slug if it diverges
   from the basename.
-- **Source links are absolute** GitHub URLs into the canonical
-  branch.
+- **Source links are absolute** GitHub URLs into the default
+  branch (`main` or `master`).
 - **Inter-wiki links use basenames**: `[Outbox](outbox)`.
 - **Code snippets reflect the current source** — copy-paste from
   the file, then trim. Don't paraphrase signatures.
