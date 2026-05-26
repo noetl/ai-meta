@@ -26,11 +26,19 @@
 - [x] Merge PR #613. (merged as `c0fb3b8d`)
 - [x] Bump `repos/noetl` pointer in ai-meta after merge. (`310accc8` = v2.102.1)
 - [x] Rebuild image off the new `main` (`inline-runner-v2-20260526070157`), redeploy GKE (helm rev 167), flip worker env to `NOETL_INLINE_TRIVIAL_CHILDREN=enforce`.
-- [x] Re-run smoke playbook `tests/inline_runner_phase_d_smoke` — **detector now returns `inline=True`**; the Round B runner fired (3 parent terminal events tagged with `meta.inline_mode="worker"` + `meta.inlined_in_parent`); BUT two real Round B defects surfaced — see PR #614 below.
-- [ ] Phase D parent-cancel spot-check — blocked on PR #614 because the current runner state corrupts the child event stream.
-- [ ] After #614 merges, re-run Phase D and confirm the degenerate `{"status": "ok"}` child result was indeed downstream of the bigint overflow (Bug B = consequence of Bug A) and not an independent defect.
-- [ ] After Phase D fully passes, close the `2026-05-26-noetl-inline-trivial-children` handoff thread by moving it to `handoffs/archive/` and writing the final round-04 result.
-- [ ] After thread close, refresh `inline_runner.md` wiki with the corrected id-allocation rationale (now references the bigint constraint explicitly) plus a Phase D evidence note.
+- [x] Re-run smoke playbook `tests/inline_runner_phase_d_smoke` — detector returns `inline=True`; runner fires; surfaced Bugs A, B, C (see below).
+- [x] PR #614 (Bug A — uuid4 modulus → bigint-safe child id) merged as `4d4c990e`; v2.102.2 published.
+- [x] PR #615 (Bug B — terminal result envelope semantics) merged as `105f9242`; v2.102.3 published.
+- [x] PR #616 (Bug C — cancellation probe endpoint) merged as `f2e18911`; v2.102.4 published.
+- [x] Phase D success path: 5 vertex-ai-stub turns under 1s, warm steady-state ~0.75s (~5x speedup vs Round A).
+- [x] Phase D parent-cancel spot-check: `PLAYBOOK_CANCELLED` envelope on parent's call.done; `execution.cancelled` event present; child id 18 digits.
+- [x] Wiki seam doc on `repos/noetl-wiki` `inline_runner.md` — covers id allocation (uuid4 % 10**18 bigint constraint) + cancellation-check endpoint cross-reference + Phase D outcome.
+- [x] Handoff thread `2026-05-26-noetl-inline-trivial-children` moved to `handoffs/archive/`.
+
+## Phase D — final outcome
+- Round B inline runner is production-verified on GKE.
+- Cluster left on helm rev 170, image `inline-runner-v5-20260526090617` (v2.102.4), `NOETL_INLINE_TRIVIAL_CHILDREN=enforce`.
+- Smoke playbooks (`tests/inline_runner_phase_d_smoke`, `tests/inline_cancel_smoke_parent`, `automation/agents/mcp/vertex-ai-stub`, `automation/agents/mcp/inline-cancel-smoke`) remain in GKE catalog as durable Phase D fixtures for future re-verification.
 
 ## Phase D — defects found, follow-up PR open
 - Phase D ran twice. First attempt was inadvertently against `localhost:8082` which routes to the `kind-noetl` cluster (not the GKE target), explaining why the runner appeared not to fire — that cluster is on an old image without Round B code. Second attempt port-forwarded directly to the GKE noetl service (`kubectl ... port-forward svc/noetl 18082:8082`) and registered the smoke playbook + `automation/agents/mcp/vertex-ai-stub` child into the GKE catalog.
