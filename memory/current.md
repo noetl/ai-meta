@@ -638,3 +638,26 @@ Authoritative for any DSL refactoring work:
 - GKE Helm install wiki page published; manifests-keda clarified for kind vs GKE profile
 - Drove items #4/#5/#2/#3 of GKE Option-A follow-up list (PR #117 + wiki commit e0a9b4e)
 - Archived two stale-active handoff threads (shared-memory docs + pluggable-deps)
+
+## Compaction 2026-05-26T06:33:33Z
+
+- Source: `memory/compactions/20260526-063333.md`
+- Entries compacted:
+- Production auth+travel login incident — cluster-side mitigations applied (gateway timeout, worker min replicas)
+- Codified ephemeral-blueprints execution model (architecture + agent rule)
+- Travel wiki bootstrap + docs/gateway/travel pointer bumps + thread archive
+- Wikis bootstrapped for all six remaining production submodules; gateway gets v2.11.0 coverage
+- Travel itinerary-planner consolidation closed; ops + travel + both wikis bumped
+- Keychain leak redaction shipped — noetl/noetl#603 merged, noetl bumped to fb38b07f
+- Storage-side credential hygiene Round A shipped — noetl/noetl#604 merged, v2.100.7 cut
+- Credential refs Round B shipped — noetl/noetl#605 merged
+- Executions-listing stale-status fix opened as noetl/noetl#606; noetl bumped to v2.100.8
+- Platform step-overhead: case-action emit batching shipped as noetl/noetl#607 (small win)
+- Case-action emit batching shipped: noetl/noetl#607 merged; bumped to v2.100.10 (covers #606 + #607)
+- Inline trivial children Round A shipped: noetl/noetl#608 merged
+- Live dry-run enabled on GKE + visibility fix opened as noetl/noetl#609
+- Inline-decision event-log visibility verified end-to-end on GKE; detector finding to investigate
+- Inline-execution detector catalog fallback opened as noetl/noetl#610
+- Inline detector catalog fallback verified live on GKE; signal is real
+- Catalog-lookup cache opened as noetl/noetl#611 to restore dry-run perf
+- Catalog cache live-verified: per-turn 39s -> 7s cold / 4s warm; signal correct
