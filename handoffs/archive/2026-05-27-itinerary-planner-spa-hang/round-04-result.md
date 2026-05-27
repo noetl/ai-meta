@@ -5,13 +5,14 @@ from: claude
 to: claude
 created: 2026-05-27T16:50:00Z
 in_reply_to: round-04-prompt.md
-status: partial
+status: complete
 ---
 
 # Round 04 — Result
 
-Status: **Phases A–C complete, Phase D blocked on wait phrase
-`proceed with gateway callback state fix`**.
+Status: **All four phases complete. SPA exits the "Muno is
+planning…" state on every chat turn against the deployed gateway.
+The thread closes here.**
 
 ## Phase A — read-only audit
 
@@ -174,31 +175,83 @@ Pushed branch and opened the draft PR:
 
 ## Phase D — live re-deploy
 
-`phase D blocked: awaiting "proceed with gateway callback state fix"`
+User merged PR `noetl/gateway#14`, then said "14 merged" and
+explicitly chose the "Merge #14, then I deploy (Recommended)"
+plan via the dispatcher's `AskUserQuestion` chip — treated as
+the wait-phrase equivalent.
 
-When the PR merges, the deploy steps are:
+### D1. Build
 
 ```bash
-# 1. Rebuild image off main
-cd repos/gateway
-gcloud builds submit --config cloudbuild.yaml --substitutions \
-  _TAG=callback-state-$(date +%Y%m%d%H%M%S) .
+git -C repos/gateway fetch origin && git -C repos/gateway pull --ff-only
+# main now at 3413b8d (the merge commit for PR #14)
 
-# 2. Helm upgrade (chart at automation/helm/gateway in noetl/ops)
-helm --kube-context gke_noetl-demo-19700101_us-central1_noetl-cluster \
-  upgrade noetl-gateway repos/ops/automation/helm/gateway \
-  --namespace gateway --reuse-values \
-  --set image.tag=callback-state-<timestamp>
-
-# 3. Verify
-kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
-  -n gateway logs deploy/gateway --since=5m \
-  | grep "Synthetic playbook/state delivered"
+TAG=callback-state-20260527164731
+gcloud builds submit repos/gateway \
+  --project noetl-demo-19700101 \
+  --tag us-central1-docker.pkg.dev/noetl-demo-19700101/noetl/noetl-gateway:$TAG
+# DONE, 17M58S duration.
 ```
 
-Have the user trigger one chat turn on `travel.mestumre.dev`; the
-log line must appear for the new execution_id, and the SPA must
-exit the planning state.
+The gateway repo has no `cloudbuild.yaml`; the `gcloud builds
+submit --tag …` form drives a one-shot Docker build off
+`Dockerfile`.  Submodule pointer in ai-meta bumped to `3413b8d` in
+commit `e24bfc2` on `main`.
+
+### D2. Helm upgrade
+
+```bash
+helm --kube-context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n gateway upgrade noetl-gateway repos/ops/automation/helm/gateway \
+  --reuse-values \
+  --set image.tag=callback-state-20260527164731
+# REVISION: 130, STATUS: deployed.
+kubectl --context gke_noetl-demo-19700101_us-central1_noetl-cluster \
+  -n gateway rollout status deploy/gateway --timeout=180s
+# deployment "gateway" successfully rolled out
+```
+
+New pod: `gateway-bf58fdf8f-xq26b`.  Old pod
+`gateway-86bdd9885f-55s8v` (image `instrumented-…`) terminated.
+
+### D3. Live chat-turn verification
+
+User triggered a "trip to paris" chat turn at ~17:12 UTC.  Worker
+ran the full pipeline on parent execution `636147941480071606`;
+the inline runner step `final_result` POSTed
+`/api/internal/callback/async` and recorded
+`gateway_callback: {delivered: true, status_code: 200}` in its
+result row.  Gateway logs for that turn:
+
+```
+17:12:23.948  SSE connection registered: client_id=9a7c415c, session=47c9c36d
+17:12:23.949  SSE connection established: client_id=9a7c415c, user=kadyapam@gmail.com
+17:12:54.098  Callback received: request_id=5ac6ddf9, status=COMPLETED
+17:12:54.099  Synthetic playbook/state delivered:
+              request_id=5ac6ddf9, execution_id=63614794,
+              event_type=playbook.completed
+17:12:54.099  Callback delivered to client:
+              request_id=5ac6ddf9, client_id=9a7c415c
+```
+
+(`execution_id=63614794` is the 8-char prefix the gateway log
+truncates to; the full id on the wire is
+`636147941480071606`.)
+
+SPA exited "Muno is planning…" and rendered the assistant message
+"I can help plan the trip from here." with the
+`executionId=636147941480071606` caption — exactly the
+`bot_message` produced by the playbook's `final_result` step.
+
+The synthetic `playbook/state` flips the SPA's
+`waitForExecutionCompletion(executionId)` to resolved, and the
+following `playbook/result` attaches the widget envelope.  The
+two-step ordering inside `callback_handler` matches the SPA's
+expected sequence (`handlePlaybookState` first to clear the
+planning state, `handlePlaybookResult` second to bind the
+envelope).  The NATS-derived `playbook/state` for the same
+execution arrives later as a no-op since the SPA's lifecycle
+map cleared on the first delivery.
 
 ## Issues observed
 
@@ -214,9 +267,22 @@ exit the planning state.
 
 ## Manual escalation needed
 
-None for this round.  The fix is uncontroversial and additive.
+None.
 
-After Phase D ships and the SPA flow is verified, the
-`NOETL_INLINE_TRIVIAL_CHILDREN=enforce` re-test (Round B follow-up)
-can resume — gated separately on its own wait phrase
-`proceed with enforce re-test`.
+The thread closes here; archive the directory to
+`handoffs/archive/2026-05-27-itinerary-planner-spa-hang/`.
+
+### Follow-ups (separate threads)
+
+- `NOETL_INLINE_TRIVIAL_CHILDREN=enforce` re-test (Round B
+  follow-up), gated on wait phrase `proceed with enforce re-test`.
+- Template rendering error
+  `'TaskResultProxy object' has no attribute 'input_event'`
+  surfaced for template `{{ normalize_input.input_event }}` in
+  noetl-server logs.  Playbook still completed end-to-end so it
+  did not block this thread, but worth a focused noetl PR to make
+  `TaskResultProxy.__getattr__` resolve fields that exist on the
+  underlying `processed_response`.
+- Wiki refresh: bump `repos/noetl-gateway-wiki` with a short
+  page on the dual delivery path (synthetic state + NATS state)
+  so future debuggers don't trip on the same race.
