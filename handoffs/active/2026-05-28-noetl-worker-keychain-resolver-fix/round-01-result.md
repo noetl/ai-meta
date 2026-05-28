@@ -337,3 +337,47 @@ gh pr create --repo noetl/noetl --base main --head kadyapam/worker-keychain-reso
 - PR body uses `Closes noetl/noetl#623` so the sub-issue auto-closes on merge.
 - Tests pass: 15/15 on tests/worker/test_keychain_resolver.py, 23/23 on the focused suite (worker keychain + core credential refs).
 - Phase A6 (GKE smoke after noetl image rebuild + Helm rollout) remains BLOCKED — awaiting wait phrase `verify keychain fix on gke`.
+
+## Phase A6 — GKE smoke (post-#624 merge) — PARTIAL FAIL, deeper bug uncovered
+
+After PR noetl/noetl#624 merged → noetl@4fe9f711, image rebuild as
+`keychain-resolver-20260528145825` (Cloud Build id
+`65744934-80f3-4104-ac1e-b2330c9584ed`, duration 1m55s), Helm
+upgrade to rev 178 with `--set image.tag=keychain-resolver-20260528145825`,
+both `noetl-server` and `noetl-worker` deployments rolled out
+successfully.
+
+Smoke `noetl exec catalog://automation/agents/mcp/duffel
+--payload '{"method":"tools/call","tool":"get_airlines",...}'`
+returned `isError: True`, `status_code: 401`, Duffel error
+`access_token_not_found` — same failure shape as before the
+fix.
+
+Investigation:
+- `noetl.keychain.access_count` for the new catalog v13 cache row
+  stays at 0 after the dispatch → worker never queried the
+  endpoint → `populate_keychain_context` still exits early.
+- Verified the resolver fix IS in the deployed pod:
+  `kubectl exec ... grep noetl_ref /opt/noetl/noetl/worker/keychain_resolver.py`
+  shows both edits present.
+- Fetched the offloaded tool_config blob via
+  `default_store.resolve(noetl://execution/.../result/duffel_dispatch_tool_config/...)`
+  from inside the pod: `input.duffel_token: "[REDACTED]"` —
+  the literal string, NOT the `$noetl_ref` placeholder dict
+  that `render_preserving_keychain_refs` produces.
+
+Root cause: `producer_scrub_payload` runs before NATS KV store,
+calls `redact_keychain_values`, hits the `caller_blind_redact`
+branch (key `duffel_token` matches `additional_keys` derived from
+the keychain manifest), replaces the placeholder dict with
+`[REDACTED]`.  The worker never sees a placeholder to detect.
+
+Round 02 fix: noetl/noetl#625 — preserve `$noetl_ref` placeholders
+with `kind: "keychain"` in both branches of
+`_redact_response_recursive`.  5 new regression tests in
+`tests/core/test_redact_keychain_values.py`, 25/25 pass.
+
+Sub-issue noetl/noetl#626 tracks Round 02 in the noetl repo.
+
+Phase A6 will re-run after #625 merges + image rebuild + Helm
+rollout.
