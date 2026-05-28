@@ -381,3 +381,44 @@ Sub-issue noetl/noetl#626 tracks Round 02 in the noetl repo.
 
 Phase A6 will re-run after #625 merges + image rebuild + Helm
 rollout.
+
+## Phase A6 — GKE smoke (post-#625 merge) — FULL PASS ✅
+
+After noetl/noetl#625 merged → noetl@e894232c, image rebuild
+as `keychain-scrub-fix-20260528151736` (Cloud Build id
+`a303da51-12c7-4f4f-8574-7f727a06c67e`, duration 2m30s),
+Helm rev 179 with `--set image.tag=keychain-scrub-fix-20260528151736`,
+both deployments rolled out cleanly.
+
+Smoke results:
+
+**get_airlines** (exec `636819189134524662`):
+```
+isError:    False
+status_code: 200
+summary:    5 Duffel airline(s)
+airlines:   12 North, 40-Mile Air, ABX Air, Aegean Airlines,
+            Aergo International Pty Ltd
+```
+
+**search_offers LAX→CDG 2026-06-27→2026-07-01** (exec
+`636819636851310875`) — the exact call the SPA "trip to paris"
+flow was failing on:
+```
+isError:    False
+status_code: 201
+summary:    10 Duffel flight offer(s)
+offers:     10 offers, $1321.60 – $1344.76 USD range
+```
+
+**Cache hit verification**: `noetl.keychain` row
+`duffel_token:636807987431997648:global` access_count went
+from 0 to 2 after the two smokes — the worker is now
+actually querying the keychain endpoint and receiving the
+resolved token.
+
+Closes noetl/ai-meta#21 + noetl/ai-meta#24 via the pointer-
+bump commit body keyword.  noetl/ai-meta#20 (google-places
+NameError) is suspected same root cause and likely
+auto-resolved; verification deferred to a separate SPA-driven
+smoke.
