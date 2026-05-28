@@ -7,8 +7,13 @@ Read these files at session start (in order):
    feature, integration, and operational change must honor
 3. `memory/current.md` — active working state
 4. Latest entries in `memory/inbox/` — recent uncompacted work
-5. `sync/issues/` — in-flight cross-repo tracking
-6. `handoffs/active/` — in-flight cross-agent handoffs whose latest
+5. **Open ai-task issues** — durable task store across sessions:
+   ```bash
+   gh issue list --repo noetl/ai-meta --state open --label ai-task --limit 30
+   ```
+   See `agents/rules/issue-tracking.md` for the convention.
+6. `sync/issues/` — in-flight cross-repo tracking
+7. `handoffs/active/` — in-flight cross-agent handoffs whose latest
    round is a prompt with no matching result yet, or whose latest
    result has status `partial` / `blocked` (see
    `handoffs/README.md` and `agents/rules/handoffs.md`)
@@ -46,6 +51,8 @@ repos/                           # Git submodules (the actual codebases)
 - `/bump-pointer "<repo>"` — update a submodule pointer after upstream merge
 - `/handoff-open <slug> "<description>"` — open a cross-agent handoff thread (dispatcher side)
 - `/handoff-result <slug>` — scaffold the result file for the latest prompt in a thread (executor side)
+- `/issue-open "<title>" "<repo>"` — open a tracked ai-task issue on noetl/ai-meta (see `agents/rules/issue-tracking.md`)
+- `/issue-close <number>` — close a tracked ai-task issue with the landing PR / commit cited
 
 ## Quick commands (manual)
 

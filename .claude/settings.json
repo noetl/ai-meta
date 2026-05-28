@@ -19,14 +19,12 @@
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "echo '--- ai-meta memory status ---' && echo 'Inbox entries:' && find memory/inbox -name '*.md' 2>/dev/null | wc -l | tr -d ' ' && echo 'Latest compaction:' && ls -t memory/compactions/*.md 2>/dev/null | head -1 || echo 'none' && echo 'Submodule state:' && git submodule status --recursive 2>/dev/null | head -5"
-      }
-    ],
-    "Stop": [
-      {
-        "type": "prompt",
-        "prompt": "If meaningful work was done in this session (code changes, decisions, investigations), remind the user to run: ./scripts/memory_add.sh \"<topic>\" \"<summary>\" \"<tags>\""
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '--- ai-meta memory status ---' && echo 'Inbox entries:' && find memory/inbox -name '*.md' 2>/dev/null | wc -l | tr -d ' ' && echo 'Latest compaction:' && ls -t memory/compactions/*.md 2>/dev/null | head -1 || echo 'none' && echo 'Open ai-task issues:' && (gh issue list --repo noetl/ai-meta --state open --label ai-task --limit 5 --json number,title --template '{{range .}}#{{.number}} {{.title}}{{\"\\n\"}}{{end}}' 2>/dev/null | sed 's/^/  /' || echo '  (gh not available or no issues)') && echo 'Submodule state:' && git submodule status --recursive 2>/dev/null | head -5"
+          }
+        ]
       }
     ]
   },
