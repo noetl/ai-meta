@@ -422,3 +422,32 @@ bump commit body keyword.  noetl/ai-meta#20 (google-places
 NameError) is suspected same root cause and likely
 auto-resolved; verification deferred to a separate SPA-driven
 smoke.
+
+## Phase A6 — extra: verifying #20 (google-places NameError)
+
+After #625 deployed (helm rev 179), smoked
+`catalog://automation/agents/mcp/google-places tools/list`.
+Still failed:
+
+  exec 636825552573169984
+  command.failed: name 'REDACTED' is not defined
+  node=google_places_dispatch
+
+Different root cause than the worker-resolver gap.  Fetched
+the offloaded tool_config blob: `code` field is the literal
+string `[REDACTED]` (the whole ~7 KB python code block).
+Traced to `SECRET_VALUE_PATTERNS[11]` in
+`noetl/core/sanitize.py` matching `&key={urllib.parse.quote(key,`
+in the f-string at google-places.yaml:223.  The pattern can't
+distinguish a resolved URL from a templated f-string; the
+whole code string is replaced with `[REDACTED]`; exec then
+evaluates the bareword as a Python list literal → NameError.
+
+Fix shipped in noetl/noetl#628 — `_looks_like_template_or_code`
+helper bypasses the URL-credential + value-pattern regex
+checks when the string carries template markers or code
+keywords.  Resolved URLs without template markers still
+redact (regression test guards this).
+
+Sub-issue noetl/noetl#627 tracks the fix.  Verification
+deferred to after #628 merges + new image deploys.
