@@ -109,6 +109,34 @@ renamed type, changed default):
 If an existing page is stale or incomplete, treat the touched
 change as hitting an un-covered module and refresh it.
 
+## Rule 2b — every handoff round closes with a wiki update
+
+A handoff round that ships a PR is, by definition, a public-surface
+change to whichever submodule the PR landed in. The round MUST
+include a wiki update for that submodule's wiki, sized to whatever
+the round delivered:
+
+- **Additive round** (new playbook, new endpoint, new client
+  module) → add or extend a wiki page covering it. Cross-link
+  from `Home.md` and `_Sidebar.md`.
+- **Removal round** (deleting a feature) → delete or strike-through
+  the corresponding wiki page, and update any cross-link that
+  pointed at it.
+- **Behavior-change round** (renamed type, changed default, fixed
+  bug whose old behavior was documented) → edit the existing page.
+
+The wiki PR / commit ships in the **same handoff round** as the
+code PR. It can land before or after the submodule PR merges, but
+not later than the dispatcher's pointer-bump commit for that round
+in ai-meta. If it lands later, the pointer-bump commit must list
+it as "wiki: deferred to <follow-up>" with a specific follow-up
+reference — otherwise the bump is incomplete and the
+`bump-pointer` skill should refuse it.
+
+The phase prompt for the round should declare a dedicated wiki
+phase (typically the second-to-last phase, before the
+push + PR gate) so the executor doesn't forget.
+
 ## What "covered" means
 
 A module is **covered** when:

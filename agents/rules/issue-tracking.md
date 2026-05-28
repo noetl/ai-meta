@@ -12,23 +12,63 @@ work finished. Issues outlive all three.
 
 ## Where issues live
 
-**One inbox: `noetl/ai-meta`**, regardless of which submodule the
-work eventually lands in.
+**Two-tier model** — umbrella issues in `noetl/ai-meta`, per-round
+sub-issues in the owning submodule.
 
-- Submodule-internal work (e.g. "fix bug in CLI port-forward",
-  "add gateway runtime-contract field") is still tracked as an
-  ai-meta issue with a `repo:<submodule>` pointer label.
-- Reason: the agent doing the work reads one inbox at session
-  start, not eleven.
-- The actual code change still goes through a PR in the owning
-  submodule. The submodule PR's body references the ai-meta issue
-  (`See noetl/ai-meta#NN`). The issue is closed manually after the
-  submodule PR merges and the pointer bumps in ai-meta — issues do
-  not auto-close from submodule PRs.
+### Tier 1: ai-meta umbrella
 
-External bug reports filed against a submodule (`noetl/cli#123`
-opened by a community contributor) stay where they are. The agent
-inbox is for work the agent surfaced or owns.
+`noetl/ai-meta` holds the **umbrella** issue for any task that
+will outlive the current session. It captures the goal, the
+acceptance criteria, the pointers, and the audit trail across
+the whole task — including work that spans multiple submodules
+and multiple rounds.
+
+- Labels: `ai-task` + `repo:<primary-submodule>`.
+- Surfaced by the session-start query
+  (`gh issue list --repo noetl/ai-meta --label ai-task`).
+- Closed manually with the citation comment described in
+  "Closing the loop" below — typically after the final
+  pointer-bump commit lands.
+
+### Tier 2: submodule per-round sub-issues
+
+When work on an umbrella issue is concrete enough to dispatch
+as a PR — i.e. a handoff round is about to ship — open a
+**sub-issue in the owning submodule repo** to track that
+specific round's PR. One sub-issue per submodule per round.
+
+- Labels: `ai-task` on the submodule repo (create it if
+  missing; same `#fbca04` colour as the ai-meta label).
+- Title format: `<umbrella-title> — Round NN (<phase letter
+  range>)`. Example:
+  `Remove direct Firestore queries — Round 02 (Phase B: SPA cutover)`.
+- Body links **up** to the ai-meta umbrella
+  (`Tracks noetl/ai-meta#NN`) and lists the phase numbers
+  this round covers.
+- Closed by the submodule PR via the standard GitHub
+  `Closes <repo>#<NN>` keyword in the PR body, so it
+  auto-closes on merge.
+- The ai-meta umbrella gets a comment citing the new
+  sub-issue + the PR URL when the round opens. The umbrella
+  stays open until every planned round has shipped.
+
+### When a round spans multiple submodules
+
+A single round that touches multiple submodules opens **one
+sub-issue per submodule** with shared title prefix + per-repo
+suffix. Example: Round 3 of the Firestore-removal work would
+open `noetl/travel#NN — Round 03 (Phase C: SPA gatewaySubscriptions cleanup)`,
+`noetl/gateway#NN — Round 03 (Phase C: /api/subscriptions/firestore removal)`,
+and `noetl/ops#NN — Round 03 (Phase C: drop Firestore helm config)` —
+each PR closes its own sub-issue; the ai-meta umbrella closes
+after the last pointer bumps.
+
+### External bug reports
+
+Issues filed against a submodule by community contributors
+(`noetl/cli#123` opened by an outsider) stay where they are
+under their own labels. The `ai-task` label is for work agents
+opened or own — don't backfill external issues with `ai-task`.
 
 ## Labels
 
