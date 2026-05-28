@@ -68,6 +68,107 @@ Three buckets, applied in order:
 When in doubt, open the issue. The cost is one `gh` command; the
 benefit is the task surviving the next compaction.
 
+## Rule 1 — open an issue on first touch of substantive work
+
+Parallel to [`wiki-maintenance.md`](wiki-maintenance.md) Rule 1
+("deep-dive docs on first touch"). When development work changes a
+public surface of a submodule and no tracking issue yet exists, open
+one **before** opening the PR.
+
+"Substantive" means the change is at least one of:
+
+- New behavior (added command, endpoint, env var, schema field).
+- Behavior change (renamed, removed, default flipped, error
+  taxonomy moved).
+- Bug fix that the team would want to find later by searching
+  ("the Auth0 dashboard URL fix").
+- Anything that needs a wiki update under `wiki-maintenance.md`
+  Rule 1 or Rule 2.
+
+Cosmetic refactors, lint fixes, formatting, dependency bumps that
+don't change behavior — **inline** bucket, no issue.
+
+The first PR commit that lands the substantive change MUST cite
+the issue in the PR body (`See noetl/ai-meta#NN` or
+`Closes noetl/ai-meta#NN` if the PR fully satisfies the goal). If
+the PR is opened first by mistake, open the issue and amend the
+PR description before requesting review.
+
+## Rule 2 — update the issue in the same change set as the code
+
+Parallel to `wiki-maintenance.md` Rule 2 ("validate the wiki
+against code changes"). When the work on an existing issue moves
+forward, the issue is touched in the **same change set** as the
+code:
+
+1. **Picking it up** — leave a comment:
+   `Starting work in session <YYYY-MM-DD>. Branch: <name>.`
+2. **PR opened** — comment with the PR URL. If the goal needs to
+   shift, edit the `## Goal` section in the issue body to match
+   (append-only is the rule for status; goals legitimately move
+   as understanding sharpens).
+3. **PR merged, awaiting pointer bump** — comment:
+   `Merged via <submodule>#<NN>. Awaiting ai-meta pointer bump.`
+4. **Pointer bumped** — close the issue (see Closing the loop
+   below).
+
+Multi-PR work is the same shape, just with multiple step-2 / step-3
+comments. The issue is the audit trail; the comments are the
+heartbeat.
+
+Sub-PR commits inside the same submodule do not each need their
+own comment — one comment per PR is sufficient. But cross-submodule
+work (e.g. gateway PR + cli PR + helm PR all serving one issue)
+should each get a comment when they merge so the closing comment
+can cite the full set.
+
+## Rule 1b — every pointer bump checks the open-issue list
+
+Parallel to `wiki-maintenance.md` Rule 1b ("every pointer bump
+checks the wiki"). Before committing a `chore(sync): bump <repo>`:
+
+1. Read the submodule's `git log` since the previous pointer
+   value — that's the code being landed.
+2. For each merged PR in that range, check whether an ai-task
+   issue tracks it.
+3. If yes, update the issue per Rule 2 (comment with the merging
+   PR + this pointer-bump commit); close if the issue's `## Goal`
+   is now satisfied.
+4. If no, decide:
+   - **Substantive surface change with no issue** — open one
+     retroactively per Rule 1, citing the merged PR as the
+     reason, and add the pointer-bump SHA as the closing
+     comment. (Yes, you open it just to close it. The audit
+     trail is the point.)
+   - **Trivial / housekeeping** — no issue needed.
+
+This is the same dual-rail check the wiki rule applies: a pointer
+bump touches both the wiki AND the issue tracker in the same
+change set.
+
+## Coordination with wiki-maintenance
+
+A substantive change typically produces three artifacts at the
+same time:
+
+1. **Code change** — a PR in the owning submodule.
+2. **Wiki update** — page(s) in the matching wiki (per
+   `wiki-maintenance.md`).
+3. **Issue trail** — the ai-task issue tracking the work
+   (per this rule).
+
+The right shape:
+
+- Issue body links the wiki page(s) it will produce or update.
+- Wiki page (if substantive enough to warrant a "see also")
+  links the issue.
+- PR body cites the issue (`Closes noetl/ai-meta#NN`).
+- ai-meta pointer-bump commit message cites the issue (`Closes
+  noetl/ai-meta#NN`) so the ai-meta `git log` is a usable index.
+
+The three artifacts ride the same change set. Don't land any one
+of them and defer the others — that's how drift compounds.
+
 ## What to open an issue for, vs. a handoff
 
 Issues and handoffs (`handoffs/active/<slug>/`) are complementary:

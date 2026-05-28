@@ -79,6 +79,13 @@ The bump → wiki update is a single coordinated change. Do not
 land the bump and leave the wiki for "later" — that is exactly
 how drift starts.
 
+**This rule pairs with `issue-tracking.md` Rule 1b** ("every
+pointer bump checks the open-issue list"). A pointer bump is
+the natural checkpoint where three trails are reconciled in
+lockstep: the code (the pointer itself), the wiki (this rule),
+and the ai-task issue (issue-tracking Rule 1b). The
+`/bump-pointer` skill walks the three checks in order.
+
 Repos with wikis today (all production submodules):
 `noetl/noetl`, `noetl/ops`, `noetl/travel`, `noetl/gateway`,
 `noetl/cli`, `noetl/doctor`, `noetl/e2e`, `noetl/gui`,
