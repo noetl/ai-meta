@@ -328,3 +328,12 @@ gh pr create --repo noetl/noetl --base main --head kadyapam/worker-keychain-reso
   --title "fix(worker): detect \$noetl_ref placeholders in populate_keychain_context" \
   --body "Closes the gap left by #603/#604. Refs noetl/ai-meta#24, noetl/ai-meta#21."
 ```
+
+## Phase A5 — push + PR completed
+
+- Pushed branch `kadyapam/worker-keychain-resolver-fix` at SHA `48b3f497` to noetl/noetl `origin`.
+- PR: https://github.com/noetl/noetl/pull/624
+- Pushed at: 2026-05-28T14:52Z
+- PR body uses `Closes noetl/noetl#623` so the sub-issue auto-closes on merge.
+- Tests pass: 15/15 on tests/worker/test_keychain_resolver.py, 23/23 on the focused suite (worker keychain + core credential refs).
+- Phase A6 (GKE smoke after noetl image rebuild + Helm rollout) remains BLOCKED — awaiting wait phrase `verify keychain fix on gke`.

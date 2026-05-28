@@ -251,3 +251,15 @@ output. Documented in Issues observed below.
    `git -C repos/travel diff 8213a52..0ca1e21`
 
 3. Say `ship spa cutover phase b` to unlock Phase B6.
+
+## Phase B6 — push wiki + branch + open PR completed
+
+- noetl-travel-wiki commit `153496f` pushed to `origin/master`.
+- noetl/travel branch `kadyapam/calendar-spa-cutover-phase-b` at `0ca1e21` pushed to `origin`.
+- PR: https://github.com/noetl/travel/pull/56
+- PR body uses `Closes noetl/travel#55` so the sub-issue auto-closes on merge.
+- Pushed at: 2026-05-28T14:52Z
+- npm run lint (`tsc --noEmit`) — clean.
+- npm run build — clean (987 kB bundle, pre-existing chunk-size warning unrelated).
+- Side note from this round: gateway does NOT forward `calendar.event.touched` to SSE clients.  SPA listens on `playbook.completed` instead as a workaround.  Filed noetl/ai-meta#25 for the Round 3 follow-up to extend the gateway's `FORWARDED_EVENT_TYPES` allowlist.
+- Phase B7 (production SPA smoke after Cloudflare Pages deploy) remains BLOCKED — awaiting wait phrase `verify spa cutover on gke`.
