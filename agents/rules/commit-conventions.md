@@ -26,6 +26,18 @@ commit reaches `origin/main`:
 - `Refs noetl/ai-meta#NN` — when the commit progresses the issue
   but doesn't close it. Does not auto-close.
 
+**Critical: the `Closes` keyword ignores trailing qualifiers.**
+Writing `Closes noetl/ai-meta#23 Round 02` in the commit body
+does NOT mark "only Round 02 done" — GitHub's parser strips
+everything after the issue number, sees `Closes
+noetl/ai-meta#23`, and closes the whole umbrella issue. Use
+`Refs` for partial progress on a multi-round umbrella and
+reserve `Closes` for the round that ships the last bit of the
+goal. Concrete misfire: ai-meta@e414da9 closed
+noetl/ai-meta#23 after Round 02 even though Round 03 (gateway
+cleanup) was still ahead — had to reopen with a process-note
+comment.
+
 Pointer bumps that close an issue should put the close keyword in
 the body, not the subject — the subject stays
 `chore(sync): bump <repo> to <short-sha>`.
