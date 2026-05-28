@@ -229,3 +229,18 @@ BLOCKED — awaiting wait phrase "verify calendar phase A on gke".
 
 - After PR merges and dispatcher says "verify calendar phase A on gke", run the GKE smoke
   commands from Phase A6 of the prompt, substituting a real trip_id and thread_path.
+
+## Phase A5 — push + PR completed
+
+Push timestamp: `2026-05-28T13:51:25Z`
+
+Branch pushed: `kadyapam/calendar-list-playbook-phase-a` → `origin/kadyapam/calendar-list-playbook-phase-a`
+
+PR URL: https://github.com/noetl/travel/pull/53
+
+PR title: `feat(playbooks): catalog.calendar.list + orchestrator emits calendar.event.touched`
+
+The PR body summarises both artifacts (new list.yaml playbook + orchestrator emit block),
+references this handoff result file, cites noetl/ai-meta#23, and includes the Phase A6
+GKE smoke commands marked as gated by the wait phrase `verify calendar phase A on gke`.
+The PR is NOT merged.
