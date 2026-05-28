@@ -5,7 +5,7 @@ from: codex
 to: claude
 created: 2026-05-28T00:00:00Z
 in_reply_to: round-01-prompt.md
-status: complete
+status: partial
 ---
 
 ## Phase A0 — sanity checks
@@ -189,7 +189,176 @@ BLOCKED — awaiting wait phrase "ship calendar playbook phase A".
 
 ## Phase A6 — GKE smoke
 
-BLOCKED — awaiting wait phrase "verify calendar phase A on gke".
+### A6.1 — Smoke the new read playbook
+
+**Command run:**
+
+```bash
+noetl --context gke-prod exec \
+  catalog://travel/playbooks/catalog/calendar/list \
+  --runtime distributed \
+  --payload '{"trip_id":"travel-ui-mpp4nln1-k2lzet","user_uid":null,"thread_path":"chat_threads/travel-ui-mpp4nln1-k2lzet"}' \
+  --json
+```
+
+`trip_id` and `thread_path` were sourced from the most recent COMPLETED
+itinerary-planner execution (execution_id `636568355972842036`, thread
+`chat_threads/travel-ui-mpp4nln1-k2lzet`, `user_uid: guest` / anonymous thread).
+All recent executions are anonymous — no authenticated user trips were found in
+the GKE event log. `trip_id` was set to the thread_id string since for anonymous
+threads the collection path is `{thread_path}/trip/current/events` and `trip_id`
+is a widget-envelope label, not a path component.
+
+**Execution result:**
+
+- `execution_id`: `636783229302734984`
+- `status`: `COMPLETED`
+- `failed`: `false`
+- `duration`: 6.335 s
+- Completed steps (in order): `resolve_collection_path`, `query_calendar_events`,
+  `render_calendar_widget`
+
+**Step-level event log:**
+
+| event_id | node_name | event_type | status |
+|---|---|---|---|
+| 636783233564147856 | resolve_collection_path | command.started | RUNNING |
+| 636783235116040343 | resolve_collection_path | command.completed | COMPLETED |
+| 636783258276987040 | query_calendar_events | command.started | RUNNING |
+| 636783273871409339 | query_calendar_events | command.completed | COMPLETED |
+| 636783278149599427 | render_calendar_widget | command.started | RUNNING |
+| 636783280313860298 | render_calendar_widget | command.completed | COMPLETED |
+
+**query_calendar_events `command.completed` payload (key fields):**
+
+```json
+{
+  "context": {
+    "data": {
+      "collection_path": "chat_threads/travel-ui-mpp4nln1-k2lzet/trip/current/events",
+      "count": 0,
+      "documents": [],
+      "ok": true
+    },
+    "status": "ok"
+  },
+  "status": "COMPLETED"
+}
+```
+
+`count: 0` — the trip has no calendar events yet (early-stage thread, never
+reached a flight/hotel confirmation). The Firestore query returned successfully
+with an empty collection. Per the prompt spec, this is a **pass** — note it
+explicitly: zero calendar events, clean empty response.
+
+**render_calendar_widget output:**
+
+```json
+{
+  "widget_type": "calendar_view",
+  "variant": "full",
+  "schema_version": 1,
+  "payload": {
+    "trip_id": "travel-ui-mpp4nln1-k2lzet",
+    "events_path": "chat_threads/travel-ui-mpp4nln1-k2lzet/trip/current/events",
+    "display_events": [],
+    "editable": true,
+    "empty_state_text": "No events yet. Confirm a flight or hotel to populate the schedule."
+  }
+}
+```
+
+Widget envelope matches the closed contract from `CalendarViewPayload` in
+`repos/travel/src/contracts/widgets.ts` (fields: `trip_id`, `events_path`,
+`display_events`, `editable`, `empty_state_text`). `schema_version: 1` and
+`widget_type: "calendar_view"` are correct.
+
+**A6.1 verdict: PASS.** Read playbook runs end-to-end on GKE. Zero calendar
+events is expected for this thread; the playbook handles the empty case cleanly.
+
+### A6.2 — Confirm the orchestrator emits calendar.event.touched
+
+**Query for calendar.event.touched events in the event log:**
+
+```sql
+SELECT event_id, execution_id, event_type, created_at
+FROM noetl.event
+WHERE event_type = 'calendar.event.touched'
+ORDER BY created_at DESC LIMIT 10
+```
+
+Result: `[]` (no rows).
+
+**Query for executions against catalog v42 (catalog_id `636776091427799138`):**
+
+```sql
+SELECT execution_id, catalog_id, status, created_at
+FROM noetl.execution
+WHERE catalog_id = 636776091427799138
+ORDER BY created_at DESC LIMIT 5
+```
+
+Result: `[]` (no rows).
+
+**Root cause:** No execution has yet run against catalog v42 of
+`muno/playbooks/itinerary-planner`. All 20+ recent COMPLETED executions used
+catalog_id `636283723171758328` (an earlier version registered before PR #53
+merged). The SPA has not yet been pointed at the new catalog version — that is
+the Phase B cutover. Until the SPA drives a full trip flow (calendar intent)
+against v42, the emit path cannot fire in production.
+
+**Code-level verification (substitute for live execution):**
+
+The v42 catalog entry (`catalog_id: 636776091427799138`) was inspected directly
+in `noetl.catalog`. It contains the `calendar.event.touched` emit block at lines
+1442-1461 exactly as committed in the Phase A4 branch:
+
+```python
+# lines 1442-1461 of the v42 catalog content
+uid_for_event = user_uid if (user_uid and user_uid != "guest") else None
+for cal_evt in calendar_events:
+    if isinstance(cal_evt, dict) and cal_evt.get("event_id"):
+        post_events.append({
+            "thread_path": thread_path,
+            "event": {
+                "type": "calendar.event.touched",
+                "payload": {
+                    "trip_id": trip_id,
+                    "user_uid": uid_for_event,
+                    "thread_path": thread_path,
+                    "event_id": cal_evt.get("event_id"),
+                    "op": "added",
+                },
+                "actor": {"kind": "agent", "name": "muno-itinerary-planner"},
+            },
+        })
+```
+
+**A6.2 verdict: DEFERRED.** Emit code is in place in the registered catalog.
+No execution against v42 has run yet — the SPA still routes to the older catalog
+version and has not driven a calendar-write intent. End-to-end verification of
+`calendar.event.touched` requires the SPA cutover (Phase B) or a manual test
+execution with a `calendar_live` intent workload. This depends on the SPA
+routing change (Phase B) and the Duffel credential being live
+(noetl/ai-meta#24). See "Manual escalation needed" below.
+
+### A6.3 — Summary
+
+**Phase A6 overall: complete — read playbook verified; emit verification
+deferred — depends on Phase B SPA cutover + noetl/ai-meta#24 Duffel flow.**
+
+What was run:
+- `noetl --context gke-prod exec catalog://travel/playbooks/catalog/calendar/list --runtime distributed --payload '{"trip_id":"travel-ui-mpp4nln1-k2lzet","user_uid":null,"thread_path":"chat_threads/travel-ui-mpp4nln1-k2lzet"}' --json`
+
+What was observed:
+- execution_id `636783229302734984`, status COMPLETED, 6.335 s
+- `query_calendar_events` step: `isError` not set (no error), `data.ok: true`, `count: 0` (empty collection — trip has no confirmed events)
+- `render_calendar_widget` step: produces `calendar_view` widget envelope with `schema_version: 1`, `editable: true`, `display_events: []`
+- `calendar.event.touched` events: zero in event log (no execution against catalog v42 has occurred; emit code confirmed present in v42 catalog body)
+
+What it proves:
+- Read playbook (`catalog://travel/playbooks/catalog/calendar/list`) works on GKE: deploys, executes, resolves anonymous-thread collection path, queries Firestore, renders widget envelope cleanly.
+- `calendar.event.touched` emit code is registered in the catalog but unverified live (no v42 execution yet).
 
 ## Issues observed
 
@@ -217,18 +386,25 @@ BLOCKED — awaiting wait phrase "verify calendar phase A on gke".
 
 ## Manual escalation needed
 
-- To push the branch and open the PR after dispatcher says "ship calendar playbook phase A":
-  ```bash
-  cd repos/travel
-  git push -u origin kadyapam/calendar-list-playbook-phase-a
-  gh pr create --repo noetl/travel --base main \
-    --head kadyapam/calendar-list-playbook-phase-a \
-    --title "feat(playbooks): catalog.calendar.list + orchestrator emits calendar.event.touched" \
-    --body "Phase A of noetl/ai-meta#23 (Remove direct Firestore queries from travel SPA + gateway). See handoffs/active/2026-05-28-travel-calendar-playbook-cutover/round-01-result.md."
-  ```
+- Phase A5 and A6.1 are complete. No further manual steps for Phase A.
 
-- After PR merges and dispatcher says "verify calendar phase A on gke", run the GKE smoke
-  commands from Phase A6 of the prompt, substituting a real trip_id and thread_path.
+- **A6.2 emit verification** — to confirm `calendar.event.touched` fires live, a
+  human (or Phase B automation) must drive a full trip flow against catalog v42:
+  1. Open the SPA and start a new trip planning session.
+  2. Drive to a `calendar_live` intent (confirm a flight or hotel) so the
+     orchestrator's `render_widget_chat` step writes calendar events via
+     `persist_render_docs_atomically` and then runs `append_render_events_atomically`.
+  3. After the execution completes, run:
+     ```sql
+     SELECT event_id, execution_id, event_type, created_at
+     FROM noetl.event
+     WHERE event_type = 'calendar.event.touched'
+     ORDER BY created_at DESC LIMIT 10
+     ```
+     Confirm rows appear with `trip_id`, `user_uid`, `thread_path`, `event_id`, `op: "added"`.
+  4. Note: the SPA must be routed to catalog v42 (`636776091427799138`) for the
+     new emit code to run. This depends on Phase B cutover and Duffel credentials
+     being live (noetl/ai-meta#24).
 
 ## Phase A5 — push + PR completed
 
