@@ -661,3 +661,29 @@ Authoritative for any DSL refactoring work:
 - Inline detector catalog fallback verified live on GKE; signal is real
 - Catalog-lookup cache opened as noetl/noetl#611 to restore dry-run perf
 - Catalog cache live-verified: per-turn 39s -> 7s cold / 4s warm; signal correct
+
+## Compaction 2026-05-29T02:41:39Z
+
+- Source: `memory/compactions/20260529-024139.md`
+- Entries compacted:
+- inline-execution Round B merged — PR #612 lands worker inline runner
+- Round B Phase D found pre-existing catalog version=latest bug — runner never fires on GKE
+- Catalog version=latest 404 fix merged — noetl PR #613
+- Phase D re-run found uuid4 % 10**20 overflows bigint; inline runner result also degenerate
+- Phase D v3 — Bug A fixed (bigint), Bug B confirmed independent (last-step result semantics)
+- Bug B fix PR #615 — runner mirrors dispatched-path boundary-step filter
+- Phase D v4 — Bug B fixed; vertex-ai-stub canned diagnosis flows; Bug C surfaced (cancel probe wrong endpoint)
+- Round B Phase D complete — inline runner production-verified on GKE end-to-end
+- Inline-execution chart-default PR opened on noetl/ops #119
+- Inline-execution rolled out via chart on noetl-demo GKE — helm rev 171, durable across upgrades
+- Production hotfix PR #617 — sanitize_sensitive_data was destroying credential aliases on cluster
+- Production hotfix PR #617 merged + deployed — sanitize alias passthrough live on GKE
+- Hotfix continuation #618 merged + deployed on GKE; wiki updated with two-tier redaction rule
+- Production revert — flipped GKE worker to NOETL_INLINE_TRIVIAL_CHILDREN=off; itinerary-planner-class runner defects
+- Runner event-emit fix open as PR #619 — strict payload schema + parent catalog_id wiring + silent-drop guard
+- PR #619 deployed; SPA hang is pre-existing bug, opened handoff round-01
+- SPA hang diagnosed + fix PRs open: noetl/gateway #12 + noetl/ops #120
+- Gateway #12 + ops #120 merged + deployed; SPA hang fix live on GKE
+- Massive session close-out: 9 PRs merged today; SPA hang now diagnosed to outbox arrow-feather vs gateway JSON; round-02 handoff prompt ready
+- noetl v2.102.8 deployed (helm rev 175); outbox now JSON; chart template bug surfaced + PR #122 open
+- Round 03 firestore subsystem removed + keychain resolution chain (3 PRs) + 10 ai-task issues closed
