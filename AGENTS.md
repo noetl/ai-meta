@@ -79,6 +79,13 @@ implementation.
 
 ## NoETL image build/deploy workflow (local dev)
 
+**Validation order is kind → GKE.** Any change that ships in a
+container image (`noetl-server`, `noetl-worker`, `gateway`, `gui`,
+or any image built via Cloud Build) MUST be validated on the local
+kind cluster (context `kind-noetl`) before rolling out to GKE.
+See [`agents/rules/deployment-validation.md`](agents/rules/deployment-validation.md)
+for the recipe, exceptions list, and rationale.
+
 When validating `repos/noetl` changes in local kind, use **ops playbooks from `repos/ops`** instead of ad-hoc kubectl/image scripts whenever possible.
 
 Local kind deployments for this workspace must use the configured Podman machine only. Do not use Colima, a Colima Docker socket, or a Docker fallback for kind cluster creation or NoETL deployment. If Podman is unavailable or unhealthy, stop and report the Podman error instead of switching runtimes.

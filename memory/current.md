@@ -19,6 +19,17 @@ inbox titles.
 - Local kind deploys must use the configured Podman machine
   (`noetl-dev`); never fall back to Colima/Docker. Mount
   `/Volumes:/Volumes` for kind extraMounts to work.
+- **Deployment validation order: local kind → GKE.** Any change that
+  ships in a container image (noetl-server, noetl-worker, gateway,
+  GUI) must be validated on the local kind cluster (context
+  `kind-noetl`) BEFORE rolling out to GKE.  Cloud Build + Helm
+  upgrade on GKE remain the production path but kind catches the
+  bulk of regressions cheaply.  The kind cluster has KEDA pre-
+  installed; port mappings live in `repos/noetl/ci/kind/config.yaml`.
+  This policy was made durable on 2026-05-30.  Exceptions:
+  documentation-only changes, dev-only scaffolds (e.g. a workspace
+  dependency or unused module that doesn't change the binary's
+  runtime behaviour) — those skip kind validation.
 - Local NoETL CLI baseline: `noetl 2.14.x` at
   `/Volumes/X10/dev/cargo/bin/noetl`. Use for all ops/deploy/test
   automation.
