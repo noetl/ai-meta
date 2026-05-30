@@ -78,3 +78,15 @@
 [submodule "repos/noetl-apt-wiki"]
 	path = repos/noetl-apt-wiki
 	url = git@github.com:noetl/apt.wiki.git
+[submodule "repos/noetl-worker-wiki"]
+	path = repos/noetl-worker-wiki
+	url = git@github.com:noetl/worker.wiki.git
+	branch = master
+[submodule "repos/noetl-tools-wiki"]
+	path = repos/noetl-tools-wiki
+	url = git@github.com:noetl/tools.wiki.git
+	branch = master
+[submodule "repos/noetl-server-wiki"]
+	path = repos/noetl-server-wiki
+	url = git@github.com:noetl/server.wiki.git
+	branch = master

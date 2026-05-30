@@ -89,10 +89,27 @@ and the ai-task issue (issue-tracking Rule 1b). The
 Repos with wikis today (all production submodules):
 `noetl/noetl`, `noetl/ops`, `noetl/travel`, `noetl/gateway`,
 `noetl/cli`, `noetl/doctor`, `noetl/e2e`, `noetl/gui`,
-`noetl/apt`. (`noetl/docs` is itself a Docusaurus site and
-does not need a separate wiki.) If a new production submodule
-is added, enable its wiki before merging the first code change
-that touches a public surface.
+`noetl/apt`, `noetl/worker`, `noetl/tools`, `noetl/server`.
+(`noetl/docs` is itself a Docusaurus site and does not need a
+separate wiki.) If a new production submodule is added, enable
+its wiki before merging the first code change that touches a
+public surface.
+
+The Rust runtime split has four mutually-cross-linking wikis:
+- `noetl/cli` — application reference + `noetl-executor`
+  workspace crate architecture (the crate ships here).
+- `noetl/worker` — NATS pull consumer that adopts
+  `noetl-executor` from crates.io.
+- `noetl/tools` — shared tool registry crate that both CLI
+  and worker dispatch through.
+- `noetl/server` — Rust control plane; Rust twin of the
+  Python implementation in `noetl/noetl/server/`.
+When editing any of these four, check whether sibling wikis
+need a parallel update (e.g. a new tool kind lands in `noetl/tools`
+→ note it on the `noetl/cli` executor-crate-architecture page
+AND the `noetl/worker` noetl-executor-adoption page if the worker
+adopts it; an event-envelope change touches the `noetl/server`
+event-envelope page AND the `noetl/worker` adoption page).
 
 ## Rule 2 — validate the wiki against code changes
 
@@ -203,6 +220,9 @@ code with un-covered modules.
   - `repos/noetl-e2e-wiki/` → `noetl/e2e.wiki.git`
   - `repos/noetl-gui-wiki/` → `noetl/gui.wiki.git`
   - `repos/noetl-apt-wiki/` → `noetl/apt.wiki.git`
+  - `repos/noetl-worker-wiki/` → `noetl/worker.wiki.git`
+  - `repos/noetl-tools-wiki/` → `noetl/tools.wiki.git`
+  - `repos/noetl-server-wiki/` → `noetl/server.wiki.git`
   After a fresh clone of `ai-meta`, run
   `git submodule update --init --recursive` to bring all in.
 - Each wiki is a normal Git repo — no special tooling. Push to
