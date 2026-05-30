@@ -171,6 +171,67 @@ inbox titles.
 - See "DSL Refactoring Reference Documents" below for the spec docs
   every agent must follow when authoring or refactoring playbooks.
 
+### v2 distributed-runtime spec (durable, all 7 phases done 2026-05-23)
+
+**All seven phases of the v2 distributed-runtime spec are complete
+as of NoETL v2.99.0 (2026-05-23 close-out).** Any audit table that
+still shows phases as "partial" or "not started" is stale and
+predates the close-out session.
+
+Per-phase status + closing PR(s):
+
+| Phase | Topic | Closing PR(s) |
+|---|---|---|
+| 0 | Instrumentation + stage/frame tables + replay API | `#435` … `#550` |
+| 1 | Frame-shaped cursor loops | `#585` |
+| 2 | Projector StatefulSet behind NATS durable consumers | predates close-out |
+| 3 | Apache Arrow IPC Tier 1.5 + shared-memory cache | `#587` (observability); cache + IpcHint + producer/consumer wiring landed earlier |
+| 4 | URN + KEDA + NATS supercluster | `#593` + `#594` + `#595` (+ `#596`/`#597` fixes) |
+| 5 | Port/adapter event/projection/payload (filesystem + S3 + GCS + Azure) | `#582` … `#592` (6 rounds) |
+| 6 | Stage planner for fanout/reduce | `#588` |
+
+**Source of truth** for the audit:
+[`repos/docs/docs/features/noetl_distributed_runtime_spec.md`](https://github.com/noetl/docs/blob/main/docs/features/noetl_distributed_runtime_spec.md)
+§ 0 ("Status — all seven phases done") + the archived memory entry
+`memory/archive/2026/05/20260523-051829-v2-distributed-runtime-spec-complete-all-seven-phases-done.md`.
+
+**Phase 3 specifically** (the recurring stale claim):
+
+- `ArrowIpcSharedMemoryCache` —
+  [`noetl/core/storage/ipc_cache.py`](https://github.com/noetl/noetl/blob/main/noetl/core/storage/ipc_cache.py)
+  (256-MiB default budget, LRU-by-lease eviction).
+- `IpcHint` model —
+  [`noetl/core/storage/models.py:93`](https://github.com/noetl/noetl/blob/main/noetl/core/storage/models.py).
+- Producer wiring: `cursor_worker.py` stages frame outputs in IPC
+  cache + durable tier (commit `2d27911e`).
+- Consumer fast-path: `TempStore.get_ipc_bytes` with graceful
+  fallback (expired hint / cross-node / segment evicted).
+- Observability: 7 Prometheus counters + `summary["ipc"]` block on
+  the projector (PR #587, commit `20071316`).
+- Wiki: [`noetl/core/storage.md`](https://github.com/noetl/noetl/wiki/storage)
+  has a "Tier 1.5 — IPC shared-memory cache" section that
+  documents the design end-to-end.
+
+**Open architectural follow-ups beyond the v2 spec** (explicitly
+out-of-scope for the spec — these are product-layer work on top):
+
+- Catalog-driven query routing (URN → cluster endpoint).
+- Cluster-aware NATS client routing (`NATSCommandPublisher` picking
+  endpoint per URN locality).
+- Per-tenant NATS accounts in the supercluster generator.
+- Cross-cluster JetStream stream mirror/source.
+- Storage-tier spill path actually routing through a registered
+  `PayloadStore` (closes the gap between Phase 5 and existing
+  `TempStore` callers).
+- Replay path resolving `s3://` / `gs://` / `azure://` URIs through
+  the registered adapter.
+- Process-emulator compliance fixture (Azurite + fake-gcs-server)
+  so GCS + Azure cloud adapters join the parametrized compliance
+  suite.
+
+None of these are v2-spec blockers — they're the chemistry-lab-
+cloud product layer.
+
 ## DSL Refactoring Reference Documents
 
 Authoritative for any DSL refactoring work:
