@@ -759,3 +759,32 @@ Authoritative for any DSL refactoring work:
 - Massive session close-out: 9 PRs merged today; SPA hang now diagnosed to outbox arrow-feather vs gateway JSON; round-02 handoff prompt ready
 - noetl v2.102.8 deployed (helm rev 175); outbox now JSON; chart template bug surfaced + PR #122 open
 - Round 03 firestore subsystem removed + keychain resolution chain (3 PRs) + 10 ai-task issues closed
+
+## Compaction 2026-06-02T01:29:17Z
+
+- Source: `memory/compactions/20260602-012917.md`
+- Entries compacted:
+- instrumentation round-1: state_load is NOT the hot zone; terminal-event save_state is
+- Round-2 PR #630 opened: terminal-event fast path
+- Round-2 verification: terminal-event fast path is sound but not the hot zone
+- Round-3 PR #633 opened: sub-phase timing instrumentation
+- Round-3 verification: persist_event_compat is the dominant cg=0 cost
+- Round-4 PR #635 opened: batch cascade event INSERTs
+- Round-4 verification: cascade batched INSERTs delivered -58% p90 / -80% max on persist_event_compat
+- Round-5 PR #637 opened: save_state coalescing
+- Round-5 verification: save_state coalescing delivered -87% p90 / -82% max; #29 closed
+- Documentation lockstep: handle_event timing pages shipped
+- Blueprint Rust migration appendix shipped + R-1.1 ticket opened
+- Rust migration R-1.1 PR-1 opened: noetl-executor crate skeleton
+- Blueprint Appendix H.9 added: Polars-pattern endpoint locks in Rust+Python wrapper
+- Rust migration ramps up: R-2.1 PR open + test-failure debt tracked + stale tasks resolved
+- R-1.1 PR-2a opened: YAML playbook types extracted to noetl-executor::playbook
+- Appendix H revised in flight: tree walker vs pull-model finding (§ H.10)
+- Appendix H expanded: MinIO exclusion + § H.11 local Feather buffer + § H.12 dynamic playbooks
+- R-1.1 PR-2b opened: utility extraction per § H.10
+- R-1.1 PR-2c-1 opened: noetl-tools dep + bridge scaffold (Strategy B start)
+- R-1.1 complete: noetl-executor crate shipped
+- Observability + snowflake IDs standing guidance
+- R-2.3 Phase C2 complete — Flight TLS + bearer + mTLS trust boundary landed
+- Worker keychain env-var allow-list — noetl/ai-meta#34 closed
+- noetl-server: Arrow encoder + workflow.completed fixes (#36 + #37 closed)

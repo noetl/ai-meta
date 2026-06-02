@@ -31,3 +31,7 @@
 - Compaction `20260524-055140` from inbox entries.
 - Compaction `20260526-063333` from inbox entries.
 - Compaction `20260529-024139` from inbox entries.
+
+## 2026-06
+
+- Compaction `20260602-012917` from inbox entries.
