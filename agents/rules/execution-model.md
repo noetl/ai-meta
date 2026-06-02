@@ -39,6 +39,33 @@ gateway never reaches a database to satisfy a client request.
 If your proposal places data-touch logic in the gateway or in
 the client, the proposal is in the wrong shape.
 
+### NoETL-owned data: server API only
+
+A corollary that applies when the data target is the **NoETL
+platform itself** (the `noetl.*` schema — event log, command
+queue, catalog, outbox, credentials, runtime registration):
+**only the NoETL server has direct DB access.**  Workers
+(including the system worker pool) call the server's HTTP API
+for these tables.  Reasons:
+
+1. **Connection pool isolation** — workers scale 1→50+ on
+   backlog; if each holds a Postgres connection the pool runs
+   out and the server's own API can't acquire one.
+2. **Sharding readiness** — server may shard by `execution_id`
+   later; API boundary makes shard routing transparent to
+   workers.
+3. **Single point of consistency** — the server enforces
+   schema migrations, audit logging, RBAC, scrub.  Distributing
+   these across workers is ~the whole server.
+
+The exception: **external-subsystem playbooks** (auth, credential
+rotation, alerting) that integrate NoETL with Auth0 / Okta /
+Vault / PagerDuty / Slack / etc. go direct because the target
+isn't NoETL data, it's an external system.
+
+Full rationale + the new internal API surface this requires:
+[`agents/rules/data-access-boundary.md`](data-access-boundary.md).
+
 ## Secrets and credentials rule
 
 Business-logic secrets do **not** live in worker or gateway
