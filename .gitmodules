@@ -90,3 +90,7 @@
 	path = repos/noetl-server-wiki
 	url = git@github.com:noetl/server.wiki.git
 	branch = master
+[submodule "repos/ai-meta-wiki"]
+	path = repos/ai-meta-wiki
+	url = git@github.com:noetl/ai-meta.wiki.git
+	branch = master
