@@ -1,6 +1,19 @@
 # Wiki Maintenance Rule
 
-NoETL has **three wikis**, each pinned to its own repository:
+NoETL has **many wikis**, each pinned to its own repository.
+Two flavours:
+
+**Cross-repo dashboard:**
+
+- **<https://github.com/noetl/ai-meta/wiki>** — **ecosystem
+  dashboard.**  Cross-repo umbrellas, ecosystem map, release
+  history per submodule, session log, agent-coordination
+  conventions.  Single pane of glass over the system of
+  repos.  Lives at `repos/ai-meta-wiki/`.  See
+  [`Wiki Convention`](https://github.com/noetl/ai-meta/wiki/Wiki-Convention)
+  on that wiki for the ai-meta-vs-per-repo split.
+
+**Per-repo wikis** (one per active submodule):
 
 - **<https://github.com/noetl/noetl/wiki>** — application
   reference: Python API, DSL semantics, core architecture.
@@ -15,19 +28,44 @@ NoETL has **three wikis**, each pinned to its own repository:
   contract, orchestrator playbook walkthrough, gateway
   integration, fork-for-your-domain guide). Mirrors
   `noetl/travel/`. Lives at `repos/noetl-travel-wiki`.
+- Plus per-component wikis under `repos/noetl-<repo>-wiki/`
+  for every production submodule (`server`, `worker`, `cli`,
+  `gateway`, `tools`, `gui`, `doctor`, `e2e`, `apt`).  See
+  `Repo Map` on the ai-meta wiki for the full inventory.
 
 This rule keeps documentation coverage growing in **lockstep with the
 code** rather than as a separate sweep that drifts toward stale.
 
 ## Rule 0 — pick the right wiki
 
-When adding or updating documentation:
+Two-step decision:
+
+**Step 1 — is this a single-repo reference or a cross-repo
+concern?**
+
+- **Cross-repo concern** (multi-submodule umbrella, ecosystem
+  map, release timeline across repos, session log, agent
+  coordination conventions) → `noetl/ai-meta` wiki.  The
+  ai-meta wiki holds the **dashboard** — it does not duplicate
+  per-repo reference content.
+- **Single-repo reference** (a repo's API surface, module
+  layout, internal architecture, operational knobs) → that
+  repo's wiki.
+
+**Step 2 — within the per-repo flavour, pick the right one:**
 
 - **Python API, DSL, core architecture, replay semantics, event
   shape, etc.** → `noetl/noetl` wiki.
 - **Manifests, Helm charts, kubectl recipes, deployment
   automation playbooks, cluster-side install/verify/tuning** →
   `noetl/ops` wiki.
+- **Rust control plane (server crate)** — HTTP routes, the
+  event-envelope binary contract, the four-binary runtime
+  shape → `noetl/server` wiki.
+- **Rust worker** — NATS pull loop, tool dispatch, observability
+  harness, multi-arch image lifecycle → `noetl/worker` wiki.
+- **Tool registry** — the 14 tool kinds, adding a new one →
+  `noetl/tools` wiki.
 - **Domain-SPA patterns built on NoETL** (widget contract,
   per-domain orchestrator playbooks, SPA shell, gateway
   integration patterns for a SPA, fork-and-adapt workflow)
@@ -45,6 +83,31 @@ When adding or updating documentation:
 If the right home isn't obvious, ask: "Where does the code this
 documents live? Where is the artifact a reader needs in front
 of them?"
+
+## Rule 0a — the ai-meta wiki is a session-touched artefact
+
+Every session that lands meaningful cross-repo work updates the
+ai-meta wiki **in the same change set** as the work itself.
+Concretely:
+
+- **Opened an ai-task issue?** Add it to the Home active-umbrella
+  table and create the matching `Umbrella-*.md` page.
+- **Closed an umbrella issue?** Remove it from the Home table;
+  archive the umbrella page (or strike-through the title with
+  a "Closed YYYY-MM-DD" callout at the top).
+- **Bumped a submodule pointer that crossed a release tag?**
+  Add a row to `Releases.md` and add a session entry to
+  `Sessions-Log.md`.
+- **Bumped a submodule pointer (any)?** Add or extend the
+  session entry in `Sessions-Log.md`.
+- **Landed an ADR or design decision that affects the
+  ecosystem?** Update the relevant `Umbrella-*.md` page's
+  "Recent activity" + "Next concrete steps" sections.
+
+The ai-meta wiki is **always current as of the latest session
+commit** — no staleness tolerance.  If the wiki disagrees with
+`memory/current.md` or with an ai-task issue body, the wiki is
+wrong and gets fixed immediately.
 
 ## Rule 1 — deep-dive docs on first touch
 

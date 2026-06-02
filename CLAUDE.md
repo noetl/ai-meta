@@ -12,8 +12,16 @@ Read these files at session start (in order):
    gh issue list --repo noetl/ai-meta --state open --label ai-task --limit 30
    ```
    See `agents/rules/issue-tracking.md` for the convention.
-6. `sync/issues/` — in-flight cross-repo tracking
-7. `handoffs/active/` — in-flight cross-agent handoffs whose latest
+6. **ai-meta wiki dashboard** at <https://github.com/noetl/ai-meta/wiki>
+   — single pane of glass for the ecosystem (active umbrellas, repo
+   map, releases, session log).  Local clone at
+   `repos/ai-meta-wiki/`.  Update **in the same change set as
+   substantive work** per `agents/rules/wiki-maintenance.md`
+   Rule 0a — every new ai-task issue gets an `Umbrella-*` page,
+   every pointer bump gets a Sessions-Log entry, every tagged
+   release gets a Releases row.
+7. `sync/issues/` — in-flight cross-repo tracking
+8. `handoffs/active/` — in-flight cross-agent handoffs whose latest
    round is a prompt with no matching result yet, or whose latest
    result has status `partial` / `blocked` (see
    `handoffs/README.md` and `agents/rules/handoffs.md`)
