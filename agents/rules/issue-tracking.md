@@ -349,5 +349,8 @@ inbox.
   aren't committed).
 - [`handoffs.md`](handoffs.md) — when to escalate from issue to
   handoff thread.
+- [`roadmap-boards.md`](roadmap-boards.md) — every ai-task issue
+  also lives on a GitHub Projects v2 board; status sync is part
+  of the same change set as the issue update.
 - [`safety.md`](safety.md) — public-repo discipline applies to
   issue bodies and comments.

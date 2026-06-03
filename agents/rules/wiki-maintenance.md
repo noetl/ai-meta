@@ -109,6 +109,11 @@ commit** — no staleness tolerance.  If the wiki disagrees with
 `memory/current.md` or with an ai-task issue body, the wiki is
 wrong and gets fixed immediately.
 
+The same change set also updates any roadmap project boards the
+issue lives on, per
+[`roadmap-boards.md`](roadmap-boards.md).  Wiki dashboard +
+issue body + board status are three views of the same state.
+
 ## Rule 1 — deep-dive docs on first touch
 
 When development work touches a module that **does not yet have a

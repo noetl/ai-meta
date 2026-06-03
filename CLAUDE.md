@@ -12,6 +12,10 @@ Read these files at session start (in order):
    gh issue list --repo noetl/ai-meta --state open --label ai-task --limit 30
    ```
    See `agents/rules/issue-tracking.md` for the convention.
+   Every issue here also lives on a GitHub Projects v2 board
+   (default: <https://github.com/orgs/noetl/projects/3/views/1>);
+   board status updates ride the same change set per
+   `agents/rules/roadmap-boards.md`.
 6. **ai-meta wiki dashboard** at <https://github.com/noetl/ai-meta/wiki>
    — single pane of glass for the ecosystem (active umbrellas, repo
    map, releases, session log).  Local clone at
