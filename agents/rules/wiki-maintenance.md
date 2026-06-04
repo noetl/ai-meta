@@ -194,6 +194,55 @@ renamed type, changed default):
 If an existing page is stale or incomplete, treat the touched
 change as hitting an un-covered module and refresh it.
 
+## Rule 2a — deployment-spec page is the env-var source of truth
+
+Every deployable component (a binary that ships in a container
+image: noetl-server, noetl-worker, noetl-gateway, future bins)
+keeps a **`deployment-specification`** page on its own wiki.
+That page is the single durable home for:
+
+- Runtime contract (what the binary expects from its environment
+  to start cleanly).
+- Network surface (ports + dependencies).
+- Resource sizing (CPU, memory).
+- Health probes.
+- **Full env-var catalogue** — every env var the binary reads,
+  with default, required-ness, and the **why** behind each one
+  (rationale, not just "the value").
+- Secrets handling.
+- Observability hooks.
+- Kind-validation procedure tying back to
+  [`deployment-validation.md`](deployment-validation.md).
+
+**Any code change that adds, renames, removes, or shifts the
+meaning of an env var MUST update the `Environment Variables`
+section in the same change set.**  Same rule for ports,
+dependencies, probes, and resource recommendations.
+
+This is a strict variant of Rule 2 scoped to the
+deployment-spec page.  Reviewers should refuse PRs that touch
+`std::env::var(...)`, `envy::from_env()`, route registration,
+or `Cargo.toml` feature flags governing runtime behavior
+without an accompanying wiki diff on the component's
+deployment-spec page.
+
+The matching deployment manifests live in
+[noetl/ops](https://github.com/noetl/ops); this page describes
+**what** the manifests need to provide, the manifests are the
+implementation.  Keep the two pointed at each other but don't
+duplicate Helm values inside the wiki — link instead.
+
+Components that need a deployment-spec page:
+`noetl-server`, `noetl-worker`, `noetl-gateway`, plus any
+future container-deployed bin.  CLIs (`noetl-cli`,
+`noetl-doctor`) don't need one — they're not deployed.
+
+History: codified 2026-06-06 after Phase F R1.5 of
+[noetl/ai-meta#49](https://github.com/noetl/ai-meta/issues/49)
+added `NOETL_SERVER_MACHINE_ID` to noetl-server.  The pair of
+deployment-spec pages was created in the same change set as
+the sub-issue noetl/server#41 wrap-up.
+
 ## Rule 2b — every handoff round closes with a wiki update
 
 A handoff round that ships a PR is, by definition, a public-surface
