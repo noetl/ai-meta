@@ -1,0 +1,10 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "./repos/cli/Cargo.toml",
+    "./repos/doctor/Cargo.toml",
+    "./repos/gateway/Cargo.toml",
+    "./repos/server/Cargo.toml",
+    "./repos/tools/Cargo.toml",
+    "./repos/worker/Cargo.toml"
+  ]
+}
