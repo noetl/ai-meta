@@ -127,6 +127,38 @@ updated on every session that touches the wiki at all — even
 docs-only sessions.  If it hasn't moved in a week, something
 drifted.
 
+### Date discipline
+
+Every date written into the wiki is the actual current date —
+not a forward-projected target, not "approximately today,"
+not the date that feels right given what just shipped.  The
+authoritative source for the current date is the harness's
+session-context header (CLAUDE.md project-context block shows
+`Today's date is YYYY-MM-DD`).  Use that value verbatim.
+
+Past sessions surfaced two failure modes worth pinning:
+
+1. **Forward-dating drift.**  An agent confused about "today"
+   stamped Phase F R3a / R3b / R4 entries with 2026-06-07 when
+   the actual commit landed on 2026-06-04 — three days in the
+   future.  Fixed via post-hoc sweep, but the right move is to
+   never write the wrong date in the first place.  Cross-check
+   on commit: the date in the entry's `## YYYY-MM-DD` heading
+   should equal the commit's author date.  If they disagree,
+   the heading is wrong.
+
+2. **Stale "Last refreshed".**  Home.md's *Last refreshed*
+   date doesn't bump unless an agent edits it — landing four
+   PRs without touching Home leaves the dashboard claiming
+   work hasn't moved.  Update *Last refreshed* on every wiki
+   change set.
+
+If a sweep finds future-dated entries on closed work, fix them
+in place rather than leaving "the heading is wrong but the
+content is right" drift.  `git log --date=short -S "<wrong
+date>" -- <wiki-file>` finds the introducing commit; the
+author date on that commit is what the heading should say.
+
 ### Cross-checking against the issue tracker
 
 When in doubt about what's in flight, the source of truth is:
