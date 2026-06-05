@@ -6,5 +6,21 @@
     "./repos/server/Cargo.toml",
     "./repos/tools/Cargo.toml",
     "./repos/worker/Cargo.toml"
-  ]
+  ],
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.imports.granularity.group": "module",
+  "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "never",
+  "rust-analyzer.inlayHints.closureReturnTypeHints.enable": "never",
+  "rust-analyzer.semanticHighlighting.operator.specialization.enable": true,
+  "[rust]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/repos/*/target/**": true,
+    "**/.git/**": true
+  }
 }
