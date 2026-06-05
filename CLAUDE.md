@@ -19,11 +19,24 @@ Read these files at session start (in order):
 6. **ai-meta wiki dashboard** at <https://github.com/noetl/ai-meta/wiki>
    — single pane of glass for the ecosystem (active umbrellas, repo
    map, releases, session log).  Local clone at
-   `repos/ai-meta-wiki/`.  Update **in the same change set as
-   substantive work** per `agents/rules/wiki-maintenance.md`
-   Rule 0a — every new ai-task issue gets an `Umbrella-*` page,
-   every pointer bump gets a Sessions-Log entry, every tagged
-   release gets a Releases row.
+   `repos/ai-meta-wiki/`.  **Four pages drift together** per
+   `agents/rules/wiki-maintenance.md` Rule 0a:
+   - `Home.md` — the dashboard; *Active umbrellas* + *Recently
+     closed* + *Ecosystem map* version cells + *Sessions log*
+     preview + *Releases* preview + *Last refreshed* date.
+   - `Sessions-Log.md` — chronological session record (prepend new
+     entry at top).
+   - `Releases.md` — per-repo release timeline (add row per tagged
+     version).
+   - `Umbrella-*.md` — the matching umbrella's Recent-activity +
+     Next-concrete-steps.
+
+   **A wiki change set that touches only `Sessions-Log.md` is
+   incomplete.**  Spot-check Home against `gh issue list --repo
+   noetl/ai-meta --state open --label ai-task` at session start —
+   if Home's Active-umbrella table doesn't match the open
+   ai-task list, fix it before other work.  Stale Home = invisible
+   work.
 7. `sync/issues/` — in-flight cross-repo tracking
 8. `handoffs/active/` — in-flight cross-agent handoffs whose latest
    round is a prompt with no matching result yet, or whose latest

@@ -88,21 +88,59 @@ of them?"
 
 Every session that lands meaningful cross-repo work updates the
 ai-meta wiki **in the same change set** as the work itself.
-Concretely:
 
-- **Opened an ai-task issue?** Add it to the Home active-umbrella
-  table and create the matching `Umbrella-*.md` page.
-- **Closed an umbrella issue?** Remove it from the Home table;
-  archive the umbrella page (or strike-through the title with
-  a "Closed YYYY-MM-DD" callout at the top).
-- **Bumped a submodule pointer that crossed a release tag?**
-  Add a row to `Releases.md` and add a session entry to
-  `Sessions-Log.md`.
-- **Bumped a submodule pointer (any)?** Add or extend the
-  session entry in `Sessions-Log.md`.
-- **Landed an ADR or design decision that affects the
-  ecosystem?** Update the relevant `Umbrella-*.md` page's
-  "Recent activity" + "Next concrete steps" sections.
+### The four pages that drift if not touched
+
+These four pages are the wiki's tracking surface — they are what
+operators and future agents read FIRST when picking up the
+ecosystem.  None of them updates itself.  If a session lands
+substantive work without touching the right ones, that work is
+invisible at the dashboard level.
+
+| Page | Owns | When to touch |
+| :-- | :-- | :-- |
+| `Home.md` | The dashboard.  Active umbrellas, Recently closed, Ecosystem map versions, Sessions log preview, Releases preview. | Every session that lands ≥1 PR, opens / closes an ai-task issue, or bumps a submodule pointer.  Stale Home = invisible work. |
+| `Sessions-Log.md` | Append-only chronological session record. | Every session entry: prepend a new dated heading at the top with the headline + what landed + validation + pointers. |
+| `Releases.md` | Per-repo release timeline (last 14 days at the top). | Every session bumping a submodule pointer that crossed a release tag.  Add one row per tagged version. |
+| `Umbrella-*.md` (the matching page) | Per-umbrella deep dive.  Recent activity table + Next concrete steps + decisions. | When the work this session lands belongs to one of the open umbrellas, add a Recent-activity row + update Next-concrete-steps. |
+
+**A wiki change set that touches only `Sessions-Log.md` is
+incomplete.** The other three almost always need a parallel
+edit.  If the right Home-table row says "Last update: 2026-06-02"
+and you just shipped a v2.19.4 fix two weeks later, Home is
+stale by definition — the trigger to update is the work
+landing, not whether you remember.
+
+### Trigger checklist (what changed → what to touch)
+
+- **Opened an ai-task issue?** ➔ `Home.md` *Active umbrellas* row added + matching `Umbrella-*.md` page created.
+- **Closed an umbrella issue?** ➔ `Home.md` *Active umbrellas* row removed + entry added under *Recently closed*; umbrella page gets a closing summary at the top.
+- **Closed a sub-issue (server / tools / worker / etc.)?** ➔ `Home.md` *Recently closed* may not list it (sub-issues live on their own repo), BUT its parent umbrella's `Umbrella-*.md` Recent-activity table gets the row.
+- **Bumped a submodule pointer that crossed a release tag?** ➔ `Releases.md` row + `Sessions-Log.md` entry + `Home.md` *Ecosystem map* version cell updated + `Home.md` *Releases* preview list updated (most-recent at top).
+- **Bumped a submodule pointer (any)?** ➔ `Sessions-Log.md` entry + `Home.md` *Sessions log* preview updated.
+- **Landed an ADR or architecture decision?** ➔ Relevant `Umbrella-*.md` *Recent activity* + *Next concrete steps* + `Home.md` *Active umbrellas* row "Status" cell.
+- **Renamed / reorganised something cross-repo (e.g. moved a tool's owning repo)?** ➔ `Repo-Map.md` updated + `Home.md` *Ecosystem map* row.
+- **Closed a kind-cluster topology change (e.g. retired a Python deployment)?** ➔ `Home.md` *Architecture at a glance* diagram refreshed + `Sessions-Log.md` entry notes the change.
+
+The `Home.md` *Last refreshed:* date at the top **must** be
+updated on every session that touches the wiki at all — even
+docs-only sessions.  If it hasn't moved in a week, something
+drifted.
+
+### Cross-checking against the issue tracker
+
+When in doubt about what's in flight, the source of truth is:
+
+```bash
+gh issue list --repo noetl/ai-meta --state open --label ai-task
+```
+
+The `Home.md` *Active umbrellas* table must list **every** open
+ai-task issue (one row per umbrella).  When opening Home and
+the issue tracker side-by-side reveals a mismatch — an open
+umbrella missing from the table, or a closed umbrella still
+shown — fix it before doing other work.  The dashboard is the
+mismatch surface; never trust it without spot-checking.
 
 The ai-meta wiki is **always current as of the latest session
 commit** — no staleness tolerance.  If the wiki disagrees with
