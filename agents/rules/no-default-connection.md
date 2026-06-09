@@ -12,7 +12,7 @@ paths:
 # No Default Connection
 
 Every playbook step that touches a database, external API, or
-any credentialed resource MUST declare its credential alias
+any credentialed resource MUST declare its auth reference
 explicitly. No fallback. No default. No implicit connection.
 
 ## The rule
@@ -22,28 +22,43 @@ explicitly. No fallback. No default. No implicit connection.
 A playbook step that uses `tool: postgres`, `tool: snowflake`,
 `tool: http` (with auth), `tool: duckdb` (with remote catalog),
 or any tool kind that requires credentials MUST include an
-explicit `credential:` or `auth:` field referencing a registered
-credential alias.
+`auth:` field. The `auth:` value can reference:
+
+- A **credential alias** registered via `POST /api/credentials`
+  (e.g. `auth: "pg_k8s"`).
+- A **keychain entry** resolved at step execution time
+  (e.g. `auth: "{{ db_credential }}"`).
+- A **secret reference** resolved from a secret manager
+  (e.g. `auth: "secret:gcp/my-project/db-creds"`).
+
+The field name is always `auth:`. There is no alternative
+attribute (`credential:`, `connection:`, `database:`, etc.).
 
 ```yaml
-# CORRECT — explicit credential alias
+# CORRECT — explicit auth reference
 - step: query_users
   tool: postgres
-  credential: "pg_k8s"
+  auth: "pg_k8s"
   input:
     query: "SELECT * FROM users LIMIT 10"
 
-# WRONG — no credential, relies on some ambient default
+# CORRECT — templated keychain reference
+- step: query_users
+  tool: postgres
+  auth: "{{ db_credential }}"
+  input:
+    query: "SELECT * FROM users LIMIT 10"
+
+# WRONG — no auth, relies on some ambient default
 - step: query_users
   tool: postgres
   input:
     query: "SELECT * FROM users LIMIT 10"
 ```
 
-If a step omits the credential reference, the worker MUST
-reject it with a clear error rather than falling back to any
-environment-level default, hardcoded DSN, or ambient connection
-pool.
+If a step omits `auth:`, the worker MUST reject it with a
+clear error rather than falling back to any environment-level
+default, hardcoded DSN, or ambient connection pool.
 
 ## Why
 
@@ -55,9 +70,9 @@ NoETL is multi-tenant by design. If a worker falls back to a
 "default" Postgres connection when a playbook doesn't specify
 one, a tenant's playbook could accidentally read from (or write
 to) another tenant's database — or worse, the platform's own
-`noetl.*` tables. An explicit alias forces the playbook author
-to name the target, and the credential store enforces that the
-alias resolves to the right endpoint.
+`noetl.*` tables. An explicit `auth:` forces the playbook
+author to name the target, and the credential store enforces
+that the reference resolves to the right endpoint.
 
 ### 2. E2E testability requires known state
 
@@ -106,11 +121,15 @@ The Rust worker (`repos/worker/`) and Python worker
 (`repos/noetl/`) MUST NOT implement any "default connection"
 fallback. The credential resolution path is:
 
-1. Step declares `credential: "<alias>"` or `auth: "<alias>"`.
-2. Worker calls `GET /api/credentials/<alias>` on the server.
-3. Server returns the decrypted credential data.
+1. Step declares `auth: "<alias>"` (or a template / secret
+   reference that resolves to one).
+2. Worker resolves the `auth:` value — credential alias via
+   `GET /api/credentials/<alias>`, keychain template via the
+   variable store, or secret reference via the secret manager.
+3. Server / keychain / secret manager returns the decrypted
+   credential data.
 4. Worker passes the credential to the tool adapter.
-5. If step 1 is missing → worker emits `call.error` with a
+5. If `auth:` is missing → worker emits `call.error` with a
    message naming the missing field. No fallback.
 
 If a PR introduces a default-connection fallback path in the
@@ -124,11 +143,11 @@ When reviewing a PR that adds or modifies a playbook fixture:
 1. Grep for tool kinds that need credentials:
    `tool: postgres`, `tool: snowflake`, `tool: http` (with
    auth headers), `tool: gcs`, etc.
-2. For each match, verify a `credential:` or `auth:` field
-   is present on the same step.
-3. Verify the alias is in the credential store (check
-   `/Users/akuksin/projects/noetl/credentials/` for the
-   source files, or query `GET /api/credentials` on the
+2. For each match, verify an `auth:` field is present on the
+   same step.
+3. Verify the referenced alias is in the credential store
+   (check `/Users/akuksin/projects/noetl/credentials/` for
+   the source files, or query `GET /api/credentials` on the
    running server).
 
 ## Coordination with other rules
@@ -151,7 +170,7 @@ When reviewing a PR that adds or modifies a playbook fixture:
 Codified 2026-06-08 after the full e2e sweep on v2.64.0
 (Rust server + Rust worker, Python scaled to 0). Several
 Tier 3 playbooks (`postgres_test`, `http_to_postgres_simple`)
-failed with "null pg config" because they had no `credential:`
-block and the worker had no default to fall back to. The
-failures were correct behavior — the playbooks were wrong,
-not the worker. This rule makes the expectation permanent.
+failed with "null pg config" because they had no `auth:` block
+and the worker had no default to fall back to. The failures
+were correct behavior — the playbooks were wrong, not the
+worker. This rule makes the expectation permanent.
