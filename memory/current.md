@@ -1,6 +1,6 @@
 # Current Memory
 
-Snapshot of the working state as of **2026-06-08**. Older detail has
+Snapshot of the working state as of **2026-06-09**. Older detail has
 been compacted into `memory/compactions/` and archived under
 `memory/archive/`. Read the latest compaction
 (`memory/compactions/20260609-025209.md`) for the most recent batch.
@@ -49,6 +49,7 @@ Only **one** umbrella remains open:
 
 | # | Title | Closed |
 |---|---|---|
+| 77 | Explicit input binding (BREAKING v3.0.0 tools + server) | 2026-06-09 |
 | 76 | Sequential-mode iterator: serialize per-iteration commands | 2026-06-08 |
 | 75 | PlaybookTool polling fix | 2026-06-08 |
 | 74 | ctx/workload namespace shim | 2026-06-08 |
@@ -69,11 +70,12 @@ Only **one** umbrella remains open:
 
 | Component | Version | Pointer |
 |---|---|---|
-| noetl-server | v2.62.0 | `2430bc2` |
-| noetl-tools | v2.24.1 | `10cc751` |
-| noetl-worker | ~v5.15.0 | `be431a5` |
+| noetl-server | v3.0.0 | `0f8dc63` |
+| noetl-tools | v3.0.0 | `fdbc407` |
+| noetl-worker | ~v5.15.0 | `8dd653b` |
 | noetl-gateway | v3.2.0 | `335b86f` |
-| noetl-cli | v4.9.0 | `77be8be` |
+| noetl-cli | v4.10.0 | `c73f99d` |
+| noetl-e2e | — | `f6a9a93` |
 | noetl (Python) | ~v2.5.5 | `5f9a07d` |
 
 ### Key architecture shipped
@@ -95,7 +97,11 @@ Only **one** umbrella remains open:
 - **noetl-events crate**: shared event types across CLI, server,
   worker. Published on crates.io.
 - **noetl-executor crate**: extracted from CLI, adopted by worker.
-  Published on crates.io (v0.4.0).
+  Published on crates.io (v0.5.0).
+- **Explicit input binding** (#77): BREAKING v3.0.0 across
+  noetl-tools + noetl-server. Data flows forward through
+  `set:` → `input:`, never backward via `_prev`/`_results`.
+  All 13 e2e fixtures migrated.
 
 ## Conventions to honor
 
