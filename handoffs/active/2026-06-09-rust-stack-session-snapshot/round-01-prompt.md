@@ -19,15 +19,21 @@ phone (cowork remote). Read this end-to-end before doing anything.
 
 ## TL;DR — do these first
 
-1. **Restart the NoETL UI dev server** (it was a background process
-   tied to the previous session and is now dead). One command:
+1. **Restart the NoETL UI dev server** (it was a background process tied
+   to the previous session and is now dead — though a `node`/vite process
+   may have been **orphaned** still holding port 3001). Clear any orphan
+   first, then start fresh **in the background** so it shows up as a
+   controllable process in cowork:
    ```bash
+   # kill any orphaned dev server still on :3001 (ignore "no process")
+   lsof -ti tcp:3001 | xargs kill 2>/dev/null || true
    cd /Volumes/X10/projects/noetl/ai-meta/repos/gui && npm run dev:kind
    ```
-   Run it **in the background** so it shows up as a controllable process
-   in cowork. It serves `http://localhost:3001` in direct mode against
-   the kind server at `http://localhost:8082` (skips Auth0). Confirm:
+   It serves `http://localhost:3001` in direct mode against the kind
+   server at `http://localhost:8082` (skips Auth0). Confirm:
    `curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001` → 200.
+   If Vite reports a different port in its startup banner, an orphan was
+   still holding 3001 — kill it (above) and restart so the URL is stable.
 2. **Confirm the kind cluster is up** (it persists across sessions — it
    is NOT session-bound):
    ```bash
@@ -54,6 +60,14 @@ phone (cowork remote). Read this end-to-end before doing anything.
 
 Port map (from `repos/noetl/ci/kind/config.yaml`): server `localhost:8082`,
 postgres `localhost:54321`.
+
+**Background tasks from the prior session:** the only long-lived one was
+the UI dev server (above). All e2e regression runs were one-shot
+background tasks that already finished — logs left at `/tmp/e2e_sweep.log`,
+`/tmp/e2e_retry.log`, `/tmp/e2e_pg.log`, harness at `/tmp/e2e_regsweep.py`
+(re-runnable). Nothing else needs restarting. Claude background tasks do
+NOT survive a session restart, so anything you want controllable from
+cowork must be re-spawned in the new session.
 
 ## What landed in the prior session (audit trail)
 
