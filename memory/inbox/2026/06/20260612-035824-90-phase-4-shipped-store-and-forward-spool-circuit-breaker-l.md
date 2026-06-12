@@ -1,0 +1,16 @@
+# #90 Phase 4 shipped — store-and-forward spool + circuit breaker (live outage proof green)
+- Timestamp: 2026-06-12T03:58:24Z
+- Author: Kadyapam
+- Tags: noetl,subscription,spool,circuit-breaker,phase4,rfc90,tools,worker,server,ops,e2e,live-e2e,no-data-loss,nats-object,idempotency,dead-letter,publish-cascade
+
+## Summary
+RFC #90 Phase 4 SHIPPED + live-validated on kind under a simulated outage. Store-and-forward spool + per-downstream circuit breaker (RFC §8): when a downstream a subscription depends on goes offline, messages are durably buffered (buffer_and_ack) and replayed in order on recovery — proven NO DATA LOSS. tools v3.4.0 (02110a5, tools#54): noetl_tools::spool — pure circuit breaker (trip/half-open/close, NATS-KV-serializable, one breaker per declared downstream=OQ2), SpoolItem (SHA-256 + noetl://spool/<sub>/<recv_seq>/<id> ref + recv_seq-ordered object keys so lexical list==receive order), SpoolBackend trait + nats_object (reuses NATS Object Store) + local_disk, engine (ordering global/per_key/none + idempotency idempotency_key->message_id + poison->dead-letter after max_replay_attempts + retention max_age/max_bytes/on_full + GC) + http/tcp/nats probes; 44 unit tests (simulated outage) + real-NATS nats_object integration test; published crates.io. worker v5.17.0 (65fb27d, worker#75): SpoolRuntime wires into WORKER_MODE=subscription run-loop — probe->circuit->spool-or-dispatch->ack, NATS-KV circuit persistence (survives restart mid-outage), drain-on-recovery, 6 events + noetl_subscription_spool_bytes gauge. server v3.4.1 (51dc0d1, server#184+#185): spool: block validation + LIFECYCLE-STATUS FIX (spool/circuit events share subscription execution_id but must NOT corrupt lifecycle status — queries now match only the 6 lifecycle event types, else open circuit 500s subscription_get/activate; surfaced live). ops#173 (toggleable spool-downstream-echo + runtime NATS env). e2e#44+#45 (kind_validate_subscription_spool.sh). LIVE PROOF kind 6 msgs: scale downstream->0 -> circuit.opened -> 6 message.spooled (recv_seq 1-6, each noetl://spool ref+sha256), 0 dispatched while open; scale->1 -> circuit.closed + spool.draining -> 6 message.replayed -> 6 child execs COMPLETED on subscription pool -> spool drained to 0 -> exactly 6 distinct children (idempotency held). Decisions OQ2 per-downstream, OQ3 GC+max_bytes ceiling+gauge, OQ8 idempotency_key wins, OQ14 buffer_and_ack/hybrid loss-safe (poll acks on fetch->durable spool write; circuit drains only after active probe confirms downstream up). Deferred/tracked: gcs/s3 backends (same trait, need bucket creds=Cloud-Run), gateway edge spool + shared noetl-directives/noetl-spool crate extraction, hybrid stop-ack-blip optimisation. ai-meta@70692a6. #90 STAYS OPEN (Phases 5-7). GOTCHAS: worker depends noetl-tools from crates.io -> publish via CI semantic-release on merge (local cargo publish token stale/403; CI publish-crate step); pre-publish host validation via [patch.crates-io] in worker Cargo.toml (removed before image build). Worker events store payload under RESULT column (result.context) not a context column; server response-scrubber redacts 64-hex sha256 to [REDACTED]. kind image load: podman save | kind load image-archive.
+
+## Actions
+-
+
+## Repos
+-
+
+## Related
+-
