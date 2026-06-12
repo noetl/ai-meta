@@ -59,3 +59,38 @@ Conservative bias — landing a Rust prod Deployment before the secrets
 exist would crashloop or silently use the insecure default key. Those
 are operator steps. Left unrelated uncommitted items
 (`repos/.dockerignore`, `scripts/start_noetl_ui.command`) untouched.
+
+---
+
+## UPDATE 2026-06-12 (later) — cutover PREP landed (non-prod-mutating)
+
+Built/merged all safe prep; prod still 100% Python (operator-gated cutover).
+
+- **Prod amd64 image** pushed: `us-central1-docker.pkg.dev/noetl-demo-19700101/noetl/server-rust`
+  tags `4644c49` + `v3.5.0`, digest
+  `sha256:78cce8f3790bcc74c7e94d15a4486c67be868757621b00d1da6fa6c8a6b929fa`
+  (Cloud Build `00a26c26`, linux/amd64).
+- **GOTCHA (server-side time pin):** v3.5.0 release commit `7b217d8` does NOT
+  compile — `time 0.3.48` (2026-06-12) × `async-nats 0.38` E0119 under
+  rustc 1.91+. server was the LAST Rust repo missing the `time =0.3.47` pin
+  (tools/worker/gateway already had it). Fixed: server#190 MERGED (`55d2dfc`).
+- **ops#178 MERGED** (`dd5ede7`): `ci/manifests/noetl/server-rust-deployment-prod.yaml`
+  (image pinned by digest; NOETL_ENCRYPTION_KEY + noetl-internal-api-token
+  REQUIRED/fail-closed; pgbouncer DB host; NATS prod auth; parallel Service —
+  does NOT touch the `noetl` Service) + `runbooks/noetl-server-rust-cutover.md`
+  + `automation/gcp_gke/assets/server/cloudbuild.yaml`.
+- ai-meta pointers: server `7b217d8`→`55d2dfc`, ops `85bfc1f`→`dd5ede7`,
+  wiki `e9632d4`.
+- #49 prep comment: https://github.com/noetl/ai-meta/issues/49#issuecomment-4696622847
+
+**Key prod facts confirmed for the runbook decisions:**
+- Python prod credential "encryption" is a NO-OP (`core/secret.py::encrypt_json`
+  = json.dumps). Stored credentials are PLAINTEXT JSON. Rust uses real AES-GCM
+  (fails closed without NOETL_ENCRYPTION_KEY). NO key to "match" → re-enter all
+  credentials post-cutover.
+- Prod DB only via `pgbouncer.postgres.svc` (no direct postgres Service) →
+  sqlx needs pool_mode=session.
+- `noetl` Service exposes 8083 (Arrow Flight) selecting app=noetl-server; Rust
+  serves only 8082 → confirm no consumer before flip.
+
+#49 STILL OPEN; board In progress. Cutover = operator runs the runbook.
