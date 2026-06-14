@@ -94,3 +94,33 @@ Built/merged all safe prep; prod still 100% Python (operator-gated cutover).
   serves only 8082 → confirm no consumer before flip.
 
 #49 STILL OPEN; board In progress. Cutover = operator runs the runbook.
+
+---
+
+## UPDATE 2026-06-13 — live pre-flight with operator: pgbouncer transaction-mode fix
+
+Ran read-only pre-flight against LIVE prod. Production still 100% Python.
+
+- **Decision B (DB) — real blocker, FIXED.** Prod DB = Cloud SQL (`noetl-shared-pg`)
+  behind `pgbouncer.postgres.svc` `POOL_MODE=transaction` (cloud-sql-proxy). NO
+  direct postgres Service. sqlx named prepared-statement cache breaks under
+  transaction pooling. Fix: `NOETL_PG_STATEMENT_CACHE_CAPACITY` env on server
+  (default 100 unchanged; =0 → one-shot unnamed statements). server#191 MERGED
+  (`0577cc6`, v3.5.1). Manifest sets =0. Rust stays behind pgbouncer like Python.
+- **Decision C (Flight :8083) — N/A in prod.** Prod `noetl` Service is 8082/TCP
+  only (8083 exists only in kind manifest). Cleared.
+- **Image repinned** (carries time pin + statement-cache fix): digest
+  `sha256:c3783281b3c90572ef01538e1672125ab464e732db329f1187e1b12411964984`
+  (server-rust:e7df366 / :v3.5.0, Cloud Build 94cc199e). NOTE: image reports
+  version 3.5.0 (built off pre-release-commit tree) but contains v3.5.1 code.
+- ops#179 MERGED (`1164270`): manifest env + repin + runbook (B RESOLVED, C N/A).
+  server-wiki deployment-spec env catalogue updated (`a17cf50`).
+- ai-meta pointers: server `55d2dfc`→`0577cc6`, ops `dd5ede7`→`1164270`.
+- #49 comment: https://github.com/noetl/ai-meta/issues/49#issuecomment-4700550114
+
+GOTCHA for any future Rust service on this prod cluster: pgbouncer is
+transaction-mode → ALWAYS set NOETL_PG_STATEMENT_CACHE_CAPACITY=0 (or the
+equivalent) for sqlx-based services. Python is unaffected.
+
+Operator-pending: Decision A credential re-entry, provision 2 secrets, apply,
+canary, flip, scale Python to 0. #49 OPEN; board In progress.
