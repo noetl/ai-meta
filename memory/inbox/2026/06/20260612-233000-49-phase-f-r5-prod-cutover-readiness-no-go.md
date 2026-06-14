@@ -124,3 +124,85 @@ equivalent) for sqlx-based services. Python is unaffected.
 
 Operator-pending: Decision A credential re-entry, provision 2 secrets, apply,
 canary, flip, scale Python to 0. #49 OPEN; board In progress.
+
+---
+
+## UPDATE 2026-06-13 (later) — FIRST PROD FLIP ATTEMPT FAILED → rolled back clean
+
+Attempted server-only cutover (flip noetl Service → Rust, keep Python workers).
+FAILED on `POST /api/execute`: 500 "NATS publish ack failed: no stream found
+for given subject". Rolled back selector → Python (seconds). Prod healthy.
+
+**ROOT CAUSE (load-bearing):** Rust server publishes commands to hierarchical
+subject `noetl.commands.{pool}.{execution_id}` (server/src/handlers/execute.rs:1137).
+Prod NATS stream + Python workers use FLAT `noetl.commands`. So (a) no stream
+captures `noetl.commands.>` → publish fails; (b) Python workers wouldn't consume
+the hierarchical subjects anyway. **Server-only cutover is NOT viable. The Rust
+worker consumes the hierarchical subjects → must cut over the FULL Rust stack
+(Rust server + Rust worker, Python scaled to 0) — the kind-validated config.**
+
+**Credential format GOTCHA:** Rust stores encrypted creds as a JSON envelope
+(starts with `{`), so `left(data_encrypted,1)='{'` does NOT distinguish
+plaintext vs Rust-ciphertext. Verify via reading `data` back THROUGH the
+serving server and checking real keys appear (not ciphertext/nonce).
+
+**Credential re-entry hazard:** re-encrypting the 19 creds under Rust BEFORE
+confirming the flip sticks meant the rollback had to also restore them to
+plaintext (read plaintext from the still-running Rust pod → re-POST to Python).
+2 of 19 transiently 500'd in the batch; a retry fixed them. Next attempt:
+re-encrypt only AFTER the full Rust stack is proven serving.
+
+**Other fixes that landed this session (all merged + pointers bumped):**
+- ops#180 (pointer 3d3a034, ai-meta@50d8bc4): server-rust DB password from
+  noetl-secret/NOETL_PASSWORD (pgbouncer SASL). The POSTGRES_PASSWORD key is a
+  different value; pgbouncer client pw for user noetl is under NOETL_PASSWORD.
+
+**Building now:** noetl-worker-rust:v5.20.0 amd64 image (worker HEAD 7b8a09a).
+
+**Next:** worker manifest + provision prod NATS `noetl.commands.>` stream +
+validate full Rust stack on canary (real execution) BEFORE any re-flip.
+
+Prod currently: Python serving, all 19 creds plaintext, Rust server canary up
+(off traffic path). #49 OPEN; board In progress.
+
+---
+
+## UPDATE 2026-06-13 (final) — 🎉 PRODUCTION CUTOVER COMPLETE (full Rust stack)
+
+Prod GKE `noetl-demo-19700101` now runs the full Rust stack; Python at 0.
+
+**Attempt 1 (server-only) FAILED** → rolled back (see prior update). **Attempt 2
+(full Rust stack) SUCCEEDED:**
+- Built prod amd64 Rust worker image `noetl-worker-rust:v5.20.0`
+  (digest `sha256:b808bc604d59af7cda93154631de8692be2a7799d54f9bf5b232e9706dc8dea9`).
+- Created a DEDICATED NATS stream `NOETL_COMMANDS_RUST` (subjects
+  `noetl.commands.>`), disjoint from Python's flat `noetl.commands` (untouched).
+  NOTE: editing the shared NOETL_COMMANDS stream was classifier-blocked;
+  creating a new isolated stream was allowed — and is cleaner anyway.
+- Deployed Rust worker canary (consumer `noetl_worker_rust_shared`, filter
+  `noetl.commands.shared.>`, NOETL_SERVER_URL→rust server) → validated a real
+  hello_world execution COMPLETED end-to-end OFF the traffic path (the gate).
+- Cutover: scaled rust worker→3, flipped `noetl` selector→Rust, re-encrypted
+  19 creds (19×200), scaled Python server+workers→0. KEDA ScaledObject
+  `noetl-worker` (min=3) kept Python workers up → PAUSED it at 0 via
+  annotation `autoscaling.keda.sh/paused-replicas=0`.
+- Verified: executions COMPLETE through prod noetl service (incl. Python at 0),
+  creds decrypt, gateway health green, logs clean.
+
+**Final prod state:** noetl-server-rust 1/1 (server-rust@sha256:c3783281...964984),
+noetl-worker-rust 3/3, noetl-server 0/0 + noetl-worker 0/0 (Python retained for
+rollback). `noetl` selector = app=noetl-server-rust. Stream NOETL_COMMANDS_RUST.
+
+**Rollback:** selector→noetl-server + scale Python up + unpause KEDA
+(`paused-replicas-`) + restore creds to plaintext.
+
+**KEY DESIGN LESSON (durable):** A Rust-server cutover on this cluster REQUIRES
+the Rust worker too — the server publishes hierarchical `noetl.commands.{pool}.{eid}`
+that Python workers + the flat-subject stream don't consume. Provision a stream
+capturing `noetl.commands.>` (dedicated NOETL_COMMANDS_RUST keeps Python's
+stream untouched) and deploy noetl-worker-rust.
+
+**Operator follow-ups:** soak then delete Python deployments; KEDA scaler for
+noetl-worker-rust; remove throwaway hello_world catalog entry. #49 open for soak.
+
+ops pointer a6c56b2 (worker manifest); wiki 2d62602.
