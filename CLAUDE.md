@@ -3,11 +3,13 @@
 Read these files at session start (in order):
 
 1. `AGENTS.md` — mandatory rules for this repo
-2. `agents/rules/execution-model.md` — the foundational shape every
+2. `agents/README.md` — agent mapping, shared source-of-truth layout,
+   and Claude adapter explanation
+3. `agents/rules/execution-model.md` — the foundational shape every
    feature, integration, and operational change must honor
-3. `memory/current.md` — active working state
-4. Latest entries in `memory/inbox/` — recent uncompacted work
-5. **Open ai-task issues** — durable task store across sessions:
+4. `memory/current.md` — active working state
+5. Latest entries in `memory/inbox/` — recent uncompacted work
+6. **Open ai-task issues** — durable task store across sessions:
    ```bash
    gh issue list --repo noetl/ai-meta --state open --label ai-task --limit 30
    ```
@@ -16,7 +18,7 @@ Read these files at session start (in order):
    (default: <https://github.com/orgs/noetl/projects/3/views/1>);
    board status updates ride the same change set per
    `agents/rules/roadmap-boards.md`.
-6. **ai-meta wiki dashboard** at <https://github.com/noetl/ai-meta/wiki>
+7. **ai-meta wiki dashboard** at <https://github.com/noetl/ai-meta/wiki>
    — single pane of glass for the ecosystem (active umbrellas, repo
    map, releases, session log).  Local clone at
    `repos/ai-meta-wiki/`.  **Four pages drift together** per
@@ -37,8 +39,8 @@ Read these files at session start (in order):
    if Home's Active-umbrella table doesn't match the open
    ai-task list, fix it before other work.  Stale Home = invisible
    work.
-7. `sync/issues/` — in-flight cross-repo tracking
-8. `handoffs/active/` — in-flight cross-agent handoffs whose latest
+8. `sync/issues/` — in-flight cross-repo tracking
+9. `handoffs/active/` — in-flight cross-agent handoffs whose latest
    round is a prompt with no matching result yet, or whose latest
    result has status `partial` / `blocked` (see
    `handoffs/README.md` and `agents/rules/handoffs.md`)
@@ -47,6 +49,7 @@ Read these files at session start (in order):
 
 ```
 agents/                          # SHARED (all agents)
+  README.md                      #   agent mapping and adapter explanation
   rules/                         #   modular rule files (auto-loaded via .claude/rules symlink)
   skills/                        #   workflow definitions (auto-loaded via .claude/skills symlink)
   profiles/                      #   per-agent behavioral profiles

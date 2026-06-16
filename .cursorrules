@@ -7,9 +7,14 @@ You are operating in the `ai-meta` meta-repository for the NoETL ecosystem.
 Read these files at session start:
 
 1. `AGENTS.md` — mandatory rules
-2. `memory/current.md` — active working state
-3. `agents/profiles/` — your working profile
-4. `agents/rules/` — all rule files
+2. `agents/README.md` — agent mapping and shared source-of-truth layout
+3. `agents/rules/execution-model.md` — foundational architecture boundary
+4. `memory/current.md` — active working state
+5. `agents/profiles/` — your working profile
+6. `agents/rules/` — all rule files
+7. Open ai-task issues:
+   `gh issue list --repo noetl/ai-meta --state open --label ai-task --limit 30`
+8. ai-meta wiki dashboard at <https://github.com/noetl/ai-meta/wiki>
 
 ## Rules
 
@@ -22,6 +27,9 @@ Read and follow all files in `agents/rules/`:
 - `memory-workflow.md` — how to add/compact memory
 - `logging.md` — log hygiene for service repos
 - `ops-deploy.md` — use ops playbooks for deployment
+- `execution-model.md` — gateway/worker/playbook/shared-cache/event-log boundary
+- `issue-tracking.md` — ai-task issue lifecycle
+- `wiki-maintenance.md` — wiki dashboard and surface-doc synchronization
 
 ## Skills (workflows you can execute)
 

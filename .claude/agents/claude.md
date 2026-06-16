@@ -15,6 +15,10 @@ skills:
   - memory-compact
   - sync-note
   - bump-pointer
+  - handoff-open
+  - handoff-result
+  - issue-open
+  - issue-close
 ---
 
 @agents/profiles/claude.md
