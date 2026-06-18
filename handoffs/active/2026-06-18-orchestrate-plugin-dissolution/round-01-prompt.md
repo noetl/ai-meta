@@ -140,29 +140,35 @@ across many slices this session; the final default-flip ((c)) shipped via
 
 ## Phases
 
-### Phase A — the one open separable follow-up (retire the in-server shadow + wasmtime server dep)
+### Phase A — retire the in-server shadow + the wasmtime server dep — TRACKED AS [#110](https://github.com/noetl/ai-meta/issues/110)
 
-Read-only to scope; do the work only on explicit go-ahead.
+**Dispatch: please take this on in THIS session if you can.** It's a clean,
+separable server-slimming with no traffic impact — #108 is already closed, the
+drive is default-on and proven, and the in-server shadow is now dead weight
+(only a validation harness; the live drive uses the WORKER's wasmtime host, not
+the server's). The full goal/acceptance/pointers live on
+[noetl/ai-meta#110](https://github.com/noetl/ai-meta/issues/110) — follow that
+issue; this section is the summary.
 
 Now that the server no longer drives in-process by default, the **in-server
 shadow** (`src/orchestrate_shadow.rs`, cargo feature `orchestrate-shadow`, the
-optional `wasmtime` **server** dependency, `NOETL_ORCHESTRATE_PLUGIN_SHADOW`) is
-only a validation harness — it can be retired to slim the server (drop a heavy
-`wasmtime` dep + the feature). The drive itself uses the WORKER's wasmtime host,
-not the server's. This round kept the `orchestrate-shadow` build feature; it was
-NOT retired.
+optional `wasmtime` **server** dependency, `NOETL_ORCHESTRATE_PLUGIN_SHADOW`)
+can be retired to drop a heavy `wasmtime` server dep + the build feature. This
+session KEPT the `orchestrate-shadow` feature; it was NOT retired.
 
-1. Decide: file a tracked ai-task issue for the retirement (recommended — it's a
-   clean, separable slimming, not urgent), OR do it directly if small.
-2. If doing it: remove `src/orchestrate_shadow.rs`, the `orchestrate-shadow`
-   feature + optional `wasmtime` dep from `repos/server/Cargo.toml`, the shadow
-   hook in `trigger_orchestrator_inner`, the `--features orchestrate-shadow` in
-   the `Dockerfile`, the `orchestrate_plugin_shadow` config field +
-   `NOETL_ORCHESTRATE_PLUGIN_SHADOW` doc, and the `noetl_orchestrate_shadow_total`
-   metric. Keep `noetl-orchestrate-plugin`'s `run_state` (the drive uses it).
-3. Validate: server builds default + tests + clippy; kind smoke (drive default-on
-   still drives a small cursor flow to COMPLETED with 0 event burst); wiki +
-   pointer-bump per the rules.
+1. Pick up [#110](https://github.com/noetl/ai-meta/issues/110) (leave the
+   "starting work" comment per `issue-tracking.md` Rule 2).
+2. Remove `src/orchestrate_shadow.rs`, the `orchestrate-shadow` feature +
+   optional `wasmtime` dep from `repos/server/Cargo.toml`, the shadow hook in
+   `trigger_orchestrator_inner`, the `main.rs` shadow boot loader, the
+   `--features orchestrate-shadow` in the `Dockerfile`, the
+   `orchestrate_plugin_shadow` config field + `NOETL_ORCHESTRATE_PLUGIN_SHADOW`
+   doc, and the `noetl_orchestrate_shadow_total` metric. Keep
+   `noetl-orchestrate-plugin`'s `run_state` (the drive uses it) and
+   `NOETL_ORCHESTRATE_PLUGIN_DRIVE` (default true).
+3. Validate: server builds (single config now), tests + clippy clean; kind smoke
+   (drive default-on still drives a small cursor flow to COMPLETED with 0 event
+   burst); wiki + pointer-bump + board; **close #110** on the bump.
 
 ### Phase B — nothing pending
 
