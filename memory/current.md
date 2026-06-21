@@ -132,6 +132,14 @@ Only **one** umbrella remains open:
   Current coverage is 46 Rust tests plus Criterion baselines. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `f9f859a`.
+- `noetl/ehdb#23` merged on 2026-06-21 as
+  `296c5c8bd6fe8605dc1f4852883a7bac994f15bb`, closing issue #22 and
+  adding immutable catalog table snapshot metadata over content-checked
+  `ObjectRef` file sets. The catalog tracks latest snapshots per table,
+  validates linear parent chains, and transaction replay now includes
+  `CatalogMutation::CommitSnapshot`. Current coverage is 49 Rust tests
+  plus Criterion baselines. `repos/ehdb` should point at this merged
+  SHA; `repos/ehdb-wiki` should point at `c5f11c7`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
