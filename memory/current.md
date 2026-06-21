@@ -140,6 +140,17 @@ Only **one** umbrella remains open:
   `CatalogMutation::CommitSnapshot`. Current coverage is 49 Rust tests
   plus Criterion baselines. `repos/ehdb` should point at this merged
   SHA; `repos/ehdb-wiki` should point at `c5f11c7`.
+- `noetl/ehdb#25` merged on 2026-06-21 as
+  `784215c0853a35a48cfc0066096ae9b899f21b66`, closing issue #24 and
+  adding geo placement plus data-gravity shard pointers to `ObjectRef`.
+  `CloudProvider`, `GeoLocation`, `DataGravityShard`, and
+  `ObjectPlacement` are now part of `ehdb-storage`; local objects use
+  deterministic `local-dev` placement. Treat these as storage-layer
+  routing metadata for future distributed placement, replication,
+  compaction locality, and read scheduling, while preserving the NoETL
+  gateway/worker/playbook boundary. Current coverage is 50 Rust tests
+  plus Criterion baselines. `repos/ehdb` should point at this merged
+  SHA; `repos/ehdb-wiki` should point at `f13f148`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
