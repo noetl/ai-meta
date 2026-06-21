@@ -97,6 +97,14 @@ Only **one** umbrella remains open:
   now replayable transaction-log state. Current coverage is 36 Rust
   tests plus Criterion baselines. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `9df35a1`.
+- `noetl/ehdb#15` merged on 2026-06-21 as
+  `e80fc839f03e021d315ba409253697af21d2d6e0`, closing issue #14 and
+  adding `LocalJsonlSystemLibraryCatalog`, a fsynced JSONL journal for
+  system WASM library publish/bind operations. Reopen rebuilds
+  immutable manifests and mutable environment/channel bindings, so
+  hot-replacement state survives local restart. Current coverage is 39
+  Rust tests plus benchmark compilation. `repos/ehdb` should point at
+  this merged SHA; `repos/ehdb-wiki` should point at `f2d9ec5`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
