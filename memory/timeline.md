@@ -40,3 +40,9 @@
   submodule and `repos/ehdb-wiki` as its design wiki; opened initial
   EHDB issues #1-#5 for Rust workspace/CI, catalog model, object
   storage, transaction log/MVCC, and NoETL integration planning.
+- Refined EHDB scope as a NoETL-domain storage system, not a generic
+  database: future EHDB should cover NoETL catalog/metadata, streams
+  replacing NATS JetStream, RAG/retrieval replacing permanent Qdrant,
+  analytical reads replacing ClickHouse role, and storage/system-record
+  paths replacing ordinary PostgreSQL/object-store platform
+  dependencies; tracked in `noetl/ehdb#6`.

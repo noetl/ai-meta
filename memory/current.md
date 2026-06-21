@@ -48,10 +48,14 @@ Only **one** umbrella remains open:
 ### EHDB platform storage track
 
 - EHDB (`repos/ehdb`) is now the NoETL Event Horizon Database project:
-  an Arrow-native distributed database and catalog platform intended to
-  become the core storage substrate for NoETL operational metadata,
-  first-class catalog state, and historical analytical data in
-  multi-cloud object storage.
+  an Arrow-native NoETL-domain storage system intended to become the
+  core substrate for operational metadata, first-class catalog state,
+  event streams, RAG/retrieval state, and historical analytical data.
+  Do not frame EHDB as a generic database first.
+- EHDB's long-term NoETL dependency-collapse target is to absorb roles
+  currently served by PostgreSQL, NATS JetStream, external object
+  stores, Qdrant, and ClickHouse into EHDB-owned capabilities. Track
+  this scope in `noetl/ehdb#6`.
 - EHDB design source of truth lives in `repos/ehdb-wiki` and the GitHub
   wiki: https://github.com/noetl/ehdb/wiki. Do not duplicate the full
   project design in `ai-meta`; keep `ai-meta` memory focused on
