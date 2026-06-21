@@ -65,6 +65,11 @@ Only **one** umbrella remains open:
   storage layer, #4 transaction log/MVCC boundary, #5 NoETL system-store
   integration path. Project board target:
   https://github.com/orgs/noetl/projects/4/views/1.
+- Draft PR `noetl/ehdb#7` is the first reliable pre-service reference
+  implementation: `ehdb-stream`, `ehdb-retrieval`, `ehdb-transaction`,
+  cross-domain integration coverage, 25 tests, Clippy clean, benchmark
+  compilation, and Criterion baselines. Do not bump the `repos/ehdb`
+  pointer until #7 merges.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
