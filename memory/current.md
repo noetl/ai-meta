@@ -78,6 +78,15 @@ Only **one** umbrella remains open:
   duplicate transaction ID checks, sequence/corruption validation,
   28-test coverage, and benchmark baselines. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `c68f8dd`.
+- `noetl/ehdb#11` merged on 2026-06-21 as
+  `96b50a3f0c9a539b3e4baef11b4ffc7f9aca4db6`, closing issue #10 and
+  adding the local durable stream-journal reference:
+  `LocalJsonlStreamLog` with fsynced JSONL create-stream,
+  create-consumer, publish, and ack journaling; restart replay restores
+  retained records, durable consumer cursors, and next sequence.
+  Current coverage is 31 Rust tests plus Criterion baselines. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `cbc4794`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
