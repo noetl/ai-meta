@@ -123,6 +123,15 @@ Only **one** umbrella remains open:
   Current coverage is 43 Rust tests plus Criterion baselines. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `1e1f3bf`.
+- `noetl/ehdb#21` merged on 2026-06-21 as
+  `26911884d49b54c158e1bf4e48c8a4f895f1a1d6`, closing issue #20 and
+  adding content-checked immutable object references. `ObjectRef` now
+  carries path, byte length, and SHA-256 digest; `get_verified` rejects
+  length or digest mismatches; table data paths follow
+  `{tenant}/{namespace}/tables/{table}/snapshots/{snapshot}/{file}`.
+  Current coverage is 46 Rust tests plus Criterion baselines. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `f9f859a`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
