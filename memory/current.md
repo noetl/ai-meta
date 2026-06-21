@@ -151,6 +151,16 @@ Only **one** umbrella remains open:
   gateway/worker/playbook boundary. Current coverage is 50 Rust tests
   plus Criterion baselines. `repos/ehdb` should point at this merged
   SHA; `repos/ehdb-wiki` should point at `f13f148`.
+- `noetl/ehdb#27` merged on 2026-06-21 as
+  `df0029de6fbbbf24bc398a5d33062eefcdf47ff0`, closing issue #26 and
+  adding `PlacementRole`, `PlacementTarget`, and `PlacementPolicy`.
+  Placement policy validation enforces exactly one primary, minimum copy
+  count, one shared data-gravity shard, and no duplicate geo/shard
+  targets. This is the metadata contract for future replication planners;
+  it does not implement object movement or gateway data-touch behavior.
+  Current coverage is 53 Rust tests plus Criterion baselines.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
+  point at `ebe7a4c`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
