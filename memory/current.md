@@ -71,6 +71,13 @@ Only **one** umbrella remains open:
   `ehdb-retrieval`, `ehdb-transaction`, cross-domain integration
   coverage, 25 tests, Clippy clean, benchmark compilation, and
   Criterion baselines. `repos/ehdb` should point at this merged SHA.
+- `noetl/ehdb#9` merged on 2026-06-21 as
+  `50bd09f7ecde206e912a74e4072e997a07da9728`, closing issue #8 and
+  adding the local durable transaction-log reference:
+  `LocalJsonlTransactionLog` with fsynced JSONL append, restart replay,
+  duplicate transaction ID checks, sequence/corruption validation,
+  28-test coverage, and benchmark baselines. `repos/ehdb` should point
+  at this merged SHA; `repos/ehdb-wiki` should point at `c68f8dd`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
