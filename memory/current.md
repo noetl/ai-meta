@@ -105,6 +105,14 @@ Only **one** umbrella remains open:
   hot-replacement state survives local restart. Current coverage is 39
   Rust tests plus benchmark compilation. `repos/ehdb` should point at
   this merged SHA; `repos/ehdb-wiki` should point at `f2d9ec5`.
+- `noetl/ehdb#17` merged on 2026-06-21 as
+  `16b65db228bd4b6540f595384b0c48ba4c7db0d6`, closing issue #16 and
+  making transaction mutations replay-complete. `ehdb-reference` can
+  rebuild catalog, stream, retrieval, and system-library reference state
+  from `TransactionRecord` replay alone; unexpected stream sequence
+  values fail deterministically. Current coverage is 41 Rust tests plus
+  Criterion baselines. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `e165293`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
