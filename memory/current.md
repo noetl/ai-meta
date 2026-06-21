@@ -113,6 +113,16 @@ Only **one** umbrella remains open:
   values fail deterministically. Current coverage is 41 Rust tests plus
   Criterion baselines. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `e165293`.
+- `noetl/ehdb#19` merged on 2026-06-21 as
+  `84643386ba21b520003c956168cfbb3eae00dd86`, closing issue #18 and
+  adding `LocalReferenceRuntime` over `LocalJsonlTransactionLog`.
+  The runtime previews transaction records, applies them to cloned
+  reference state before durable append, prevents invalid projected
+  commits from advancing the JSONL log, and rebuilds catalog, stream,
+  retrieval, and system-library projections from replay on reopen.
+  Current coverage is 43 Rust tests plus Criterion baselines. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `1e1f3bf`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
