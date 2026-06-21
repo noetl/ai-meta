@@ -45,6 +45,28 @@ Only **one** umbrella remains open:
 |---|---|---|
 | 49 | Rust server FastAPI parity port — full HTTP API in noetl/server crate | Phases A–F shipped. All e2e regression findings (#53–#76) closed. Only R5 (production cutover to Rust-only on GKE) remains — that's an ops decision, not a code task. |
 
+### EHDB platform storage track
+
+- EHDB (`repos/ehdb`) is now the NoETL Event Horizon Database project:
+  an Arrow-native distributed database and catalog platform intended to
+  become the core storage substrate for NoETL operational metadata,
+  first-class catalog state, and historical analytical data in
+  multi-cloud object storage.
+- EHDB design source of truth lives in `repos/ehdb-wiki` and the GitHub
+  wiki: https://github.com/noetl/ehdb/wiki. Do not duplicate the full
+  project design in `ai-meta`; keep `ai-meta` memory focused on
+  pointer, platform-boundary, and integration-state notes.
+- Initial EHDB issues opened in `noetl/ehdb`: #1 bootstrap Rust
+  workspace/CI, #2 catalog-as-database model, #3 immutable object
+  storage layer, #4 transaction log/MVCC boundary, #5 NoETL system-store
+  integration path. Project board target:
+  https://github.com/orgs/noetl/projects/4/views/1.
+- Preserve the NoETL execution-model boundary while integrating EHDB:
+  gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
+  blueprint, shared cache = state vehicle, event log = source of truth.
+  EHDB must not introduce gateway direct database touch or persistent
+  per-tenant agent/MCP processes.
+
 ### Recently closed umbrellas (June 2026)
 
 | # | Title | Closed |

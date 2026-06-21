@@ -96,3 +96,9 @@
 	path = repos/ai-meta-wiki
 	url = git@github.com:noetl/ai-meta.wiki.git
 	branch = master
+[submodule "repos/ehdb"]
+	path = repos/ehdb
+	url = git@github.com:noetl/ehdb.git
+[submodule "repos/ehdb-wiki"]
+	path = repos/ehdb-wiki
+	url = git@github.com:noetl/ehdb.wiki.git

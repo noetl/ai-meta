@@ -36,3 +36,7 @@
 
 - Compaction `20260602-012917` from inbox entries.
 - Compaction `20260609-025209` from inbox entries.
+- Bootstrapped EHDB (`repos/ehdb`) as the NoETL Event Horizon Database
+  submodule and `repos/ehdb-wiki` as its design wiki; opened initial
+  EHDB issues #1-#5 for Rust workspace/CI, catalog model, object
+  storage, transaction log/MVCC, and NoETL integration planning.
