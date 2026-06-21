@@ -87,6 +87,16 @@ Only **one** umbrella remains open:
   Current coverage is 31 Rust tests plus Criterion baselines. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `cbc4794`.
+- `noetl/ehdb#13` merged on 2026-06-21 as
+  `039adefdb7f15076283e2ef38c53f9f7207282a9`, closing issue #12 and
+  adding `ehdb-system`, the EHDB catalog/storage side of NoETL system
+  WASM libraries: immutable module manifests plus mutable
+  tenant/namespace/environment/channel bindings. Stable bindings can be
+  rebound to new digest/revision values for hot replacement without
+  Rust crate semantic-version churn. System publish/bind mutations are
+  now replayable transaction-log state. Current coverage is 36 Rust
+  tests plus Criterion baselines. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `9df35a1`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
