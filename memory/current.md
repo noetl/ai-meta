@@ -323,6 +323,21 @@ Only **one** umbrella remains open:
   was added. Current coverage is 99 Rust tests plus Criterion baselines.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki`
   should point at `51d64ee`.
+- `noetl/ehdb#55` merged on 2026-06-22 as
+  `85ed083c3cb18d7927e2411ab3c3957f555e3c80`, closing issue #54 and
+  adding the loopback Arrow Flight listener harness.
+  `LocalArrowFlightListener` binds configured or ephemeral loopback
+  sockets from `LocalArrowFlightServerConfig`, exposes the actual bound
+  local address, serves the generated Arrow Flight service with
+  configured message limits, and terminates through an explicit shutdown
+  future. Non-loopback listener binds are rejected even when external
+  auth policy is selected. This remains a local-reference harness only;
+  no non-loopback service exposure, TLS/auth implementation, gateway
+  integration, request scheduler, SQL planner, predicate pushdown,
+  distributed executor, or gateway direct read path was added. Current
+  coverage is 101 Rust tests plus Criterion baselines. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `d21465a`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
