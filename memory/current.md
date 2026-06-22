@@ -307,6 +307,22 @@ Only **one** umbrella remains open:
   read path was added. Current coverage is 95 Rust tests plus Criterion
   baselines. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `c0bb1f5`.
+- `noetl/ehdb#53` merged on 2026-06-22 as
+  `2d9837900aa7c22bd5fff6ac9150d48b75c74289`, closing issue #52 and
+  adding bounded Arrow Flight server lifecycle config.
+  `LocalArrowFlightServerConfig` validates intended bind address,
+  decode/encode message sizes, request concurrency, auth policy, and
+  access-log policy before constructing the generated
+  `FlightServiceServer` with message limits applied. Defaults are
+  loopback-only local reference use, bounded messages, bounded
+  concurrency, disabled local auth, and DEBUG-only access logs.
+  Unauthenticated non-loopback binds and zero bounds are rejected. This
+  adds lifecycle guardrails only; no bound listener, persistent server
+  runtime, TLS/auth implementation, request scheduler, SQL planner,
+  predicate pushdown, distributed executor, or gateway direct read path
+  was added. Current coverage is 99 Rust tests plus Criterion baselines.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki`
+  should point at `51d64ee`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
