@@ -460,6 +460,20 @@ Only **one** umbrella remains open:
   added. Current coverage is 121 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `f4deb46`.
+- `noetl/ehdb#73` merged on 2026-06-22 as
+  `45243ef9a426e707ae165b07e1607a24ecca2760`, closing issue #72 and
+  adding the first local retrieval vector similarity fixture.
+  `VectorSearch` and `VectorSearchHit` provide an exact cosine-similarity
+  boundary over registered chunk embeddings, scoped by tenant,
+  namespace, and embedding model. The fixture validates finite non-zero
+  embedding and query vectors, applies dimension compatibility, and
+  orders hits deterministically. This is a local RAG correctness
+  primitive only; no ANN index, retrieval daemon, production IAM,
+  gateway integration, external Qdrant adapter, distributed query
+  engine, gateway direct data path, or persistent per-tenant service
+  process was added. Current coverage is 124 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `d464c02`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
