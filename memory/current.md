@@ -396,6 +396,23 @@ Only **one** umbrella remains open:
   executor, or gateway direct read path was added. Current coverage is
   113 Rust tests plus Criterion baselines. `repos/ehdb` should point at
   this merged SHA; `repos/ehdb-wiki` should point at `d9deca7`.
+- `noetl/ehdb#65` merged on 2026-06-22 as
+  `8bd1aace3ddc33911fb8ede47fc6822532cb282c`, closing issue #64 and
+  enforcing replayed catalog scan grants in the local Arrow Flight
+  reference path. `FlightScanGrantPolicy` can require
+  `x-ehdb-principal` metadata, validate it as a `PrincipalId`, resolve
+  the requested table from replayed catalog state, and call
+  `InMemoryCatalog::can_scan` before `get_flight_info` or `do_get`
+  reaches the local scanner. Missing or invalid principal metadata
+  returns gRPC unauthenticated status; principals without a replayed
+  `CatalogScanGrant` return permission denied. Coverage includes direct
+  generated-service tests and a loopback Arrow Flight client smoke test.
+  This is local reference enforcement only; no production IAM, policy
+  composition, revocation, non-loopback exposure, gateway integration,
+  SQL planning, predicate pushdown, distributed executor, or gateway
+  direct read path was added. Current coverage is 117 Rust tests plus
+  Criterion benchmark compilation. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `eb3b7ec`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
