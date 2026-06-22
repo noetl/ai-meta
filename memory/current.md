@@ -293,6 +293,20 @@ Only **one** umbrella remains open:
   read path was added. Current coverage is 91 Rust tests plus Criterion
   baselines. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `d4fbad2`.
+- `noetl/ehdb#51` merged on 2026-06-22 as
+  `42ff431a9d102bf7b8af3f4c9091960b9f28aa73`, closing issue #50 and
+  adding the Arrow Flight scan service trait adapter.
+  `LocalArrowFlightServer` implements the generated Arrow Flight
+  `FlightService` trait for local scan `get_flight_info` and `do_get`,
+  decodes command descriptors through `ScanFlightTicket`, streams
+  `FlightData`, maps EHDB errors to deterministic gRPC statuses, and
+  returns explicit `UNIMPLEMENTED` statuses for non-scan Flight methods.
+  This is a trait-level network boundary only; no bound listener,
+  persistent server runtime, TLS/auth policy, access-log policy, SQL
+  planner, predicate pushdown, distributed executor, or gateway direct
+  read path was added. Current coverage is 95 Rust tests plus Criterion
+  baselines. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `c0bb1f5`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
