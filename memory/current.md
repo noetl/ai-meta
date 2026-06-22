@@ -197,6 +197,18 @@ Only **one** umbrella remains open:
   schedulers, or cloud transfer adapters. Current coverage is 64 Rust
   tests plus Criterion baselines. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `6f10d1d`.
+- `noetl/ehdb#35` merged on 2026-06-22 as
+  `b0aa14687357a1032a8f8cff98d8a378d2d7fde8`, closing issue #34 and
+  adding `LocalArrowIpcTableStore` in `ehdb-reference`. The fixture
+  writes Arrow `RecordBatch` values as immutable IPC objects, commits
+  catalog snapshots over content-checked `ObjectRef` values, and reads
+  latest snapshots back through verified object reads before Arrow IPC
+  decode. Corrupted object bytes are rejected before decode. This proves
+  the local Arrow-native catalog/object data path; it does not add Arrow
+  Flight service endpoints, distributed query execution, Parquet
+  adapters, or gateway direct data access. Current coverage is 66 Rust
+  tests plus Criterion baselines. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `1eaa22c`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
