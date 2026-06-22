@@ -268,6 +268,17 @@ Only **one** umbrella remains open:
   executor, or gateway direct read path. Current coverage is 86 Rust
   tests plus Criterion baselines. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `b4af436`.
+- `noetl/ehdb#47` merged on 2026-06-22 as
+  `8ef14058816cb1dd96ee7253d3877aa28246bb66`, closing issue #46 and
+  adding the pre-network Arrow Flight scan info fixture.
+  `ArrowScanResult::to_flight_info` now builds schema IPC bytes, command
+  descriptor, single endpoint ticket, ordered metadata, total record
+  count, and encoded byte count from a `ScanFlightTicket` plus local scan
+  result. This proves the future `get_flight_info` metadata shape
+  without adding a Flight server/client, SQL planner, predicate pushdown,
+  distributed executor, or gateway direct read path. Current coverage is
+  88 Rust tests plus Criterion baselines. `repos/ehdb` should point at
+  this merged SHA; `repos/ehdb-wiki` should point at `fcf6779`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
