@@ -413,6 +413,22 @@ Only **one** umbrella remains open:
   direct read path was added. Current coverage is 117 Rust tests plus
   Criterion benchmark compilation. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `eb3b7ec`.
+- `noetl/ehdb#67` merged on 2026-06-22 as
+  `0bce4ae6ca18f678bbe580bbee8f4b1e4b51850e`, closing issue #66 and
+  adding bounded local Arrow Flight scan access summaries.
+  `FlightAccessLogPolicy` now controls disabled and DEBUG-only access
+  summary modes for decoded `get_flight_info` and `do_get` requests.
+  The summary contract includes method, gRPC code, row/message counts,
+  projection count, predicate presence, and which metadata guards were
+  required; it excludes auth tokens, principal values, tenant/table
+  identifiers, object paths, predicate values, and Arrow payloads.
+  This is local reference observability only; no non-loopback exposure,
+  production IAM, gateway integration, SQL planning, predicate pushdown,
+  distributed executor, gateway direct read path, high-volume INFO logs,
+  tenant data logging, or persistent per-tenant service process was
+  added. Current coverage is 120 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `ae13d05`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
