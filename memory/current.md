@@ -367,6 +367,21 @@ Only **one** umbrella remains open:
   was added. Current coverage is 106 Rust tests plus Criterion
   baselines. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `3642685`.
+- `noetl/ehdb#61` merged on 2026-06-22 as
+  `89a069094deb3fbd3b26f25aa593dab39983daba`, closing issue #60 and
+  adding the Arrow Flight tenant/namespace scan scope metadata guard.
+  `FlightScanScopePolicy` can require `x-ehdb-tenant` and
+  `x-ehdb-namespace` metadata to match the decoded
+  `ScanLatestTableRequest` before local scan execution. Missing scope
+  metadata returns gRPC unauthenticated status; mismatched scope returns
+  permission denied. Coverage includes policy validation, generated
+  service tests, and a loopback Arrow Flight client smoke test. This is
+  a future catalog ACL scope contract only; no ACL engine, non-loopback
+  exposure, production TLS/identity, gateway integration, SQL planning,
+  predicate pushdown, distributed executor, or gateway direct read path
+  was added. Current coverage is 110 Rust tests plus Criterion
+  baselines. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `c79d1e6`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
