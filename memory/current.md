@@ -445,6 +445,21 @@ Only **one** umbrella remains open:
   coverage remains 120 Rust tests plus Criterion benchmark compilation.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
   point at `5c22f65`.
+- `noetl/ehdb#71` merged on 2026-06-22 as
+  `76622a7d38911f222bb11cdb9f5b37ef00565c17`, closing issue #70 and
+  enforcing the local Arrow Flight request concurrency budget.
+  `LocalArrowFlightServerConfig::max_concurrent_requests` now feeds a
+  fail-fast semaphore in `LocalArrowFlightServer`; implemented scan
+  methods `get_flight_info`, `get_schema`, and `do_get` return gRPC
+  `RESOURCE_EXHAUSTED` when all local request slots are occupied.
+  Existing constructors retain the default local-reference budget.
+  This is a local lifecycle guard only; no request queue, distributed
+  admission controller, non-loopback exposure, production IAM, gateway
+  integration, SQL planning, predicate pushdown, distributed executor,
+  gateway direct read path, or persistent per-tenant service process was
+  added. Current coverage is 121 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `f4deb46`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
