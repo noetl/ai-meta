@@ -474,6 +474,21 @@ Only **one** umbrella remains open:
   process was added. Current coverage is 124 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `d464c02`.
+- `noetl/ehdb#75` merged on 2026-06-22 as
+  `c6224be27b6df65c021fafad3a45c2954525604e`, closing issue #74 and
+  adding the local retrieval vector search service boundary.
+  `LocalRetrievalSearchService` in `ehdb-service` wraps replayed
+  `LocalReferenceRuntime` retrieval state with typed
+  `SearchSimilarChunksRequest` and `SearchSimilarChunksHit` values,
+  returning ranked chunk/document/text/checksum/model/dimension/score
+  results while excluding raw embedding vectors. This remains an
+  in-process worker/playbook-oriented reference boundary only; no
+  network service, gateway route, production IAM, ANN index, external
+  Qdrant adapter, distributed query engine, retrieval daemon, gateway
+  direct data path, or persistent per-tenant service process was added.
+  Current coverage is 126 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `d9053d9`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
