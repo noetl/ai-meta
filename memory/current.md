@@ -382,6 +382,20 @@ Only **one** umbrella remains open:
   was added. Current coverage is 110 Rust tests plus Criterion
   baselines. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `c79d1e6`.
+- `noetl/ehdb#63` merged on 2026-06-22 as
+  `f13258a8c829bdc2950fd1a1f9ec2c970a99df32`, closing issue #62 and
+  adding the first catalog-side scan grant reference model.
+  `PrincipalId` is now a typed EHDB identifier. `CatalogScanGrant`
+  records tenant, namespace, table ID, principal, and granting
+  transaction ID; `InMemoryCatalog::can_scan` answers table/principal
+  scan access; and `CatalogMutation::GrantScan` makes the metadata
+  replayable through `ehdb-reference` and `LocalReferenceRuntime`.
+  This is durable catalog ACL metadata only; no production IAM, policy
+  composition, revocation, service enforcement, non-loopback exposure,
+  gateway integration, SQL planning, predicate pushdown, distributed
+  executor, or gateway direct read path was added. Current coverage is
+  113 Rust tests plus Criterion baselines. `repos/ehdb` should point at
+  this merged SHA; `repos/ehdb-wiki` should point at `d9deca7`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
