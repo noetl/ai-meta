@@ -429,6 +429,22 @@ Only **one** umbrella remains open:
   added. Current coverage is 120 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `ae13d05`.
+- `noetl/ehdb#69` merged on 2026-06-22 as
+  `154c265cc328ca05dd41a831a41cc134cddc03a5`, closing issue #68 and
+  adding local Arrow Flight `get_schema` support for scan command
+  descriptors. `LocalArrowFlightService::get_schema` returns projected
+  latest-table scan schemas as Arrow Flight `SchemaResult` values, and
+  generated `FlightService::get_schema` now uses the same auth,
+  tenant/namespace scan scope, catalog scan grant, and bounded access-log
+  policies as `get_flight_info` and `do_get`. The loopback Flight client
+  smoke path now calls `FlightClient::get_schema` before data reads.
+  This is local reference schema discovery only; no non-loopback
+  exposure, production IAM, gateway integration, SQL planning, predicate
+  pushdown, distributed executor, gateway direct read path, request
+  scheduler, or persistent per-tenant service process was added. Current
+  coverage remains 120 Rust tests plus Criterion benchmark compilation.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
+  point at `5c22f65`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
