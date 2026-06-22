@@ -338,6 +338,19 @@ Only **one** umbrella remains open:
   coverage is 101 Rust tests plus Criterion baselines. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `d21465a`.
+- `noetl/ehdb#57` merged on 2026-06-22 as
+  `765f216e453cc9e24704bb8c82617388b3574b19`, closing issue #56 and
+  adding the loopback Arrow Flight client smoke test.
+  The smoke path starts `LocalArrowFlightListener` on loopback, connects
+  with Arrow Flight `FlightClient` over tonic/gRPC transport, calls
+  `get_flight_info` with the scan command descriptor, follows the
+  returned endpoint ticket with `do_get`, and asserts decoded Arrow
+  record batches. This is local-reference verification only; no gateway
+  integration, non-loopback exposure, TLS/auth implementation, request
+  scheduler, SQL planner, predicate pushdown, distributed executor, or
+  gateway direct read path was added. Current coverage is 102 Rust tests
+  plus Criterion baselines. `repos/ehdb` should point at this merged
+  SHA; `repos/ehdb-wiki` should point at `f2d5644`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
