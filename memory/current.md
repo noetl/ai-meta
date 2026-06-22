@@ -209,6 +209,18 @@ Only **one** umbrella remains open:
   adapters, or gateway direct data access. Current coverage is 66 Rust
   tests plus Criterion baselines. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `1eaa22c`.
+- `noetl/ehdb#37` merged on 2026-06-22 as
+  `6f271754a83969a30900b8a71266a50978a89047`, closing issue #36 and
+  adding `LocalArrowSnapshotScanner` in `ehdb-reference`. The scanner
+  resolves latest catalog snapshots, verifies Arrow IPC object bytes
+  before decode, returns decoded `RecordBatch` output, and supports
+  optional named column projection in caller-specified order. Missing
+  projection columns fail deterministically. This is a local scan
+  fixture only; predicate pushdown, SQL planning, Arrow Flight,
+  distributed execution, and gateway direct data access remain future
+  surfaces. Current coverage is 68 Rust tests plus Criterion baselines.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
+  point at `56283fc`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
