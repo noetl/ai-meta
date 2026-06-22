@@ -245,6 +245,18 @@ Only **one** umbrella remains open:
   coverage is 76 Rust tests plus Criterion baselines. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `32cf921`.
+- `noetl/ehdb#43` merged on 2026-06-22 as
+  `63737eb5786c849c876eae83a1edede393034672`, closing issue #42 and
+  adding the Arrow Flight scan ticket codec. `ScanFlightTicket` encodes
+  latest-table scan requests into a versioned payload, round-trips
+  through Arrow Flight `Ticket` bytes, and builds command
+  `FlightDescriptor` values for the future Flight read API. Unsupported
+  versions and malformed payloads fail before scan execution. This is a
+  contract fixture only; no Flight server/client, SQL planner, predicate
+  pushdown, distributed executor, or gateway direct read path was added.
+  Current coverage is 82 Rust tests plus Criterion baselines.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
+  point at `e39776b`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
