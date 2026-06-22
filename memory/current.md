@@ -351,6 +351,22 @@ Only **one** umbrella remains open:
   gateway direct read path was added. Current coverage is 102 Rust tests
   plus Criterion baselines. `repos/ehdb` should point at this merged
   SHA; `repos/ehdb-wiki` should point at `f2d5644`.
+- `noetl/ehdb#59` merged on 2026-06-22 as
+  `c8a92c081c07a4d30cb990425b29ee168a168449`, closing issue #58 and
+  adding the Arrow Flight header-token auth policy contract.
+  `FlightAuthPolicy::HeaderToken` validates request metadata header
+  names and tokens, `LocalArrowFlightServerConfig` passes the policy
+  into the generated service adapter, and implemented scan methods
+  `get_flight_info` and `do_get` return deterministic gRPC
+  unauthenticated statuses for missing or mismatched metadata. Coverage
+  includes direct service tests and a loopback Arrow Flight client smoke
+  test with the auth policy enabled. This remains a local-reference
+  auth-boundary contract only; no non-loopback exposure, production
+  TLS/identity, ACL enforcement, gateway integration, SQL planning,
+  predicate pushdown, distributed executor, or gateway direct read path
+  was added. Current coverage is 106 Rust tests plus Criterion
+  baselines. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `3642685`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
