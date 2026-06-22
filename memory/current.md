@@ -161,6 +161,17 @@ Only **one** umbrella remains open:
   Current coverage is 53 Rust tests plus Criterion baselines.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
   point at `ebe7a4c`.
+- `noetl/ehdb#29` merged on 2026-06-22 as
+  `6b3393a696b13e34b84eb2c4d62c44dec4dd4d51`, closing issue #28 and
+  adding `ObjectReplica`, `ReplicationAction`, `ReplicationPlan`, and
+  `plan_replication`. The planner compares current replicas to
+  `PlacementPolicy`, emits already-satisfied and copy-needed actions,
+  and rejects source/policy shard mismatch plus replica digest, length,
+  or shard mismatch. This remains planner metadata only; no copy
+  execution, background worker, or gateway data-touch behavior was
+  added. Current coverage is 56 Rust tests plus Criterion baselines.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
+  point at `289440f`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
