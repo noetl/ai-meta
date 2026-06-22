@@ -221,6 +221,18 @@ Only **one** umbrella remains open:
   surfaces. Current coverage is 68 Rust tests plus Criterion baselines.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
   point at `56283fc`.
+- `noetl/ehdb#39` merged on 2026-06-22 as
+  `f2100737915650e143fe964c05f207da8964fbc9`, closing issue #38 and
+  adding a local Arrow equality-filter fixture to
+  `LocalArrowSnapshotScanner`. The scanner now supports single-column
+  equality predicates for UTF-8 and Int64 Arrow arrays after verified
+  IPC object decode and before optional projection. Missing predicate
+  columns and type mismatches fail deterministically. This remains a
+  local fixture only; SQL planning, predicate pushdown, Arrow Flight,
+  distributed execution, and gateway direct data access remain out of
+  scope. Current coverage is 72 Rust tests plus Criterion baselines.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
+  point at `cd3d2da`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
