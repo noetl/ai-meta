@@ -279,6 +279,20 @@ Only **one** umbrella remains open:
   distributed executor, or gateway direct read path. Current coverage is
   88 Rust tests plus Criterion baselines. `repos/ehdb` should point at
   this merged SHA; `repos/ehdb-wiki` should point at `fcf6779`.
+- `noetl/ehdb#49` merged on 2026-06-22 as
+  `0e501004ef01fa45c1b1ce65de93fa5e415b97b0`, closing issue #48 and
+  adding the local Arrow Flight scan service facade.
+  `LocalArrowFlightService` provides in-process `get_flight_info` from
+  typed latest-table scan requests and `do_get` from Arrow Flight
+  tickets to `FlightData` streams, reusing `ScanFlightTicket`,
+  `ArrowScanResult::to_flight_info`, and
+  `ArrowScanResult::to_flight_data`. Malformed tickets fail before scan
+  execution and missing-table errors propagate deterministically. This
+  remains a local facade only; no Flight network server/client, SQL
+  planner, predicate pushdown, distributed executor, or gateway direct
+  read path was added. Current coverage is 91 Rust tests plus Criterion
+  baselines. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `d4fbad2`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
