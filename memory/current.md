@@ -185,6 +185,18 @@ Only **one** umbrella remains open:
   behavior. Current coverage is 61 Rust tests plus Criterion baselines.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
   point at `8590d47`.
+- `noetl/ehdb#33` merged on 2026-06-22 as
+  `23227a0833b56abc51c38fb4f7d0c7979d67b7d5`, closing issue #32 and
+  adding `LocalReplicationExecutor` in `ehdb-reference`. The executor
+  consumes deterministic `ReplicationPlan` values, verifies source bytes
+  through `ImmutableObjectStore::get_verified`, and appends
+  `StorageMutation::RegisterReplica` transactions through
+  `LocalReferenceRuntime` for copy-needed targets. Already-satisfied
+  plans are no-ops. This models an atomic future worker/playbook
+  replication step; it does not add gateway data-touch logic, long-lived
+  schedulers, or cloud transfer adapters. Current coverage is 64 Rust
+  tests plus Criterion baselines. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `6f10d1d`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
