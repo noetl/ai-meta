@@ -233,6 +233,18 @@ Only **one** umbrella remains open:
   scope. Current coverage is 72 Rust tests plus Criterion baselines.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
   point at `cd3d2da`.
+- `noetl/ehdb#41` merged on 2026-06-22 as
+  `51b642f4d8eb60c8971a06f421aa3e6ff8a15374`, closing issue #40 and
+  adding the first Phase 4 service-facing scan API boundary. New crate
+  `ehdb-service` defines `ScanLatestTableRequest`, `ArrowScanResult`,
+  and `LocalArrowScanService` over `LocalArrowSnapshotScanner`, returning
+  Arrow schema, record batches, and row count while preserving projection
+  and equality-filter behavior. This is pre-network only; Arrow Flight
+  server/client code, SQL planning, predicate pushdown, distributed
+  execution, and gateway direct reads remain future surfaces. Current
+  coverage is 76 Rust tests plus Criterion baselines. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `32cf921`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
