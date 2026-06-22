@@ -172,6 +172,19 @@ Only **one** umbrella remains open:
   added. Current coverage is 56 Rust tests plus Criterion baselines.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
   point at `289440f`.
+- `noetl/ehdb#31` merged on 2026-06-22 as
+  `c77ad8ad8786fca9edaa4c2b0ec3fac639553b2a`, closing issue #30 and
+  adding durable object replica inventory to the local reference model.
+  `InMemoryObjectReplicaRegistry` records object path, length, digest,
+  geo placement, and data-gravity shard; rejects conflicting
+  digest/length/shard metadata; and feeds replication planning from
+  replayed registry state. `StorageMutation::RegisterReplica` makes
+  replica inventory replayable through `ehdb-reference` and
+  `LocalReferenceRuntime`. This remains metadata only; object-copy
+  execution belongs to future bounded worker/playbook steps, not gateway
+  behavior. Current coverage is 61 Rust tests plus Criterion baselines.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki` should
+  point at `8590d47`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
