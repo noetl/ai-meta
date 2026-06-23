@@ -522,6 +522,26 @@ Only **one** umbrella remains open:
   is 135 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `f5ade08`.
+- `noetl/ehdb#81` merged on 2026-06-23 UTC as
+  `fccbbe19e1046dadb6323bdafa26230cd4512c11`, closing issue #80 and
+  adding the local retrieval context assembly boundary.
+  `AssembleRetrievalContextRequest`, `RetrievalContextBlock`, and
+  `RetrievalContext` in `ehdb-service` build bounded RAG context blocks
+  from replayed local hybrid search hits. The boundary preserves chunk
+  identity, document identity, ordinal, checksum, clipped text,
+  original text length, model metadata, vector score, text match count,
+  combined score, total text budget accounting, and truncation metadata
+  without returning raw embedding vectors. It validates positive block
+  and total text budgets and inherits hybrid search validation for
+  positive hit limits, vector inputs, text query, and weights. This
+  remains an in-process worker/playbook-shaped correctness boundary
+  only; no ANN index, BM25 engine, learned ranker, prompt template
+  engine, LLM invocation, network service, gateway route, production
+  IAM, external search adapter, distributed query engine, retrieval
+  daemon, gateway direct data path, or persistent per-tenant service
+  process was added. Current coverage is 139 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `15301e2`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
