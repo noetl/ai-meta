@@ -505,6 +505,23 @@ Only **one** umbrella remains open:
   130 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `4fa4165`.
+- `noetl/ehdb#79` merged on 2026-06-23 UTC as
+  `3d58042a8fc173414dae149296f68f26dac45672`, closing issue #78 and
+  adding the local retrieval hybrid search boundary. `HybridSearch` and
+  `HybridSearchHit` in `ehdb-retrieval` combine exact cosine similarity
+  and exact case-insensitive text match counts with finite non-negative
+  weights, positive-limit validation, vector validation, replayed
+  tenant/namespace/model scoping, zero-score filtering, and deterministic
+  ordering. `LocalRetrievalSearchService::search_hybrid` exposes the
+  same replayed-state behavior through `SearchHybridChunksRequest` and
+  `SearchHybridChunksHit`. This remains an in-process RAG correctness
+  boundary only; no ANN index, BM25 engine, learned ranker, network
+  service, gateway route, production IAM, external search adapter,
+  distributed query engine, retrieval daemon, gateway direct data path,
+  or persistent per-tenant service process was added. Current coverage
+  is 135 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `f5ade08`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
