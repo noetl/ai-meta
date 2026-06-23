@@ -489,6 +489,22 @@ Only **one** umbrella remains open:
   Current coverage is 126 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `d9053d9`.
+- `noetl/ehdb#77` merged on 2026-06-22 as
+  `8b853e5de110d15e4c9aae72bc12bd114609eb9f`, closing issue #76 and
+  adding the local retrieval text search boundary. `TextSearch` and
+  `TextSearchHit` in `ehdb-retrieval` provide exact case-insensitive
+  substring matching scoped by tenant and namespace, with positive-limit
+  validation, non-empty query validation, match counts, and deterministic
+  ordering. `LocalRetrievalSearchService::search_text` exposes the same
+  replayed-state behavior through `SearchTextChunksRequest` and
+  `SearchTextChunksHit`. This remains an in-process RAG correctness
+  boundary only; no full-text index, BM25 engine, network service,
+  gateway route, production IAM, external search adapter, distributed
+  query engine, retrieval daemon, gateway direct data path, or
+  persistent per-tenant service process was added. Current coverage is
+  130 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `4fa4165`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
