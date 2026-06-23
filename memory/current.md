@@ -833,6 +833,24 @@ Only **one** umbrella remains open:
   process was added. Current coverage is 186 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `8126c35`.
+- `noetl/ehdb#113` merged on 2026-06-23 UTC as
+  `c9f67cff0645edab2295a8c92b5e317adff84b5c`, closing issue #112 and
+  adding explicit bounded retention setup helpers for retrieval receipt
+  event streams. `RetrievalContextReceiptEventStreamTarget` now has
+  `create_keep_all_stream` and `create_bounded_stream`; the bounded
+  helper rejects zero retention before touching the stream log and then
+  creates a stream with `RetentionPolicy::MaxRecords`. Tests cover
+  bounded retention replay behavior, zero-bound rejection, and JSONL
+  bounded stream persistence after reopen. This remains explicit local
+  worker/playbook stream setup only; no auto-create-on-publish,
+  scheduler, automatic processing, logging sink, network API, Arrow
+  Flight retrieval endpoint, prompt engine, LLM invocation, ANN index,
+  BM25 engine, learned ranker, gateway route, production IAM, ACL
+  integration, retrieval daemon, distributed query engine, gateway
+  direct data path, or persistent per-tenant service process was added.
+  Current coverage is 189 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `1518d62`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
