@@ -691,6 +691,25 @@ Only **one** umbrella remains open:
   process was added. Current coverage is 165 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `aaa6335`.
+- `noetl/ehdb#99` merged on 2026-06-23 UTC as
+  `c0613881814643cf284bf0ee24f3d7cfb43444a3`, closing issue #98 and
+  adding bounded retrieval context execution artifacts.
+  `RetrievalContextPayloadExecutionArtifacts` in `ehdb-service` returns
+  result payload bytes together with redacted receipt payload bytes for
+  local worker/playbook handoff tests. `RetrievalContextPayloadExecutorConfig`
+  now includes `max_receipt_payload_bytes`, with positive validation,
+  and artifact helpers enforce that bound after the existing
+  request/result execution path succeeds. Existing byte-returning,
+  summary-returning, scope, and receipt APIs remain behavior-compatible.
+  This remains local helper wiring only; no event publication, stream
+  mutation, logging sink, network API, Arrow Flight retrieval endpoint,
+  prompt engine, LLM invocation, ANN index, BM25 engine, learned ranker,
+  gateway route, production IAM, ACL integration, retrieval daemon,
+  distributed query engine, gateway direct data path, scheduler, or
+  persistent per-tenant service process was added. Current coverage is
+  168 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `235229b`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
