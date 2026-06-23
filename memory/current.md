@@ -595,6 +595,23 @@ Only **one** umbrella remains open:
   was added. Current coverage is 150 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `7c0073c`.
+- `noetl/ehdb#89` merged on 2026-06-23 UTC as
+  `b2c36d111921b8e1ba7bc491aaa47dd61cefecad`, closing issue #88 and
+  adding the local retrieval context payload scope guard.
+  `RetrievalContextPayloadScope` in `ehdb-service` validates decoded
+  context assembly requests against an expected tenant and namespace
+  before context assembly. `LocalRetrievalSearchService::execute_context_payload_with_scope`
+  composes existing byte bounds with that local scope check while
+  leaving default and config-aware payload execution unchanged. This
+  remains an in-process worker/playbook correctness guard only; no
+  production IAM, policy engine, ACL integration, network API, Arrow
+  Flight retrieval endpoint, prompt template engine, LLM invocation,
+  ANN index, BM25 engine, learned ranker, gateway route, retrieval
+  daemon, distributed query engine, gateway direct data path, scheduler,
+  or persistent per-tenant service process was added. Current coverage
+  is 153 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `40d3805`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
