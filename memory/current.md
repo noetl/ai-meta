@@ -813,6 +813,26 @@ Only **one** umbrella remains open:
   is 183 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `8bbfa38`.
+- `noetl/ehdb#111` merged on 2026-06-23 UTC as
+  `da4ebfb98667bde853715d4aa2588b528567fb6d`, closing issue #110 and
+  adding explicit local receipt event stream setup helpers.
+  `RetrievalContextReceiptEventStreamTarget::stream_config` builds
+  `StreamConfig` from target tenant, namespace, stream, and
+  caller-selected retention policy, while
+  `RetrievalContextReceiptEventStreamTarget::create_stream` creates
+  the receipt event stream through caller-supplied `InMemoryStreamLog`
+  or `LocalJsonlStreamLog` instances. Publish helpers still do not
+  auto-create streams. Tests cover setup plus publish/replay, duplicate
+  stream rejection, and JSONL stream persistence after reopen. This
+  remains explicit local worker/playbook stream setup only; no
+  auto-create-on-publish, scheduler, automatic processing, logging
+  sink, network API, Arrow Flight retrieval endpoint, prompt engine, LLM
+  invocation, ANN index, BM25 engine, learned ranker, gateway route,
+  production IAM, ACL integration, retrieval daemon, distributed query
+  engine, gateway direct data path, or persistent per-tenant service
+  process was added. Current coverage is 186 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `8126c35`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
