@@ -769,6 +769,28 @@ Only **one** umbrella remains open:
   177 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `f1f195f`.
+- `noetl/ehdb#107` merged on 2026-06-23 UTC as
+  `95d147df5721e943f41ab8efe1ad327cb541d3be`, closing issue #106 and
+  adding explicit local retrieval receipt event stream replay decoding.
+  `RetrievalContextReceiptEventStreamRecord` carries stream sequence,
+  transaction id, and a validated
+  `RetrievalContextPayloadExecutionReceiptEventPayload`.
+  `RetrievalContextReceiptEventStreamReadLog` replays raw records from
+  caller-supplied `InMemoryStreamLog` or `LocalJsonlStreamLog`, and
+  `RetrievalContextReceiptEventStreamTarget::replay_events` validates
+  the stable subject `ehdb.retrieval.context.execution.receipt` plus
+  the event payload while preserving cursor behavior. Tests cover
+  ordered replay, cursor replay, JSONL reopen/replay, wrong subject
+  rejection, and malformed payload rejection. This remains explicit
+  local worker/playbook replay only; no background consumer,
+  subscription loop, automatic processing, logging sink, network API,
+  Arrow Flight retrieval endpoint, prompt engine, LLM invocation, ANN
+  index, BM25 engine, learned ranker, gateway route, production IAM,
+  ACL integration, retrieval daemon, distributed query engine, gateway
+  direct data path, scheduler, or persistent per-tenant service process
+  was added. Current coverage is 180 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `4ae9ed8`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
