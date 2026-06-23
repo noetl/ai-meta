@@ -987,6 +987,21 @@ Only **one** umbrella remains open:
   210 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `6c95770`.
+- `noetl/ehdb#133` merged on 2026-06-23 UTC as
+  `4261d3ed8d4039b33d53a4241d18cb78b11368f5`, closing issue #132 and
+  validating retrieval context payload identifiers during local RAG
+  payload encode/decode. `RetrievalContextRequestPayload` now
+  revalidates tenant, namespace, and embedding model identifiers;
+  `RetrievalContextResultPayload` revalidates chunk, document, and
+  embedding model identifiers for each context block. Invalid decoded
+  identifiers fail before worker/playbook execution or handoff. This
+  remains local RAG payload codec validation only; no ANN index,
+  retrieval daemon, RPC protocol, Arrow Flight retrieval endpoint,
+  gateway data-touch behavior, prompt/LLM invocation, background
+  processing, scheduler behavior, or persistent per-tenant service
+  process was added. Current coverage is 212 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `55c0fa5`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
