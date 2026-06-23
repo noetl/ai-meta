@@ -633,6 +633,27 @@ Only **one** umbrella remains open:
   157 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `de4fa24`.
+- `noetl/ehdb#93` merged on 2026-06-23 UTC as
+  `c997be8a32bb737a12579c16dfab30c2c4da1f8d`, closing issue #92 and
+  adding the redacted retrieval context execution receipt codec.
+  `RetrievalContextPayloadExecutionReceiptPayload` in `ehdb-service`
+  wraps `RetrievalContextPayloadExecutionSummary` in a versioned JSON
+  byte payload for future durable event-log/audit plumbing. The receipt
+  round-trips only the redacted summary fields, rejects malformed JSON
+  and unsupported versions deterministically, and tests prove encoded
+  receipts exclude tenant IDs, namespace values, query text, chunk
+  text, tokens, embedding vectors, payload bytes, object paths, and
+  principals. Existing retrieval context payload executor behavior is
+  unchanged. This remains a durable receipt shape for local
+  worker/playbook tests only; no event publication, stream mutation,
+  logging sink, network API, Arrow Flight retrieval endpoint, prompt
+  engine, LLM invocation, ANN index, BM25 engine, learned ranker,
+  gateway route, production IAM, ACL integration, retrieval daemon,
+  distributed query engine, gateway direct data path, scheduler, or
+  persistent per-tenant service process was added. Current coverage is
+  160 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `a2467a0`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
