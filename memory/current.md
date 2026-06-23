@@ -913,6 +913,18 @@ Only **one** umbrella remains open:
   Current coverage is 196 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `9c37613`.
+- `noetl/ehdb#123` merged on 2026-06-23 UTC as
+  `17c1644994cc39f97d1e29d40174cd2c2e4f547e`, closing issue #122 and
+  rejecting empty dot-delimited stream subject tokens. `Subject::new`
+  and `SubjectFilter::new` now reject leading, trailing, and double-dot
+  empty tokens while preserving valid concrete subjects and valid
+  exact/wildcard filters. This remains local stream log validation only;
+  no durable subject subscription, scheduler, background stream
+  processing, NATS bridge, network API, gateway route, distributed
+  stream storage, production replication, or persistent per-tenant
+  service process was added. Current coverage is 196 Rust tests plus
+  Criterion benchmark compilation. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `7bb4f29`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
