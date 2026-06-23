@@ -972,6 +972,21 @@ Only **one** umbrella remains open:
   coverage is 208 Rust tests plus Criterion benchmark compilation.
   `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki`
   should point at `e32cd7c`.
+- `noetl/ehdb#131` merged on 2026-06-23 UTC as
+  `243d78eb41cb1f7f33426147203a33c3afd40e64`, closing issue #130 and
+  validating persisted system-library journal identifiers during local
+  JSONL replay. Replayed publish entries now revalidate library path,
+  revision, digest, object path, and transaction ID before rebuilding
+  immutable WASM manifests. Replayed bind entries revalidate tenant,
+  namespace, environment, channel, path, revision, digest, and
+  transaction ID before rebuilding hot-replaceable environment/channel
+  bindings. This remains local system-library journal replay validation
+  only; no WASM execution, background processing, network API, gateway
+  data-touch behavior, production replication, scheduler behavior, or
+  persistent per-tenant service process was added. Current coverage is
+  210 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `6c95770`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
