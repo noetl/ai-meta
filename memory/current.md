@@ -897,6 +897,22 @@ Only **one** umbrella remains open:
   service process was added. Current coverage is 196 Rust tests plus
   Criterion benchmark compilation. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `9c154c4`.
+- `noetl/ehdb#121` merged on 2026-06-23 UTC as
+  `8031f94d8c93cb2c5b2b72eb96b87d54780c5e72`, closing issue #120 and
+  separating concrete stream subjects from wildcard subject filters.
+  `Subject::new` now rejects wildcard tokens `*` and `>` for published
+  stream record subjects. New `SubjectFilter` values support exact
+  selectors, single-token `*` wildcards, and terminal `>` tail
+  wildcards for replay selectors; misplaced `>` and partial wildcard
+  tokens are rejected at construction. Filtered replay APIs now accept
+  `SubjectFilter` instead of concrete `Subject`. This remains local
+  stream log validation and replay only; no durable subject
+  subscription, scheduler, background stream processing, NATS bridge,
+  network API, gateway route, distributed stream storage, production
+  replication, or persistent per-tenant service process was added.
+  Current coverage is 196 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `9c37613`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
