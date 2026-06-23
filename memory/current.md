@@ -791,6 +791,28 @@ Only **one** umbrella remains open:
   was added. Current coverage is 180 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `4ae9ed8`.
+- `noetl/ehdb#109` merged on 2026-06-23 UTC as
+  `ff12df09cdd3f9c4398a813bb88b7d2c4ac4c8e8`, closing issue #108 and
+  adding explicit local durable-consumer helpers for retrieval receipt
+  event streams. `RetrievalContextReceiptEventDurableConsumerLog`
+  supports caller-controlled durable consumer creation, replaying
+  pending validated receipt events for a consumer, and acking receipt
+  event sequences for caller-supplied `InMemoryStreamLog` and
+  `LocalJsonlStreamLog` instances. The cursor is advanced only by
+  explicit caller ack, with replay still validating the stable subject
+  `ehdb.retrieval.context.execution.receipt` and receipt event payload.
+  Tests cover consumer resume/ack behavior, ack rollback rejection,
+  missing consumer rejection, and JSONL reopen cursor behavior. This
+  remains explicit local worker/playbook consumer control only; no
+  background consumer, subscription loop, scheduler, automatic
+  processing, logging sink, network API, Arrow Flight retrieval
+  endpoint, prompt engine, LLM invocation, ANN index, BM25 engine,
+  learned ranker, gateway route, production IAM, ACL integration,
+  retrieval daemon, distributed query engine, gateway direct data path,
+  or persistent per-tenant service process was added. Current coverage
+  is 183 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `8bbfa38`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
