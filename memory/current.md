@@ -851,6 +851,21 @@ Only **one** umbrella remains open:
   Current coverage is 189 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `1518d62`.
+- `noetl/ehdb#115` merged on 2026-06-23 UTC as
+  `b70cf038acd4c9ec2455c2b24aacad021bf3c247`, closing issue #114 and
+  enforcing positive bounded stream retention at the stream log
+  boundary. `InMemoryStreamLog::create_stream` and
+  `LocalJsonlStreamLog::create_stream` now reject
+  `RetentionPolicy::MaxRecords(0)` with `EhdbError::InvalidState`.
+  JSONL setup validates before writing a journal entry, so rejected
+  zero-retention streams are not persisted across reopen. Keep-all and
+  positive bounded retention behavior is unchanged. This remains local
+  stream log validation only; no scheduler, background stream
+  processing, NATS bridge, network API, gateway route, distributed
+  stream storage, production replication, or persistent per-tenant
+  service process was added. Current coverage is 191 Rust tests plus
+  Criterion benchmark compilation. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `b4cee2b`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
