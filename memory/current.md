@@ -578,6 +578,23 @@ Only **one** umbrella remains open:
   146 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `817bb1f`.
+- `noetl/ehdb#87` merged on 2026-06-23 UTC as
+  `854dae3417ec182313666f022059c62286c86fbb`, closing issue #86 and
+  adding bounded local retrieval context payload execution.
+  `RetrievalContextPayloadExecutorConfig` in `ehdb-service` validates
+  positive request/result byte limits, supplies conservative defaults,
+  and powers `LocalRetrievalSearchService::execute_context_payload_with_config`.
+  Oversized request payloads are rejected before JSON decode and
+  oversized encoded result payloads are rejected before returning bytes,
+  while the existing convenience executor uses the default config. This
+  remains an in-process worker/playbook payload guard only; no network
+  API, Arrow Flight retrieval endpoint, prompt template engine, LLM
+  invocation, ANN index, BM25 engine, learned ranker, gateway route,
+  production IAM, retrieval daemon, distributed query engine, gateway
+  direct data path, scheduler, or persistent per-tenant service process
+  was added. Current coverage is 150 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `7c0073c`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
