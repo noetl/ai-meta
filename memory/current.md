@@ -560,6 +560,24 @@ Only **one** umbrella remains open:
   143 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `3ae0c70`.
+- `noetl/ehdb#85` merged on 2026-06-23 UTC as
+  `9c494f9dd1879e6694a4dc3d0fad122f54601139`, closing issue #84 and
+  adding the local retrieval context payload executor.
+  `LocalRetrievalSearchService::execute_context_payload` in
+  `ehdb-service` decodes versioned retrieval context request payload
+  bytes, assembles context from replayed `LocalReferenceRuntime`
+  retrieval state, and returns a versioned result payload. It
+  propagates malformed payload, unsupported version, and invalid
+  search/budget errors deterministically, and covers happy-path payload
+  execution plus empty-result payloads. This remains an in-process
+  worker/playbook payload executor only; no network API, Arrow Flight
+  retrieval endpoint, prompt template engine, LLM invocation, ANN index,
+  BM25 engine, learned ranker, gateway route, production IAM, retrieval
+  daemon, distributed query engine, gateway direct data path, or
+  persistent per-tenant service process was added. Current coverage is
+  146 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `817bb1f`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
