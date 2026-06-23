@@ -956,6 +956,22 @@ Only **one** umbrella remains open:
   Current coverage is 202 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `252e425`.
+- `noetl/ehdb#129` merged on 2026-06-23 UTC as
+  `5aa284228eecb877f36e02d701da1168ce4aaa55`, closing issue #128 and
+  validating persisted transaction journal identifiers during local
+  JSONL replay. Replayed transaction envelopes now re-run transaction
+  ID, tenant, and namespace validation; catalog, stream, retrieval,
+  system-library, and storage mutation identifiers are also revalidated
+  before insertion. Stream publish subjects inside transaction mutations
+  are revalidated as concrete subjects, and corrupted persisted
+  transaction records fail reopen deterministically instead of entering
+  ordered replay state. This remains local transaction-log replay
+  validation only; no consensus engine, background processing, network
+  API, gateway data-touch behavior, production replication, scheduler
+  behavior, or persistent per-tenant service process was added. Current
+  coverage is 208 Rust tests plus Criterion benchmark compilation.
+  `repos/ehdb` should point at this merged SHA; `repos/ehdb-wiki`
+  should point at `e32cd7c`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
