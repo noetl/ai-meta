@@ -882,6 +882,21 @@ Only **one** umbrella remains open:
   service process was added. Current coverage is 194 Rust tests plus
   Criterion benchmark compilation. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `f4d98e9`.
+- `noetl/ehdb#119` merged on 2026-06-23 UTC as
+  `2062560d3b6af3929c02230f4846c16ff90a8719`, closing issue #118 and
+  adding explicit subject-filtered durable consumer replay for local
+  EHDB stream logs. `InMemoryStreamLog` and `LocalJsonlStreamLog` now
+  expose `replay_matching_for_consumer`, which filters records pending
+  after the durable consumer ack cursor by subject without moving that
+  cursor. Missing consumers still return `EhdbError::NotFound`. Tests
+  cover wildcard filtering, cursor behavior, missing consumers, and
+  JSONL reopen behavior. This remains local explicit stream-log replay
+  only; no durable subject subscription, scheduler, background stream
+  processing, NATS bridge, network API, gateway route, distributed
+  stream storage, production replication, or persistent per-tenant
+  service process was added. Current coverage is 196 Rust tests plus
+  Criterion benchmark compilation. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `9c154c4`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
