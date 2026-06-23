@@ -939,6 +939,23 @@ Only **one** umbrella remains open:
   198 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `c628ee1`.
+- `noetl/ehdb#127` merged on 2026-06-23 UTC as
+  `97c4cd67a76f61e184a78596507ebbf7daaa4fe5`, closing issue #126 and
+  validating persisted stream journal identifiers during local JSONL
+  replay. Replayed stream config, create-consumer, publish, and ack
+  entries now re-run tenant/namespace/stream coordinate validation;
+  consumer names and stream record transaction IDs are also revalidated
+  before rebuilding retained records or consumer cursor state. Invalid
+  persisted identifiers fail reopen deterministically with
+  `EhdbError::InvalidIdentifier` instead of rebuilding invalid state or
+  surfacing as misleading missing-stream errors. This remains local
+  stream journal replay validation only; no durable subject
+  subscription, scheduler, background stream processing, NATS bridge,
+  network API, gateway route, distributed stream storage, production
+  replication, or persistent per-tenant service process was added.
+  Current coverage is 202 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `252e425`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
