@@ -674,6 +674,23 @@ Only **one** umbrella remains open:
   was added. Current coverage is 162 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `5c64c20`.
+- `noetl/ehdb#97` merged on 2026-06-23 UTC as
+  `8fff5535f2e13de9b322bdd6fe6b514e8cdad132`, closing issue #96 and
+  adding validation for retrieval context execution receipt summaries.
+  `RetrievalContextPayloadExecutionSummary::validate` now requires
+  positive request/result payload byte counts and rejects non-zero total
+  text chars when the context block count is zero. The receipt codec
+  applies this validation during both encode and decode, while
+  execution-produced and helper-produced receipts remain
+  behavior-compatible. This remains local receipt contract hardening
+  only; no event publication, stream mutation, logging sink, network
+  API, Arrow Flight retrieval endpoint, prompt engine, LLM invocation,
+  ANN index, BM25 engine, learned ranker, gateway route, production
+  IAM, ACL integration, retrieval daemon, distributed query engine,
+  gateway direct data path, scheduler, or persistent per-tenant service
+  process was added. Current coverage is 165 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `aaa6335`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
