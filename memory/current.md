@@ -1016,6 +1016,21 @@ Only **one** umbrella remains open:
   Current coverage is 213 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `001cea2`.
+- `noetl/ehdb#137` merged on 2026-06-24 UTC as
+  `f318fcb4a8978a718be2094245c8c672ab611ea4`, closing issue #136 and
+  validating Arrow Flight scan selector identifiers during local scan
+  ticket encode/decode. `ScanFlightTicket` now revalidates
+  projection-column and equality-predicate column identifiers before
+  producing bytes, Arrow `Ticket` values, or command descriptors, and
+  after decoding ticket bytes. Invalid decoded selector identifiers fail
+  before local scan execution. This remains local Arrow Flight scan
+  ticket codec validation only; no SQL planner, predicate pushdown
+  implementation, distributed execution, gateway direct reads,
+  non-loopback exposure, production auth/IAM, background processing, or
+  persistent per-tenant service process was added. Current coverage is
+  214 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `b6cf9a9`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
