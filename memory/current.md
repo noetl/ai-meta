@@ -1060,6 +1060,22 @@ Only **one** umbrella remains open:
   per-tenant service process was added. Current coverage is 216 Rust
   tests plus Criterion benchmark compilation. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `1c8fd47`.
+- `noetl/ehdb#143` merged on 2026-06-24 UTC as
+  `5a1954eb81565015e6f956586632d91d0d84c2af`, closing issue #142 and
+  adding local Arrow Flight scan `FlightInfo` fixture validation.
+  `ArrowScanResult::to_flight_info` now validates generated fixtures,
+  and `ArrowScanResult::validate_flight_info` rejects unsupported app
+  metadata, unordered scan results, negative record or byte counts,
+  missing endpoint tickets, and multiple endpoints while reusing the
+  scan ticket validation boundary for descriptors and endpoint tickets.
+  This remains local Arrow Flight scan `FlightInfo` fixture validation
+  only; no Flight protocol expansion, distributed execution, SQL
+  planner, predicate pushdown implementation, gateway direct reads,
+  non-loopback exposure, production auth/IAM, background processing, or
+  persistent per-tenant service process was added. Current coverage is
+  217 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `bb0ae68`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
