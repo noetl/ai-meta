@@ -1115,6 +1115,19 @@ Only **one** umbrella remains open:
   service process was added. Current coverage is 220 Rust tests plus
   Criterion benchmark compilation. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `d8887b3`.
+- `noetl/ehdb#151` merged on 2026-06-24 UTC as
+  `d17daa13d913e014fb4358ededc59c440fded2fd`, closing issue #150 and
+  validating Arrow Flight scan `FlightInfo` schema IPC bytes. The local
+  `FlightInfo` validator now decodes non-empty schema metadata as Arrow
+  schema IPC bytes and rejects malformed schema payloads before treating
+  scan info as valid. This remains local Arrow Flight scan `FlightInfo`
+  fixture validation only; no Flight protocol expansion, distributed
+  execution, SQL planner, predicate pushdown implementation, gateway
+  direct reads, non-loopback exposure, production auth/IAM, background
+  processing, or persistent per-tenant service process was added.
+  Current coverage is 221 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `ed85824`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
