@@ -1346,6 +1346,20 @@ Only **one** umbrella remains open:
   228 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `e272a99`.
+- `noetl/ehdb#183` merged on 2026-06-25 UTC as
+  `9a60c4da5bc961124dc21f16454047c8dbf1f3a1`, closing issue #182 and
+  adding local Arrow Flight scan command descriptor path validation.
+  `LocalArrowFlightServer` now rejects direct `get_flight_info` and
+  `get_schema` command descriptors that carry non-empty path entries
+  before scan execution, while valid descriptors produced by
+  `ScanFlightTicket::command_descriptor` continue to work. This remains
+  local Arrow Flight scan descriptor request validation only; no Flight
+  protocol expansion, distributed execution, SQL planner, predicate
+  pushdown implementation, gateway direct reads, non-loopback exposure,
+  production auth/IAM, background processing, or persistent per-tenant
+  service process was added. Current coverage is 229 Rust tests plus
+  Criterion benchmark compilation. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `69f1bee`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
