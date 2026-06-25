@@ -1517,6 +1517,19 @@ Only **one** umbrella remains open:
   per-tenant service process was added. Current coverage is 243 Rust
   tests plus Criterion benchmark compilation. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `3986c6a`.
+- `noetl/ehdb#207` merged on 2026-06-25 UTC as
+  `3fe220226f8a96bfc752654b192548b0578a13ba`, closing issue #206 and
+  adding strict JSONL system-library journal field replay validation.
+  Local system-library journal entries plus persisted publish and bind
+  request payloads now reject unknown fields during replay before
+  rebuilding WASM manifest and hot-replacement binding state. This
+  remains local system-library journal replay validation only; no WASM
+  execution, background processing, network API, gateway data-touch
+  behavior, production replication, scheduler behavior, object transfer
+  execution, distributed transaction coordinator, or persistent
+  per-tenant service process was added. Current coverage is 244 Rust
+  tests plus Criterion benchmark compilation. `repos/ehdb` should point
+  at this merged SHA; `repos/ehdb-wiki` should point at `774062f`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
