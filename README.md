@@ -16,7 +16,8 @@ biotech companies, and individual scientists running molecular workflows
 on pooled computation resources, with results published in a
 reproducible, citable, peer-review-ready way.
 
-The active pilot tenant is [`repos/glut-probe-design`](repos/glut-probe-design)
+The active pilot tenant is the private external repository
+`shastaratech/glut-probe-design`
 — AI-driven probe design for the GLUT glucose-transporter family. The
 in-flight workstream `kadyapam/ligand-prep-worker-local-deps` lands
 **pluggable per-task dependencies** in NoETL workers so any tenant can
@@ -110,9 +111,10 @@ This keeps a durable memory chain in Git commits and a compact working state in 
 
 Project-specific memory belongs in the owning repository. For
 `glut-probe-design`, keep task/session/science/data-catalog/tenant playbook
-memory under `repos/glut-probe-design/memory/`. Use `ai-meta/memory/` only when
-recording NoETL platform decisions, deployment state, submodule pointer syncs,
-or cross-repo coordination.
+memory in the private glut-probe-design workspace/repository (not under
+`ai-meta/repos/`). Use `ai-meta/memory/` only when recording NoETL platform
+decisions, deployment state, submodule pointer syncs, or cross-repo
+coordination.
 
 ## Contributor checklist (cross-repo / ecosystem changes)
 

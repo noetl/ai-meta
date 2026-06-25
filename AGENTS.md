@@ -58,7 +58,8 @@ implementation.
 - Keep `ai-meta/memory/` focused on NoETL platform, orchestration, submodule
   pointer, deployment, and cross-repo coordination state.
 - Keep all `glut-probe-design` project-specific AI memory inside
-  `repos/glut-probe-design/memory/`.
+  the private `shastaratech/glut-probe-design` repository/workspace
+  (outside `ai-meta/repos/`).
 - If a GLUT task requires a NoETL platform change, record the GLUT scientific
   or tenant-project context in the GLUT repository, and record only the NoETL
   platform decision, compatibility note, or pointer/deploy state in `ai-meta`.
