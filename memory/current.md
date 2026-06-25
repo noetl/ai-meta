@@ -1556,6 +1556,19 @@ Only **one** umbrella remains open:
   246 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `95da92e`.
+- `noetl/ehdb#213` merged on 2026-06-25 UTC as
+  `9458476eeb7474ba807974e9facaeb7c769e274d`, closing issue #212 and
+  adding strict retrieval metadata JSON decode validation. Retrieval
+  documents, chunks, embeddings, registration requests, vector/text/
+  hybrid search requests, and local search hit metadata now reject
+  unknown JSON fields before persisted or handed-off RAG metadata is
+  accepted. This remains retrieval metadata decode validation only; no
+  ANN index, full-text index, retrieval daemon, network API, gateway
+  route, prompt engine, LLM invocation, production IAM, query planner,
+  background worker, or persistent per-tenant service process was added.
+  Current coverage is 247 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `abc6ef0`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
