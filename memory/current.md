@@ -1360,6 +1360,20 @@ Only **one** umbrella remains open:
   service process was added. Current coverage is 229 Rust tests plus
   Criterion benchmark compilation. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `69f1bee`.
+- `noetl/ehdb#185` merged on 2026-06-25 UTC as
+  `3c460370cc3724ea2e08cfaffbbcf523e63522e3`, closing issue #184 and
+  adding strict local Arrow Flight scan ticket payload validation.
+  `ScanFlightTicket::decode` now rejects unknown top-level ticket fields,
+  unknown embedded latest-table scan request fields, and unknown
+  equality predicate fields before scan execution or Flight handoff.
+  This remains local Arrow Flight scan ticket/request payload validation
+  only; no Flight protocol expansion, distributed execution, SQL
+  planner, predicate pushdown implementation, gateway direct reads,
+  non-loopback exposure, production auth/IAM, background processing, or
+  persistent per-tenant service process was added. Current coverage is
+  230 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `4ba0753`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
