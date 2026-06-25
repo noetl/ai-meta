@@ -1460,6 +1460,23 @@ Only **one** umbrella remains open:
   was added. Current coverage is 237 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `6010d30`.
+- `noetl/ehdb#199` merged on 2026-06-25 UTC as
+  `095db5246ecb272ece7a1ee07a871672808513fb`, closing issue #198 and
+  adding canonical local retrieval context execution receipt event
+  payload byte validation.
+  `RetrievalContextPayloadExecutionReceiptEventPayload::decode` now
+  rejects pretty-printed or otherwise non-canonical JSON bytes unless
+  they exactly match the EHDB encoding produced by `encode`, before
+  replay decode, publisher helper use, or consumer handoff while keeping
+  nested receipt bytes on the strict canonical receipt decoder. This
+  remains local retrieval context receipt event payload byte-contract
+  validation only; no stream publication behavior changes, network API,
+  gateway route, prompt engine, LLM invocation, retrieval daemon,
+  distributed search service, production IAM, background processing, or
+  persistent per-tenant service process was added. Current coverage is
+  238 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `c6c5a9c`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
