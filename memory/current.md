@@ -1530,6 +1530,19 @@ Only **one** umbrella remains open:
   per-tenant service process was added. Current coverage is 244 Rust
   tests plus Criterion benchmark compilation. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `774062f`.
+- `noetl/ehdb#209` merged on 2026-06-25 UTC as
+  `eb191349e46d60606d3311f84c4eb69b1b1d5520`, closing issue #208 and
+  adding strict storage metadata JSON decode validation. Object refs,
+  geo placements, placement policy targets, replica records,
+  replication actions, replication plans, and the local replica registry
+  now reject unknown JSON fields before replay or planning treats the
+  metadata as valid routing state. This remains storage metadata decode
+  validation only; no object movement, cloud adapters, network API,
+  gateway data-touch behavior, production replication, scheduler,
+  background worker, or persistent per-tenant service process was added.
+  Current coverage is 245 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `947b19b`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
