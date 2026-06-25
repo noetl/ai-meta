@@ -1389,6 +1389,20 @@ Only **one** umbrella remains open:
   added. Current coverage is 231 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `df2f341`.
+- `noetl/ehdb#189` merged on 2026-06-25 UTC as
+  `9c80d974aefc7abe5582d0c8da0732ab1f88e004`, closing issue #188 and
+  adding strict local retrieval context payload field validation.
+  `RetrievalContextRequestPayload::decode` and
+  `RetrievalContextResultPayload::decode` now reject unknown request
+  envelope, assembly request, result envelope, context object, and
+  context block fields before local worker/playbook execution or handoff.
+  This remains local retrieval context worker/playbook payload
+  validation only; no network API, gateway route, prompt engine, LLM
+  invocation, retrieval daemon, distributed search service, production
+  IAM, background processing, or persistent per-tenant service process
+  was added. Current coverage is 233 Rust tests plus Criterion benchmark
+  compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `a3ab141`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
