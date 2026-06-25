@@ -1227,6 +1227,22 @@ Only **one** umbrella remains open:
   added. Current coverage is 226 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `0a94d39`.
+- `noetl/ehdb#167` merged on 2026-06-25 UTC as
+  `25643a903c0d3ea7426d25e719b99d8c228e0de7`, closing issue #166 and
+  adding receiver-side Arrow Flight scan data validation against the
+  expected scan ticket. `ArrowScanResult` now has helpers for raw
+  `FlightData` streams and decoded Arrow batches that validate returned
+  data against returned `FlightInfo` plus the expected
+  `ScanFlightTicket`; local service, server, and loopback client smoke
+  paths use those helpers before treating returned scan data as
+  coherent. This remains local Arrow Flight scan data receiver-side
+  validation only; no Flight protocol expansion, distributed execution,
+  SQL planner, predicate pushdown implementation, gateway direct reads,
+  non-loopback exposure, production auth/IAM, background processing, or
+  persistent per-tenant service process was added. Current coverage is
+  226 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `5f87b33`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
