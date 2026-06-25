@@ -1504,6 +1504,19 @@ Only **one** umbrella remains open:
   was added. Current coverage is 242 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `317774a`.
+- `noetl/ehdb#205` merged on 2026-06-25 UTC as
+  `4fdd7f4d7e7641845767382501bee3fd3dbd6d75`, closing issue #204 and
+  adding strict JSONL transaction journal field replay validation.
+  Transaction records plus catalog, stream, retrieval, system-library,
+  and storage mutation payloads now reject unknown persisted fields
+  during replay instead of silently ignoring them before rebuilding
+  ordered state. This remains local transaction journal replay
+  validation only; no network API, gateway route, prompt engine, LLM
+  invocation, retrieval daemon, distributed transaction coordinator,
+  production replication, background processing, or persistent
+  per-tenant service process was added. Current coverage is 243 Rust
+  tests plus Criterion benchmark compilation. `repos/ehdb` should point
+  at this merged SHA; `repos/ehdb-wiki` should point at `3986c6a`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
