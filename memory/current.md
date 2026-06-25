@@ -1477,6 +1477,20 @@ Only **one** umbrella remains open:
   238 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `c6c5a9c`.
+- `noetl/ehdb#201` merged on 2026-06-25 UTC as
+  `d14eba7589bae84eb9089c35e904fbcb30afd7a0`, closing issue #200 and
+  adding stream sequence serde validation for local JSONL stream journal
+  replay. `StreamSequence` deserialization now preserves the same
+  nonzero invariant as `StreamSequence::new`, so persisted zero publish
+  record sequences and zero ack cursor sequences are rejected before
+  retained records or durable consumer cursors are rebuilt. This remains
+  local stream journal replay validation only; no stream publication
+  behavior changes, network API, gateway route, prompt engine, LLM
+  invocation, retrieval daemon, distributed search service, production
+  IAM, background processing, or persistent per-tenant service process
+  was added. Current coverage is 241 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `6c0b603`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
