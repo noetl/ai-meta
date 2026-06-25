@@ -1569,6 +1569,19 @@ Only **one** umbrella remains open:
   Current coverage is 247 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `abc6ef0`.
+- `noetl/ehdb#215` merged on 2026-06-25 UTC as
+  `a7776b919a82130ac5f249b88f367d886c258304`, closing issue #214 and
+  adding strict system-library metadata JSON decode validation. Resolved
+  WASM library manifests, NoETL plugin refs, and environment/channel
+  binding metadata now reject unknown JSON fields before persisted or
+  handed-off system-library metadata is accepted. This remains
+  system-library metadata decode validation only; no WASM execution,
+  background processing, network API, gateway data-touch behavior,
+  production replication, scheduler behavior, distributed transaction
+  coordinator, object transfer execution, or persistent per-tenant
+  service process was added. Current coverage is 248 Rust tests plus
+  Criterion benchmark compilation. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `3454b96`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
