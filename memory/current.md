@@ -1491,6 +1491,19 @@ Only **one** umbrella remains open:
   was added. Current coverage is 241 Rust tests plus Criterion
   benchmark compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `6c0b603`.
+- `noetl/ehdb#203` merged on 2026-06-25 UTC as
+  `89e35cff7f90e36b02ec47ba521428b5629c4199`, closing issue #202 and
+  adding strict JSONL stream journal field replay validation. Stream
+  journal entries, stream configs, stream records, and durable consumer
+  records now reject unknown persisted fields during replay instead of
+  silently ignoring them before rebuilding stream state. This remains
+  local stream journal replay validation only; no stream publication
+  behavior changes, network API, gateway route, prompt engine, LLM
+  invocation, retrieval daemon, distributed search service, production
+  IAM, background processing, or persistent per-tenant service process
+  was added. Current coverage is 242 Rust tests plus Criterion
+  benchmark compilation. `repos/ehdb` should point at this merged SHA;
+  `repos/ehdb-wiki` should point at `317774a`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
