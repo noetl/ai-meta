@@ -1543,6 +1543,19 @@ Only **one** umbrella remains open:
   Current coverage is 245 Rust tests plus Criterion benchmark
   compilation. `repos/ehdb` should point at this merged SHA;
   `repos/ehdb-wiki` should point at `947b19b`.
+- `noetl/ehdb#211` merged on 2026-06-25 UTC as
+  `390a94110cf0acdedd8a61def1eba5e982196dc3`, closing issue #210 and
+  adding strict catalog metadata JSON decode validation. Catalog tables,
+  snapshots, scan grants, create-table requests, snapshot commits, scan
+  grant requests, table schemas, and column schemas now reject unknown
+  JSON fields before persisted metadata is accepted for replay or
+  catalog operations. This remains catalog metadata decode validation
+  only; no network API, gateway route, production ACL/IAM engine, query
+  planner, distributed transaction coordinator, background worker, or
+  persistent per-tenant service process was added. Current coverage is
+  246 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `95da92e`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
