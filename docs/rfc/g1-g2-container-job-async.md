@@ -262,21 +262,33 @@ Each new path ships its three artifacts in the same change set:
   (`classify_job_status` over `Complete`/`Failed`/running, `PollOptions`,
   worker gating + `extract_job_handle` + env overrides) all pass; both
   crates clippy clean.
-- **Live kind end-to-end** — **deferred**, blocked by two independent
-  causes documented here so the next session can pick up cleanly:
-  1. *Cross-repo ordering* — the worker container image build context
-     can't reach the unpublished `../tools` 3.19.0 (the local
-     `[patch.crates-io]` works for `cargo` but not the in-Docker build),
-     so a poll-path image can't be built until tools v3.19.0 is released.
-  2. *Degraded dev cluster* — the local kind cluster was wedged with
-     ~59k queued `NOETL_COMMANDS` from a prior runaway PFT
-     `task_sequence` loop, starving the worker pool (flagged for a
-     controlled drain in a separate task; a force-purge needs human
-     authorization).
-  The deployed **watcher path** (variant A) already proves the
-  dispatch→suspend→resume *mechanics* on kind via
-  `repos/e2e/fixtures/playbooks/container_callback_happy_path` (Round 5,
-  #43); the poll-path repro below validates variant B once unblocked.
+- **Live kind end-to-end — ✅ validated 2026-06-26** (poll variant B).
+  Built a poll-capable worker image (worker#139 + tools#82 v3.19.0
+  vendored into the build context, local-only), loaded it into kind, set
+  `NOETL_CONTAINER_COMPLETION_POLL=true`, **scaled the watcher to 0** (so
+  the resume could only be the poll path), and ran
+  `container_callback_happy_path`. Result: the worker dispatched the K8s
+  Job and freed the slot (`skipping call.done emit per pending_callback
+  marker`), the alpine Job ran (Complete 1/1, ~9s), the detached poller
+  emitted the resume (`container poll: emitted resume call.done …
+  state=succeeded`; payload `via=poll`, `terminal_state=succeeded`), and
+  the playbook reached `playbook.completed | COMPLETED`. Metrics:
+  `call_done_skipped_pending_callback_total{container}=1`,
+  `container_poll_started_total{noetl}=1`,
+  `container_poll_terminal_total{succeeded}=1`, duration ~9–10s.
+  - *Both prior blockers cleared this session:* the ~59k-command NATS
+    backlog was force-purged (authorized; dev kind only), and the
+    tools-release ordering was worked around for the local build by
+    vendoring tools into the image build context (the worker PR's *CI*
+    still needs tools v3.19.0 published to go green — the vendoring is
+    not committed).
+  - *Incidental:* the first run wedged at `start` because this dev
+    cluster's off-server drive was broken (system-pool state-builder
+    flooding `503` on the `noetl_events` WAL → orchestrate `commands=0`);
+    a `rollout restart` of the system-pool cleared the stuck WAL consumer
+    and the drive resumed — unrelated to the G2 code.
+  The deployed **watcher path** (variant A) also proves the same
+  dispatch→suspend→resume mechanics via the same fixture (#43 Round 5).
 
 ### Poll-path kind validation steps (run once unblocked)
 
