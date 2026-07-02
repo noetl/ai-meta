@@ -1582,6 +1582,20 @@ Only **one** umbrella remains open:
   service process was added. Current coverage is 248 Rust tests plus
   Criterion benchmark compilation. `repos/ehdb` should point at this
   merged SHA; `repos/ehdb-wiki` should point at `3454b96`.
+- `noetl/ehdb#217` merged on 2026-07-02 UTC as
+  `f95aeae0ec3415ce72690383cbb3756e73aadf76`, closing issue #216 and
+  adding direct local Arrow scan projection shape validation. The
+  `LocalArrowSnapshotScanner` now rejects empty projection lists and
+  duplicate projection columns before object reads, keeping the direct
+  local scanner aligned with the service/Flight projection contract
+  while preserving ordered valid projections and existing missing-column
+  errors. This remains local Arrow IPC scan request validation only; no
+  SQL planning, predicate pushdown, distributed execution, gateway
+  direct reads, Arrow Flight protocol changes, production IAM/ACL
+  behavior, request scheduling, object movement, or persistent
+  per-tenant service process was added. Current coverage is 249 Rust
+  tests plus Criterion benchmark compilation. `repos/ehdb` should point
+  at this merged SHA; `repos/ehdb-wiki` should point at `aa11507`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
