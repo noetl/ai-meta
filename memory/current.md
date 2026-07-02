@@ -1622,6 +1622,20 @@ Only **one** umbrella remains open:
   251 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `9cd4807`.
+- `noetl/ehdb#223` merged on 2026-07-02 UTC as
+  `20d4bca81dd32c91ebb7ed17425a29951e59850b`, closing issue #222 and
+  adding table schema column identifier revalidation. `TableSchema::new`
+  now revalidates every column identifier, including preconstructed or
+  decoded `ColumnSchema` values, before catalog state is created. This
+  preserves non-empty schema and duplicate-column validation while
+  keeping Arrow projection and predicate selectors unambiguous. This
+  remains table schema validation only; no schema evolution, type
+  coercion, SQL planning, predicate pushdown, distributed execution,
+  gateway direct reads, production IAM/ACL behavior, object movement, or
+  persistent per-tenant service process was added. Current coverage is
+  252 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `04e06b4`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
