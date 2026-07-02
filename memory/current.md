@@ -1650,6 +1650,22 @@ Only **one** umbrella remains open:
   per-tenant service process was added. Current coverage is 253 Rust
   tests plus Criterion benchmark compilation. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `a2cc35b`.
+- `noetl/ehdb#227` merged on 2026-07-02 UTC as
+  `6a875c70b0d25f038bef73a2ebdaa776a5e9c922`, closing issue #226 and
+  adding core identifier JSON decode validation. Core identifier
+  newtypes now deserialize JSON through their constructors, preserving
+  the existing string JSON shape while rejecting malformed tenant,
+  namespace, table, transaction, stream, retrieval, and related
+  identifiers before metadata is accepted. Service payload decoders and
+  JSONL replay boundaries keep malformed identifiers classified as
+  `EhdbError::InvalidIdentifier` while preserving storage/state errors
+  for corrupt or unknown-field payloads. This remains core identifier
+  JSON decode validation only; no schema evolution, type coercion, SQL
+  planning, predicate pushdown, distributed execution, gateway direct
+  reads, production IAM/ACL behavior, object movement, or persistent
+  per-tenant service process was added. Current coverage is 254 Rust
+  tests plus Criterion benchmark compilation. `repos/ehdb` should point
+  at this merged SHA; `repos/ehdb-wiki` should point at `698cf29`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
