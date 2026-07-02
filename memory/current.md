@@ -1636,6 +1636,20 @@ Only **one** umbrella remains open:
   252 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
   should point at this merged SHA; `repos/ehdb-wiki` should point at
   `04e06b4`.
+- `noetl/ehdb#225` merged on 2026-07-02 UTC as
+  `7c00dd7e185a02ecd4922de17ff0160a2018515c`, closing issue #224 and
+  adding table/column schema JSON decode validation. `ColumnSchema`
+  decode now routes through `ColumnSchema::new`, and `TableSchema`
+  decode routes through `TableSchema::new`, preserving strict
+  unknown-field behavior and the existing JSON shape while rejecting
+  invalid column identifiers and duplicate table schema columns during
+  metadata decode. This remains table/column schema JSON decode
+  validation only; no schema evolution, type coercion, SQL planning,
+  predicate pushdown, distributed execution, gateway direct reads,
+  production IAM/ACL behavior, object movement, or persistent
+  per-tenant service process was added. Current coverage is 253 Rust
+  tests plus Criterion benchmark compilation. `repos/ehdb` should point
+  at this merged SHA; `repos/ehdb-wiki` should point at `a2cc35b`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
