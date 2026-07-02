@@ -1596,6 +1596,19 @@ Only **one** umbrella remains open:
   per-tenant service process was added. Current coverage is 249 Rust
   tests plus Criterion benchmark compilation. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `aa11507`.
+- `noetl/ehdb#219` merged on 2026-07-02 UTC as
+  `714a50b932cb09891f2eb9f97ef9496949c3ed3c`, closing issue #218 and
+  adding direct local Arrow scan selector identifier validation. The
+  `LocalArrowSnapshotScanner` now validates projection-column and
+  equality-predicate column selector identifiers before object reads,
+  while preserving `NotFound` behavior for valid-but-missing selector
+  columns. This remains direct local Arrow IPC scan selector validation
+  only; no SQL planning, predicate pushdown, distributed execution,
+  gateway direct reads, Arrow Flight protocol changes, production
+  IAM/ACL behavior, request scheduling, object movement, or persistent
+  per-tenant service process was added. Current coverage is 250 Rust
+  tests plus Criterion benchmark compilation. `repos/ehdb` should point
+  at this merged SHA; `repos/ehdb-wiki` should point at `d858fb2`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
