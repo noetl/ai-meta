@@ -1609,6 +1609,19 @@ Only **one** umbrella remains open:
   per-tenant service process was added. Current coverage is 250 Rust
   tests plus Criterion benchmark compilation. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `d858fb2`.
+- `noetl/ehdb#221` merged on 2026-07-02 UTC as
+  `6cc5d8edeb7637304458657acafd7f85fc37785e`, closing issue #220 and
+  adding duplicate table schema column validation. `TableSchema::new`
+  now rejects duplicate column names before catalog state is created,
+  preserving non-empty schema and per-column identifier validation while
+  keeping Arrow projection and predicate selectors unambiguous. This
+  remains table schema validation only; no schema evolution, type
+  coercion, SQL planning, predicate pushdown, distributed execution,
+  gateway direct reads, production IAM/ACL behavior, object movement, or
+  persistent per-tenant service process was added. Current coverage is
+  251 Rust tests plus Criterion benchmark compilation. `repos/ehdb`
+  should point at this merged SHA; `repos/ehdb-wiki` should point at
+  `9cd4807`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
