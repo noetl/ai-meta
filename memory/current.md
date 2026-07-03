@@ -1681,6 +1681,23 @@ Only **one** umbrella remains open:
   Rust tests plus Criterion benchmark compilation. `repos/ehdb` should
   point at this merged SHA; `repos/ehdb-wiki` should point at
   `8cacacf`.
+- `noetl/ehdb#231` merged on 2026-07-03 UTC as
+  `16bba82eca54ade012fcfa2b9bf96149e7cb5102`, closing issue #230 and
+  adding embedded NoETL role/capability policy in `ehdb-core`. EHDB can
+  now model itself as an embedded distributed database substrate across
+  NoETL workers, APIs, gateways, playbooks, and system contexts while
+  preserving the execution-model boundary: gateway/API roles default to
+  control-plane-only embedding, and worker/playbook/system roles carry
+  explicit data-plane capabilities for bounded catalog, transaction,
+  stream, object, retrieval, replication, and system-library work. This
+  is policy/modeling only; it does not add a daemon, network API,
+  gateway route, SQL planner, distributed executor, production IAM,
+  storage mutation behavior, or persistent per-tenant process.
+  Validation covered `cargo fmt`, `cargo fmt --all --check`,
+  `cargo test -p ehdb-core`, `cargo test --workspace`, and
+  `cargo bench --workspace --no-run`. Current coverage is 258 Rust tests
+  plus Criterion benchmark compilation. `repos/ehdb` should point at
+  this merged SHA; `repos/ehdb-wiki` should point at `0a0c010`.
 - `noetl/noetl#669` merged on 2026-07-03 UTC as
   `4a8caeb7e587aa1d519ae6ee298b472c5c36594e`, closing issue #668 and
   adding the first NoETL-side EHDB integration contract. EHDB remains
