@@ -1666,6 +1666,21 @@ Only **one** umbrella remains open:
   per-tenant service process was added. Current coverage is 254 Rust
   tests plus Criterion benchmark compilation. `repos/ehdb` should point
   at this merged SHA; `repos/ehdb-wiki` should point at `698cf29`.
+- `noetl/ehdb#229` merged on 2026-07-03 UTC as
+  `200ade198095d172a796bce8d1bcd076f39ec9ba`, closing issue #228 and
+  adding a NoETL runtime surface replay fixture. The new
+  `ehdb-reference` integration test drives a worker/playbook-shaped
+  flow only through `LocalReferenceRuntime` appends, then reopens the
+  runtime and verifies catalog scan grants, stream consumer replay,
+  retrieval text lookup, system WASM library resolution, and storage
+  replica inventory from transaction replay. This remains a local
+  reference/runtime integration fixture only; no gateway route, direct
+  gateway data access, persistent per-tenant service, production IAM,
+  distributed execution, SQL planning, object movement, or external
+  dependency replacement behavior was added. Current coverage is 255
+  Rust tests plus Criterion benchmark compilation. `repos/ehdb` should
+  point at this merged SHA; `repos/ehdb-wiki` should point at
+  `8cacacf`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
