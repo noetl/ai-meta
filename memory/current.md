@@ -1696,6 +1696,19 @@ Only **one** umbrella remains open:
   Validation covered 8 focused tests, 57 nearby runtime tests, and
   `compileall` for the new module. `repos/noetl` should point at this
   merged SHA.
+- `noetl/noetl#671` merged on 2026-07-03 UTC as
+  `d22edb5e8a997d8634dd6b40be02953c9ba92923`, closing issue #670 and
+  adding the NoETL EHDB local-reference adapter descriptor.
+  `noetl.core.ehdb_adapter.ehdb_adapter_from_env` returns `None` when
+  EHDB is disabled and builds a `LocalReferenceEhdbAdapter` only for
+  worker/playbook `local_reference` contracts with an explicit event-log
+  path. The adapter can export runtime env for future helper calls but
+  remains side-effect-free: it does not open logs, connect to EHDB,
+  replace existing dependencies, add gateway/server data paths, or start
+  persistent per-tenant processes. Validation covered the EHDB contract
+  and adapter tests plus nearby runtime topology/pool-routing tests and
+  `compileall` for the EHDB modules. `repos/noetl` should point at this
+  merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
