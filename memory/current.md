@@ -1709,6 +1709,20 @@ Only **one** umbrella remains open:
   and adapter tests plus nearby runtime topology/pool-routing tests and
   `compileall` for the EHDB modules. `repos/noetl` should point at this
   merged SHA.
+- `noetl/noetl#673` merged on 2026-07-03 UTC as
+  `aa35becaecb53d00e44aff08b692d2468c75aa94`, closing issue #672 and
+  adding the NoETL EHDB local-reference helper invocation plan.
+  `noetl.core.ehdb_adapter.ehdb_helper_invocation_from_env` returns
+  `None` when EHDB is disabled and, for enabled worker/playbook
+  local-reference configs, requires an explicit `NOETL_EHDB_HELPER_BIN`
+  before producing deterministic `argv` plus EHDB runtime env.
+  `LocalReferenceEhdbInvocation` can merge that env into a subprocess
+  environment, but remains an immutable plan only: it does not execute a
+  subprocess, import Rust EHDB, open logs, connect to storage, replace
+  dependencies, add gateway/server data paths, or start persistent
+  per-tenant services. Validation covered 21 EHDB contract/adapter
+  tests, 70 nearby runtime tests, `compileall`, and diff whitespace.
+  `repos/noetl` should point at this merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
