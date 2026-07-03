@@ -1757,6 +1757,21 @@ Only **one** umbrella remains open:
   Validation covered 32 EHDB contract/adapter tests, 81 nearby runtime
   tests, `compileall`, diff whitespace, and GitHub `forbid-client-term`.
   `repos/noetl` should point at this merged SHA.
+- `noetl/noetl#677` merged on 2026-07-03 UTC as
+  `6254c44aff6982ca6b127dfa7610b5dc68283e1a`, closing issue #676 and
+  adding the NoETL EHDB control-plane embedding descriptor.
+  `noetl.core.ehdb_control_plane.ehdb_control_plane_from_env` returns
+  `None` when EHDB is disabled or configured for local-reference
+  data-plane mode, and returns `ControlPlaneEhdbEmbedding` for explicit
+  gateway/API/server `control_plane` contracts. The descriptor carries
+  role, `control_plane` capability, and exportable runtime env for
+  planning-only embedding. This is descriptor/modeling only; it does not
+  connect to EHDB, import Rust EHDB, open local logs, execute helpers,
+  add gateway routes, add storage behavior, or start persistent
+  per-tenant services. Validation covered 41 EHDB contract/adapter/
+  control-plane tests, 90 nearby runtime tests, `compileall`, diff
+  whitespace, and GitHub `forbid-client-term`. `repos/noetl` should
+  point at this merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
