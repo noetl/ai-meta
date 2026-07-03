@@ -1681,6 +1681,21 @@ Only **one** umbrella remains open:
   Rust tests plus Criterion benchmark compilation. `repos/ehdb` should
   point at this merged SHA; `repos/ehdb-wiki` should point at
   `8cacacf`.
+- `noetl/noetl#669` merged on 2026-07-03 UTC as
+  `4a8caeb7e587aa1d519ae6ee298b472c5c36594e`, closing issue #668 and
+  adding the first NoETL-side EHDB integration contract. EHDB remains
+  disabled by default in NoETL. `noetl.core.ehdb_contract` validates
+  `NOETL_EHDB_ENABLED`, `NOETL_EHDB_MODE=local_reference`,
+  `NOETL_EHDB_CLIENT_ROLE`, and `NOETL_EHDB_LOCAL_REFERENCE_LOG`.
+  Worker/playbook local-reference roles are accepted with an explicit
+  event-log path; gateway/server roles are rejected so gateway remains
+  a gatekeeper and cannot touch EHDB data directly. This is a
+  contract/readiness slice only; it does not connect to EHDB, replace
+  PostgreSQL/NATS/object stores, add a gateway route, start a
+  persistent per-tenant process, or perform a kind/GKE rollout.
+  Validation covered 8 focused tests, 57 nearby runtime tests, and
+  `compileall` for the new module. `repos/noetl` should point at this
+  merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
