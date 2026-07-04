@@ -1871,6 +1871,14 @@ Only **one** umbrella remains open:
   Validation covered 66 focused EHDB tests, 115 nearby runtime tests,
   `compileall`, diff whitespace, real sibling-helper smoke, and GitHub
   `forbid-client-term`. `repos/noetl` should point at this merged SHA.
+- EHDB Claude continuation handoff created on 2026-07-04 UTC:
+  `noetl/ehdb#234` tracks the next cross-repo development and
+  integration work, and the durable wiki page
+  https://github.com/noetl/ehdb/wiki/Claude-Handoff-EHDB-NoETL-Integration
+  records the phase plan, architecture decisions, validation commands,
+  and Claude kickoff prompt. The issue was added to NoETL org project
+  #4. `repos/ehdb-wiki` should point at
+  `9fc0dd82484ad27d11e32a7c80d73cae72a71b77`.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
