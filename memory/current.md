@@ -1698,6 +1698,26 @@ Only **one** umbrella remains open:
   `cargo bench --workspace --no-run`. Current coverage is 258 Rust tests
   plus Criterion benchmark compilation. `repos/ehdb` should point at
   this merged SHA; `repos/ehdb-wiki` should point at `0a0c010`.
+- `noetl/ehdb#233` merged on 2026-07-04 UTC as
+  `0dc2016f4b692d3d868ccbc3918900962a880ca1`, closing issue #232 and
+  adding the first concrete EHDB local-reference helper command for
+  NoETL integration tests. `ehdb-reference` now exposes
+  `LocalReferenceSummary` plus
+  `ehdb-local-reference summary --log <path>`, returning deterministic
+  JSON counts from replayed local transaction, catalog, stream,
+  retrieval, system-library, and storage state. `ehdb-stream` and
+  `ehdb-retrieval` added read-only count accessors for that summary.
+  This remains bounded local reference inspection: no daemon, network
+  API, gateway route, SQL planner, distributed executor, production IAM,
+  storage mutation behavior, background worker, or persistent
+  per-tenant process. Validation covered `cargo fmt`,
+  `cargo test -p ehdb-stream -p ehdb-retrieval -p ehdb-reference`,
+  direct CLI help smoke, `cargo test --workspace`,
+  `cargo bench --workspace --no-run`, `cargo fmt --all --check`, and
+  `cargo clippy --workspace --all-targets -- -D warnings`; GitHub
+  Actions `rust` passed. Current coverage is 259 Rust tests plus
+  Criterion benchmark compilation. `repos/ehdb` should point at this
+  merged SHA; `repos/ehdb-wiki` should point at `df3f6fb`.
 - `noetl/noetl#669` merged on 2026-07-03 UTC as
   `4a8caeb7e587aa1d519ae6ee298b472c5c36594e`, closing issue #668 and
   adding the first NoETL-side EHDB integration contract. EHDB remains
