@@ -1855,6 +1855,22 @@ Only **one** umbrella remains open:
   smoke, container NoETL EHDB summary smoke, and local `kind-noetl`
   image-archive load plus one-off Job smoke with `imagePullPolicy:
   Never`. `repos/noetl` should point at this merged SHA.
+- `noetl/noetl#687` merged on 2026-07-04 UTC as
+  `f82ccb7f8fb2c2b8ccbc9881ca230d0ca60a8edd`, closing issue #686 and
+  adding a typed EHDB local-reference readiness summary surface.
+  `LocalReferenceEhdbSummary` validates the
+  `ehdb-local-reference summary --log <path>` JSON shape, required
+  count fields, non-negative integer counts, and matching log path.
+  `read_ehdb_local_reference_summary_from_env` executes the packaged
+  helper through the existing bounded worker/playbook wrapper and
+  returns the typed summary. The smoke script now reuses this same
+  summary contract instead of duplicating raw JSON checks. This is a
+  worker/playbook readiness/check surface only; gateway/API/server
+  local-reference execution remains rejected, and no routes,
+  persistent services, GKE rollout, or database replacement were added.
+  Validation covered 66 focused EHDB tests, 115 nearby runtime tests,
+  `compileall`, diff whitespace, real sibling-helper smoke, and GitHub
+  `forbid-client-term`. `repos/noetl` should point at this merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
