@@ -1806,6 +1806,22 @@ Only **one** umbrella remains open:
   Validation covered 46 EHDB integration tests, 95 nearby runtime tests,
   `compileall`, diff whitespace, and GitHub `forbid-client-term`.
   `repos/noetl` should point at this merged SHA.
+- `noetl/noetl#681` merged on 2026-07-04 UTC as
+  `8851356445a5e10b954d95a77d35c10b804ee380`, closing issue #680 and
+  adding bounded EHDB local-reference helper execution. NoETL now has
+  `ehdb_local_reference_summary_invocation_from_env` for the concrete
+  `ehdb-local-reference summary --log <path>` command plus
+  `execute_ehdb_helper_json`, which runs helper invocations without a
+  shell, captures stdout/stderr, enforces a timeout, rejects non-zero
+  exits, and decodes a JSON object. Disabled and control-plane modes
+  remain side-effect-free, and gateway/API/server roles remain unable to
+  execute local-reference helpers. This is worker/playbook local helper
+  execution only; it does not import Rust EHDB, open storage from
+  gateway/API/server roles, add routes, replace PostgreSQL/NATS/object
+  stores, or start persistent per-tenant processes. Validation covered
+  53 focused EHDB tests, 102 nearby runtime tests, `compileall`, diff
+  whitespace, local `forbid-client-term`, and GitHub
+  `forbid-client-term`. `repos/noetl` should point at this merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
