@@ -1822,6 +1822,24 @@ Only **one** umbrella remains open:
   53 focused EHDB tests, 102 nearby runtime tests, `compileall`, diff
   whitespace, local `forbid-client-term`, and GitHub
   `forbid-client-term`. `repos/noetl` should point at this merged SHA.
+- `noetl/noetl#683` merged on 2026-07-04 UTC as
+  `363c3d4b0eb24b3b47c3b4e621ac72db26864328`, closing issue #682 and
+  adding EHDB helper discovery plus a real local-reference summary smoke
+  path. NoETL now discovers `ehdb-local-reference` from explicit
+  `NOETL_EHDB_HELPER_BIN`, `PATH`, standard runtime/image paths
+  `/usr/local/bin` and `/opt/noetl/bin`, and ai-meta sibling EHDB
+  `target/{release,debug}` outputs. The new
+  `scripts/smoke_ehdb_local_reference_summary.py` runs
+  `summary --log <path>` through the bounded helper execution wrapper
+  and validates the returned JSON summary fields. This is helper
+  discovery and local smoke only; it does not import Rust EHDB, add
+  gateway routes, open storage from gateway/API/server roles, replace
+  PostgreSQL/NATS/object stores, or start persistent per-tenant
+  processes. Validation covered 60 focused tests, 109 nearby runtime
+  tests, `compileall`, diff whitespace, local `forbid-client-term`,
+  sibling EHDB helper build, real-helper smoke with explicit helper
+  path, real-helper smoke through sibling discovery, and GitHub
+  `forbid-client-term`. `repos/noetl` should point at this merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
