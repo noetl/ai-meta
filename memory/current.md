@@ -1772,6 +1772,20 @@ Only **one** umbrella remains open:
   control-plane tests, 90 nearby runtime tests, `compileall`, diff
   whitespace, and GitHub `forbid-client-term`. `repos/noetl` should
   point at this merged SHA.
+- `noetl/noetl#679` merged on 2026-07-04 UTC as
+  `a35316aa1e40d5a675213ffd7498c4870c1a212a`, closing issue #678 and
+  adding the NoETL EHDB integration surface selector.
+  `noetl.core.ehdb_surface.ehdb_surface_from_env` returns `None` when
+  EHDB is disabled, selects `ControlPlaneEhdbEmbedding` for explicit
+  gateway/API/server `control_plane` configs, and selects
+  `LocalReferenceEhdbAdapter` for worker/playbook/system
+  local-reference configs. The selected `EhdbIntegrationSurface`
+  exposes role, mode, capabilities, and runtime env without opening
+  logs, executing helpers, importing Rust EHDB, adding gateway routes,
+  touching storage, or starting persistent per-tenant services.
+  Validation covered 46 EHDB integration tests, 95 nearby runtime tests,
+  `compileall`, diff whitespace, and GitHub `forbid-client-term`.
+  `repos/noetl` should point at this merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
