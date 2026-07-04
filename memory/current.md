@@ -1840,6 +1840,21 @@ Only **one** umbrella remains open:
   sibling EHDB helper build, real-helper smoke with explicit helper
   path, real-helper smoke through sibling discovery, and GitHub
   `forbid-client-term`. `repos/noetl` should point at this merged SHA.
+- `noetl/noetl#685` merged on 2026-07-04 UTC as
+  `2a73a0050990311329150c7b449c5f00b8e2255d`, closing issue #684 and
+  packaging the EHDB local-reference helper into NoETL images. The
+  in-repo dev and pip Dockerfiles now build `ehdb-local-reference` from
+  pinned `noetl/ehdb` ref `0dc2016f4b692d3d868ccbc3918900962a880ca1`,
+  copy only the compiled binary into the final runtime image, and fail
+  the image build if `ehdb-local-reference --help` cannot run. This is
+  image packaging for bounded worker/playbook helper execution only; it
+  does not add gateway/API/server data-plane access, new routes,
+  persistent per-tenant processes, or GKE rollout. Validation covered
+  60 focused tests, 109 nearby runtime tests, `compileall`, diff
+  whitespace, Podman `linux/arm64` image build, container helper/path
+  smoke, container NoETL EHDB summary smoke, and local `kind-noetl`
+  image-archive load plus one-off Job smoke with `imagePullPolicy:
+  Never`. `repos/noetl` should point at this merged SHA.
 - Preserve the NoETL execution-model boundary while integrating EHDB:
   gateway = gatekeeper, worker = atomic compute, playbook = ephemeral
   blueprint, shared cache = state vehicle, event log = source of truth.
