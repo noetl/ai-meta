@@ -162,6 +162,19 @@ Newest last. Append a line before you start and after you finish.
     (disabled no-op / enabled drive / cross-process cursor /
     control-plane guard / event-log-authoritative); no GKE · #238
     CLOSED, #234 open (Phase E)
+2026-07-05 · Claude · EHDB · done: Phase 7 projection/read-model
+    shadow — engine ehdb#243 (e0f1c0f, already merged) + worker
+    shadow worker#157 (eadc3a5, src/ehdb/projection.rs,
+    NOETL_EHDB_PROJECTION default off; dual-materialize + compare,
+    never serve; primary inert) · repos touched: ehdb, worker,
+    ehdb-wiki · PRs MERGED: noetl/worker#157 (eadc3a5) · ai-meta
+    pointers: repos/ehdb e0f1c0f, repos/worker eadc3a5,
+    repos/ehdb-wiki 1b32ce2 (each commit gitlink-only) · wiki:
+    ehdb-wiki 1b32ce2 reconciled premature 'shadow-landed' wording ·
+    kind: in-container deferred (env build eviction); 13 unit tests +
+    ehdb-selfcheck evidence (disabled no-op / shadow parity / guard /
+    primary inert); no GKE · #241 open (Phase 7 box unchecked until
+    read-cutover)
 ```
 
 ## Related
