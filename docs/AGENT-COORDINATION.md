@@ -124,10 +124,13 @@ than force-merging.
   **D** ([ehdb#237](https://github.com/noetl/ehdb/pull/237) +
   [noetl#690](https://github.com/noetl/noetl/pull/690)) **MERGED** —
   disabled-by-default, kind-validated and applied enabled in kind.
-- **In progress:** Rust-only re-home into worker-rust + disable of
-  the Python EHDB path (a build in flight; PRs to worker / noetl /
-  ops incoming).
-- **Open:** #234 (Phase E), #238 (re-home).
+- **Rust-only re-home DONE (2026-07-05):** the EHDB worker/playbook
+  integration lives in `worker-rust` in-process
+  ([noetl/worker#153](https://github.com/noetl/worker/pull/153) MERGED
+  `d6226a2`); the Python EHDB path is retired
+  ([noetl/noetl#691](https://github.com/noetl/noetl/pull/691) MERGED
+  `ff3a920f`). Kind-validated; #238 CLOSED.
+- **Open:** #234 (Phase E, Rust-first).
 
 ### CODEX / travel + JWT
 
@@ -149,6 +152,16 @@ Newest last. Append a line before you start and after you finish.
     pointer bump to d0bb460 · repos/branches: ai-meta main (docs +
     pointer), repos/ai-meta-wiki master (this page) · review-gated
     PRs: none · prod/kind: none
+2026-07-05 · Claude · EHDB · done: Rust-only re-home of the EHDB
+    worker integration into worker-rust (in-process ehdb-reference
+    crate) + retired the Python EHDB path · repos touched: worker,
+    noetl, ehdb-wiki · PRs MERGED: noetl/worker#153 (d6226a2) +
+    noetl/noetl#691 (ff3a920f) · ai-meta pointers: repos/worker
+    d6226a2, repos/noetl ff3a920f, repos/ehdb-wiki d67f0fb (each
+    commit gitlink-only) · kind: ehdb-selfcheck-rehome Job green
+    (disabled no-op / enabled drive / cross-process cursor /
+    control-plane guard / event-log-authoritative); no GKE · #238
+    CLOSED, #234 open (Phase E)
 ```
 
 ## Related
