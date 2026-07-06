@@ -174,6 +174,22 @@ Newest last. Append a line before you start and after you finish.
     review-gated PRs: none (both merged) · kind dual-run: BATCHED
     (env blocker — podman VM ssh gateway wedged; ~110-min image
     build) · prod/GKE cutover: STILL GATED on user, NOT performed
+2026-07-05 · Claude · EHDB · done: Phase 9 tiers 1 & 2 in-cluster
+    kind dual-run VALIDATED (closes the tier-1 PENDING + tier-2
+    BATCHED above). Recovered the wedged podman VM (machine
+    stop/start reset the ssh socket), restarted kind cluster noetl,
+    built worker v5.62.0 (36875e3, ships both tiers + ehdb-selfcheck)
+    native-arm64, loaded into kind-noetl (sha256:9d222db6), ran
+    ehdb-selfcheck eventlog-primary-serve + projection-primary-serve
+    in a Job pod on node noetl-control-plane (ns ehdb-p9-validate):
+    both tiers served_by_ehdb:true + reversible:true + dual_run_holds
+    + secret-free metrics (exit 0), control-plane guard_refused
+    (exit 4), pod Succeeded 0 restarts. NO new ehdb/worker code —
+    validation only. repos/noetl + repos/server untouched (Codex
+    lane); Codex's dirty repos/* pointers NOT swept. · ai-meta
+    pointer bump gitlink-only, one gitlink: eea41bc (ehdb-wiki
+    bc4470e→392348a). · review-gated PRs: none · kind dual-run:
+    VALIDATED · prod/GKE cutover: STILL GATED on user, NOT performed
 ```
 
 ## Related
