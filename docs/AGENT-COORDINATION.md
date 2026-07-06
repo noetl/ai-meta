@@ -269,6 +269,24 @@ Newest last. Append a line before you start and after you finish.
     gitlink/commit: dd516aa0 (ehdb-wiki→4597ae8). · review-gated PRs: none
     · kind dual-run: VALIDATED (all 5 tiers) · prod/GKE cutover: STILL
     GATED on user, NOT performed
+
+2026-07-06 · Claude · EHDB · done: Phase 10 (Tunable-Backend Config
+    Surface) IMPLEMENTED → **EHDB program (Phases 6-10) CODE-COMPLETE**.
+    Consolidated the scattered NOETL_EHDB_* per-tier flags into one schema
+    (ehdb-reference::backends: PlatformTier/TierMode/Backend/BackendMatrix,
+    resolved enable→mode→backend, coherence validate() + secret-free render)
+    + worker resolve(&EnvMap) reading each tier through its OWN from_env
+    (backward-compat by construction) + ehdb-selfcheck `config` verb.
+    Selfcheck matrix (batched in-kind, NO image build): all-external/all-ehdb/
+    mixed coherent exit 0; primary-without-enable + control-plane-tier
+    incoherent exit 4; secret_free, 0 leaks. Platform-only; EHDB default not
+    lock-in; no behavior change (disabled-by-default no-op intact). repos/noetl
+    + repos/server untouched (Codex lane); Codex's dirty repos/* pointers NOT
+    swept. · repos/branches: ehdb#252 (merged 4c0df81), worker#166 (merged →
+    v5.66.0 650fd68), ehdb-wiki b913cb0 · ai-meta gitlink-only, one gitlink/
+    commit: repos/ehdb→4c0df81, repos/worker→650fd68, repos/ehdb-wiki→b913cb0
+    · review-gated PRs: none · prod/GKE cutover: STILL GATED on user, NOT
+    performed
 ```
 
 ## Related
