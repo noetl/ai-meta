@@ -190,6 +190,24 @@ Newest last. Append a line before you start and after you finish.
     pointer bump gitlink-only, one gitlink: eea41bc (ehdb-wiki
     bc4470e→392348a). · review-gated PRs: none · kind dual-run:
     VALIDATED · prod/GKE cutover: STILL GATED on user, NOT performed
+2026-07-05 · Claude · EHDB · done: Phase 9 tier 3 (KV / state) —
+    THIRD per-tier PRIMARY cutover activated + merged (LOCAL scope
+    only). ehdb#249 73b1446 (kv exercise_primary_serve helper +
+    KvPrimaryServeReport + kv-primary-serve CLI verb) + worker#163
+    ba9f829 → v5.63.0 a7925e0 (PRIMARY_SERVE_ACTIVATED false→true;
+    NOETL_EHDB_KV=primary serves the internal platform KV tier
+    authoritatively vs the NATS-KV bucket, dual-run + reversible +
+    serve_primary_cycle). Local ehdb-selfcheck kv-primary-serve:
+    served_by_ehdb:true + reversible:true + dual_run_holds (5 served
+    reads) + keys_after_revert:3 + secret-free metrics (exit 0),
+    control-plane guard_refused (exit 4), off no-op (exit 0). Platform
+    KV only (business KV stays external). Touched repos/ehdb +
+    repos/worker ONLY (repos/noetl + repos/server untouched — Codex
+    lane); Codex's dirty repos/* pointers NOT swept. · ai-meta pointer
+    bumps gitlink-only, one gitlink/commit: d8f85e0 (ehdb) / 105ab54
+    (worker) / dff12fd (ehdb-wiki). · review-gated PRs: none (both
+    merged) · kind dual-run: BATCHED (combined tier 3-5 run to follow)
+    · prod/GKE cutover: STILL GATED on user, NOT performed
 ```
 
 ## Related
