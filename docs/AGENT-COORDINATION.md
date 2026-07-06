@@ -249,6 +249,26 @@ Newest last. Append a line before you start and after you finish.
     (worker) / e35da39 (ehdb-wiki). · review-gated
     PRs: none (both merged) · kind dual-run: BATCHED (combined tier 3-5
     run to follow) · prod/GKE cutover: STILL GATED on user, NOT performed
+
+2026-07-06 · Claude · EHDB · done: Phase 9 tiers 3-5 COMBINED in-kind
+    dual-run VALIDATED → **Phase 9 CODE-COMPLETE**. Built worker v5.65.0
+    image v5.65.0-p9 (7d30b250d261, native-arm64, ships ehdb-selfcheck),
+    loaded into kind-noetl node containerd; Job ehdb-p9-t345 (ns
+    ehdb-p9-validate) on node noetl-control-plane — container kernel
+    6.19.7-200.fc43.aarch64 (Alpine 3.22), NOT macOS host; ctx kind-noetl
+    API https://127.0.0.1:61866; pod Succeeded, 0 restarts. Tier 3 KV:
+    served_primary + dual_run_holds (5 parities) + reversible
+    (keys_after_revert:3) + guard_refused. Tier 4 object: served_primary +
+    digest-integrity dual-run (4 parities) + reversible + guard_refused.
+    Tier 5 vector: served_primary + top-k parity (ids/order/monotonic) +
+    bounded cap (query_returned:3) + reversible + guard_refused. All
+    secret-free; off=disabled no-op. Tiers 1-2 already validated 2026-07-05
+    → all 5 tiers implemented + in-kind validated. Validation only, NO new
+    code; repos/noetl + repos/server untouched (Codex lane); Codex's dirty
+    repos/* pointers NOT swept. · ai-meta pointer bump gitlink-only, one
+    gitlink/commit: dd516aa0 (ehdb-wiki→4597ae8). · review-gated PRs: none
+    · kind dual-run: VALIDATED (all 5 tiers) · prod/GKE cutover: STILL
+    GATED on user, NOT performed
 ```
 
 ## Related
