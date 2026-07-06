@@ -228,6 +228,27 @@ Newest last. Append a line before you start and after you finish.
     review-gated PRs: none (both merged) · kind dual-run: BATCHED
     (combined tier 3-5 run to follow) · prod/GKE cutover: STILL GATED
     on user, NOT performed
+2026-07-06 · Claude · EHDB · done: Phase 9 tier 5 (vector) — FIFTH &
+    FINAL per-tier PRIMARY cutover activated + merged (LOCAL scope
+    only). ALL FIVE Phase-9 primary-serve activations now implemented.
+    ehdb#251 0f47fe3 (vector exercise_primary_serve helper +
+    VectorPrimaryServeReport + vector-primary-serve CLI verb) +
+    worker#165 681782c → v5.65.0 ceedbba (PRIMARY_SERVE_ACTIVATED
+    false→true; NOETL_EHDB_VECTOR=primary serves the internal platform
+    vector tier — RAG / catalog embeddings — authoritatively vs the
+    Qdrant retrieval path, dual-run top-k parity + reversible +
+    serve_primary_cycle). Local ehdb-selfcheck vector-primary-serve:
+    served_by_ehdb:true + reversible:true + dual_run_holds (3 served
+    queries) + candidates_after_revert:3 + secret-free metrics (exit 0),
+    control-plane guard_refused (exit 4), shadow primary_unavailable
+    (exit 4), over-limit rejected (exit 3), off no-op (exit 0). Platform
+    vectors only (business collections stay external). Touched repos/ehdb
+    + repos/worker ONLY (repos/noetl + repos/server untouched — Codex
+    lane); Codex's dirty repos/* pointers NOT swept. · ai-meta pointer
+    bumps gitlink-only, one gitlink/commit: a5e96dd (ehdb) / 6daca1e
+    (worker) / e35da39 (ehdb-wiki). · review-gated
+    PRs: none (both merged) · kind dual-run: BATCHED (combined tier 3-5
+    run to follow) · prod/GKE cutover: STILL GATED on user, NOT performed
 ```
 
 ## Related
