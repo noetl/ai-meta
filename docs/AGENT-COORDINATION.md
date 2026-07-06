@@ -149,6 +149,18 @@ Newest last. Append a line before you start and after you finish.
     pointer bump to d0bb460 · repos/branches: ai-meta main (docs +
     pointer), repos/ai-meta-wiki master (this page) · review-gated
     PRs: none · prod/kind: none
+2026-07-05 · Claude · EHDB · done: Phase 9 tier 1 (event log) —
+    FIRST per-tier PRIMARY cutover activated + merged (LOCAL/kind
+    scope only). ehdb#247 7f014c9 (exercise_primary_serve helper) +
+    worker#161 ddf41de → v5.61.0 7e98538 (PRIMARY_SERVE_ACTIVATED
+    false→true; NOETL_EHDB_EVENTLOG=primary serves the log
+    authoritatively, dual-run + reversible). Touched repos/ehdb +
+    repos/worker ONLY (repos/noetl + repos/server untouched — Codex
+    lane). ai-meta pointer bumps gitlink-only, one gitlink/commit:
+    12ab324 (ehdb) / 38397f5 (ehdb-wiki) / 4c5e489 (worker). ·
+    review-gated PRs: none (both merged) · kind dual-run: PENDING
+    (env blocker — podman VM ssh gateway wedged; ~110-min image
+    build) · prod/GKE cutover: STILL GATED on user, NOT performed
 ```
 
 ## Related
