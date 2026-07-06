@@ -161,6 +161,19 @@ Newest last. Append a line before you start and after you finish.
     review-gated PRs: none (both merged) · kind dual-run: PENDING
     (env blocker — podman VM ssh gateway wedged; ~110-min image
     build) · prod/GKE cutover: STILL GATED on user, NOT performed
+2026-07-05 · Claude · EHDB · done: Phase 9 tier 2 (projection /
+    read-model) — SECOND per-tier PRIMARY cutover activated + merged
+    (LOCAL/kind scope only). ehdb#248 d08013c (projection
+    exercise_primary_serve helper + ProjectionPrimaryServeReport) +
+    worker#162 a56583c → v5.62.0 36875e3 (PRIMARY_SERVE_ACTIVATED
+    false→true; NOETL_EHDB_PROJECTION=primary serves the read-models
+    authoritatively, dual-run + reversible). Touched repos/ehdb +
+    repos/worker ONLY (repos/noetl + repos/server untouched — Codex
+    lane). ai-meta pointer bumps gitlink-only, one gitlink/commit:
+    79190f4 (ehdb) / a64f11a (worker) / 7cbfc19 (ehdb-wiki). ·
+    review-gated PRs: none (both merged) · kind dual-run: BATCHED
+    (env blocker — podman VM ssh gateway wedged; ~110-min image
+    build) · prod/GKE cutover: STILL GATED on user, NOT performed
 ```
 
 ## Related
