@@ -208,6 +208,26 @@ Newest last. Append a line before you start and after you finish.
     (worker) / dff12fd (ehdb-wiki). · review-gated PRs: none (both
     merged) · kind dual-run: BATCHED (combined tier 3-5 run to follow)
     · prod/GKE cutover: STILL GATED on user, NOT performed
+2026-07-05 · Claude · EHDB · done: Phase 9 tier 4 (object / blob) —
+    FOURTH per-tier PRIMARY cutover activated + merged (LOCAL scope
+    only). ehdb#250 bb42b8d (object exercise_primary_serve helper +
+    ObjectPrimaryServeReport + object-primary-serve CLI verb) +
+    worker#164 a100adf → v5.64.0 369e4c1 (PRIMARY_SERVE_ACTIVATED
+    false→true; NOETL_EHDB_OBJECT=primary serves the internal platform
+    object tier authoritatively vs the external object store — state
+    shards #166 + result tier #104 — dual-run digest-parity +
+    reversible + serve_primary_cycle). Local ehdb-selfcheck
+    object-primary-serve: served_by_ehdb:true + reversible:true +
+    dual_run_holds (4 served reads) + keys_after_revert:3 + secret-free
+    metrics (exit 0), control-plane guard_refused (exit 4), off no-op
+    (exit 0). Platform object tier only (business object buckets stay
+    external). Touched repos/ehdb + repos/worker ONLY (repos/noetl +
+    repos/server untouched — Codex lane); Codex's dirty repos/* pointers
+    NOT swept. · ai-meta pointer bumps gitlink-only, one gitlink/commit:
+    e195735 (ehdb) / 2dda3a7 (worker) / b97efe0 (ehdb-wiki). ·
+    review-gated PRs: none (both merged) · kind dual-run: BATCHED
+    (combined tier 3-5 run to follow) · prod/GKE cutover: STILL GATED
+    on user, NOT performed
 ```
 
 ## Related
