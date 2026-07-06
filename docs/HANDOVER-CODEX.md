@@ -188,10 +188,18 @@ python3 scripts/register_planner.py \
 #    (Keep the previous good YAML/cid handy; latest-wins makes it active again.)
 ```
 
-Confirm the active version/cid after registering:
-`GET localhost:18082/api/catalog/... ` (or drive one turn and read the
-`GET /api/executions/{id}` payload). **TODO for Codex:** confirm the
-exact catalog "list versions" endpoint for your build.
+Confirm the active version/cid after registering through the Rust
+server API:
+
+```bash
+curl -s localhost:18082/api/catalog/resource \
+  -H 'content-type: application/json' \
+  -d '{"path":"muno/playbooks/itinerary-planner","version":"latest"}'
+```
+
+or drive one turn and read the `GET /api/executions/{id}` payload. Old
+executions stay pinned to their original `catalog_id`; only fresh runs
+resolve the latest catalog version.
 
 The travel repo also ships `scripts/itinerary_agent_smoke.sh`, which
 registers via the CLI (`noetl register playbook --file …`) straight to

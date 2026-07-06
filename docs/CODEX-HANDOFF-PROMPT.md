@@ -41,13 +41,21 @@ summary → map, each stage gated on the prior stage's results.
 Providers (all SANDBOX/TEST only): Google Places, Duffel flights,
 HotelBeds hotels/activities/transfers.
 
-## Current live prod (2026-07-04)
-server v3.50.0, worker v5.52.0, gateway (release tag v3.4.1) with
-NOETL_AUTH_SYNC=true + NOETL_AUTHZ_SYNC=true, planner catalog v66
-(cid 663751206480642967; rollback v65 cid 662902606028604309),
-Duffel MCP v18, HotelBeds MCP v5, keyed SPA bundle on Cloudflare Pages.
-server v3.51.0 is merged/tagged but NOT rolled (carries #169 JWT verify
-+ #166 Phase 5, all flags default OFF).
+## Current live prod (2026-07-05)
+Rust server reports v3.52.0 (`svc/noetl-server-rust`, AR digest
+`sha256:702ed479ef3af9de5507c9959e685f3fe5085b029c1dbc002be5def07e7812c6`).
+Workers: user pool `ghcr.io/noetl/worker:5.51.0`; system pool/shard1
+`ghcr.io/noetl/worker:5.52.0`. Gateway image:
+`noetl-gateway:authz-sync-168` with NOETL_AUTH_SYNC=true +
+NOETL_AUTHZ_SYNC=true. Planner catalog latest is v67
+(cid 664081132547212184), promoted after the itinerary_summary nested
+hotel-card sanitizer; v66 cid 663751206480642967 remains the old pinned
+execution version. Duffel MCP v18, HotelBeds MCP v5, keyed SPA bundle on
+Cloudflare Pages.
+
+Production control-plane source of truth is `repos/server`,
+`repos/worker`, and `repos/gateway`. Do not use the retired Python API
+tree as an implementation reference for live endpoint behavior.
 
 ## The loop you run most (catalog registration — no image, no roll)
 1. Edit `repos/travel/playbooks/itinerary-planner.yaml` (or an MCP agent).
@@ -61,6 +69,11 @@ server v3.51.0 is merged/tagged but NOT rolled (carries #169 JWT verify
 5. PROMOTE (latest-wins → becomes active):
    `python3 scripts/register_planner.py repos/travel/playbooks/itinerary-planner.yaml muno/playbooks/itinerary-planner`
 6. ROLLBACK = re-register the prior YAML/version to the live path.
+
+Confirm active catalog state through the Rust server endpoint:
+`POST localhost:18082/api/catalog/resource {"path":"muno/playbooks/itinerary-planner","version":"latest"}`
+or lookup the new cid directly. Old executions stay pinned to their
+original `catalog_id`, so replaying v66 output can still show v66 bugs.
 
 ## Verify after EVERY backend change
 - Login: `POST http://<gateway>/api/auth/validate {"session_token":"bogus"}`

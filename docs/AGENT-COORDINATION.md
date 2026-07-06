@@ -124,13 +124,10 @@ than force-merging.
   **D** ([ehdb#237](https://github.com/noetl/ehdb/pull/237) +
   [noetl#690](https://github.com/noetl/noetl/pull/690)) **MERGED** —
   disabled-by-default, kind-validated and applied enabled in kind.
-- **Rust-only re-home DONE (2026-07-05):** the EHDB worker/playbook
-  integration lives in `worker-rust` in-process
-  ([noetl/worker#153](https://github.com/noetl/worker/pull/153) MERGED
-  `d6226a2`); the Python EHDB path is retired
-  ([noetl/noetl#691](https://github.com/noetl/noetl/pull/691) MERGED
-  `ff3a920f`). Kind-validated; #238 CLOSED.
-- **Open:** #234 (Phase E, Rust-first).
+- **In progress:** Rust-only re-home into worker-rust + disable of
+  the Python EHDB path (a build in flight; PRs to worker / noetl /
+  ops incoming).
+- **Open:** #234 (Phase E), #238 (re-home).
 
 ### CODEX / travel + JWT
 
@@ -152,29 +149,6 @@ Newest last. Append a line before you start and after you finish.
     pointer bump to d0bb460 · repos/branches: ai-meta main (docs +
     pointer), repos/ai-meta-wiki master (this page) · review-gated
     PRs: none · prod/kind: none
-2026-07-05 · Claude · EHDB · done: Rust-only re-home of the EHDB
-    worker integration into worker-rust (in-process ehdb-reference
-    crate) + retired the Python EHDB path · repos touched: worker,
-    noetl, ehdb-wiki · PRs MERGED: noetl/worker#153 (d6226a2) +
-    noetl/noetl#691 (ff3a920f) · ai-meta pointers: repos/worker
-    d6226a2, repos/noetl ff3a920f, repos/ehdb-wiki d67f0fb (each
-    commit gitlink-only) · kind: ehdb-selfcheck-rehome Job green
-    (disabled no-op / enabled drive / cross-process cursor /
-    control-plane guard / event-log-authoritative); no GKE · #238
-    CLOSED, #234 open (Phase E)
-2026-07-05 · Claude · EHDB · done: Phase 7 projection/read-model
-    shadow — engine ehdb#243 (e0f1c0f, already merged) + worker
-    shadow worker#157 (eadc3a5, src/ehdb/projection.rs,
-    NOETL_EHDB_PROJECTION default off; dual-materialize + compare,
-    never serve; primary inert) · repos touched: ehdb, worker,
-    ehdb-wiki · PRs MERGED: noetl/worker#157 (eadc3a5) · ai-meta
-    pointers: repos/ehdb e0f1c0f, repos/worker eadc3a5,
-    repos/ehdb-wiki 1b32ce2 (each commit gitlink-only) · wiki:
-    ehdb-wiki 1b32ce2 reconciled premature 'shadow-landed' wording ·
-    kind: in-container deferred (env build eviction); 13 unit tests +
-    ehdb-selfcheck evidence (disabled no-op / shadow parity / guard /
-    primary inert); no GKE · #241 open (Phase 7 box unchecked until
-    read-cutover)
 ```
 
 ## Related
