@@ -320,6 +320,20 @@ Newest last. Append a line before you start and after you finish.
     PENDING. · repos/branches: ehdb#253 (merged → 99c4570), ehdb-wiki
     891d294 · ai-meta gitlink-only, one gitlink/commit: repos/ehdb→99c4570,
     repos/ehdb-wiki→891d294 · review-gated PRs: none · prod/GKE: none
+
+2026-07-06 · Claude · EHDB · done: **program docs/hygiene consolidation**
+    (docs-only — no code, no deploy, no prod/GKE; live kind stack server
+    v3.53.0 + worker v5.67.0 shadow left running). Reconciled the whole EHDB
+    program to one coherent current state: ehdb-wiki Roadmap + Home +
+    Sessions-Log (Phase 6 shadow mirror now wired LIVE + proven on real
+    in-kind drives 332760742153424896/…854506246144; Home Live-in-kind +
+    What's-NOT-done-yet bullets); ai-meta MEMORY.md EHDB index compacted
+    (all 26 topic-file pointers preserved). Posted state-of-program roll-up
+    on ehdb#241; cross-linked ehdb#234 / ai-meta#178 / ehdb#254 (none
+    closed — program continues). · repos/branches: ehdb-wiki 91e8823 (this
+    consolidation) · ai-meta gitlink-only, one gitlink/commit:
+    repos/ehdb-wiki→91e8823 (3656ae98; 7 other dirty repos/* pointers NOT
+    swept) · review-gated PRs: none · prod/GKE: none
 ```
 
 ## Related
