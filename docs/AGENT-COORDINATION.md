@@ -358,6 +358,31 @@ Newest last. Append a line before you start and after you finish.
     gitlink-only, one gitlink/commit: repos/ehdb→6fbe88f + repos/ehdb-wiki→4b5f122
     (9ccc1f74; 8 other dirty repos/* pointers NOT swept incl. repos/worker) ·
     review-gated PRs: none · prod/GKE: none
+2026-07-07 · Claude · EHDB · done: **KV + object tier shadow mirrors wired
+    into the live worker runtime paths** (following the event-log tier, #167).
+    Worked repos/worker ONLY (src/ehdb/{kv,object}.rs runtime_hook_env +
+    mirror_live_put + their live invocation sites; src/ehdb/mod.rs status note).
+    KV hooked at SpoolRuntime::persist_circuit (the NATS-KV circuit-state put,
+    bucket noetl_subscription_circuit — the only live platform NATS-KV write);
+    object hooked at ControlPlaneClient::object_put (the chokepoint every object
+    tier — result-tier/state-shard/plugin — funnels through, digest parity;
+    bytes cloned only when armed). projection + vector DEFERRED with documented
+    seams (projection = shadow_project batch-materialize needs incumbent full
+    fold → per-event hook would report false key-divergence; vector = no live
+    platform vector-upsert site exists yet). Each hook env-armed (ENABLED +
+    <TIER>=shadow + data-plane role), strict no-op otherwise, control-plane never
+    mirrors, error-isolated (panic→Unavailable, metered, never propagated),
+    secret-free metrics. 16 new hook tests + 158 ehdb tests green; clippy no new
+    lints; ehdb-selfcheck builds. **NOTE: concurrent sibling durable-backend
+    track also running (repos/ehdb segment store, ehdb#255 slice 2) — this round
+    touched NO durable segment-store files.** repos/noetl + repos/server
+    untouched (Codex lane). LOCAL/KIND only — NO GKE, NO image build inline;
+    in-kind live-drive proof PENDING — redeploy (live pool on v5.67.0; v5.68.0
+    carries hooks). · repos/branches: worker#168 (merged → 2ec2e2b, released
+    v5.68.0 3927bdf), ehdb-wiki 69e4714 · ai-meta gitlink-only, one
+    gitlink/commit: repos/worker→3927bdf (2117ef6) + repos/ehdb-wiki→69e4714
+    (174194e4); other dirty repos/* pointers NOT swept · review-gated PRs: none ·
+    prod/GKE: none
 ```
 
 ## Related
