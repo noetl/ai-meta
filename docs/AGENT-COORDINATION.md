@@ -303,6 +303,23 @@ Newest last. Append a line before you start and after you finish.
     ehdb-wiki 301688a · ai-meta gitlink-only, one gitlink/commit:
     repos/server→ec75812, repos/cli→<merge>, repos/ehdb-wiki→301688a ·
     review-gated PRs: none · prod/GKE: none (no prod, no GKE)
+
+2026-07-06 · Claude · EHDB · done: **Durable event-log backend — first
+    slice** (noetl/ehdb#254). Codex PAUSED → worked repos/ehdb directly.
+    `ehdb-reference::durable_eventlog` — the production disk format the
+    Phase-6 note deferred + the prod-cutover runbook §C durability gate
+    names as the hard blocker for Stage C (local_reference is pod-local,
+    lost on restart). DurableSegmentStore (append-only CRC32-framed
+    seg-*.eslog + rollover + offset index + fsync + crash-recovery replay,
+    torn-tail discard / bit-rot hard error, payload cold-load) +
+    DurableEventLogDriver (same EventLogDriver contract) behind
+    EventLogStorageBackend selector (local_reference default). CLI
+    durable-eventlog-recovery proves zero-loss across a simulated restart.
+    17 tests incl. parity vs LocalReference; clippy -D + fmt + workspace
+    test green. LOCAL/code only — no GKE, no worker image build; in-kind
+    PENDING. · repos/branches: ehdb#253 (merged → 99c4570), ehdb-wiki
+    891d294 · ai-meta gitlink-only, one gitlink/commit: repos/ehdb→99c4570,
+    repos/ehdb-wiki→891d294 · review-gated PRs: none · prod/GKE: none
 ```
 
 ## Related
