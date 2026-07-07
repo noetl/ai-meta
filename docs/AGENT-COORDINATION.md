@@ -287,6 +287,22 @@ Newest last. Append a line before you start and after you finish.
     commit: repos/ehdb→4c0df81, repos/worker→650fd68, repos/ehdb-wiki→b913cb0
     · review-gated PRs: none · prod/GKE cutover: STILL GATED on user, NOT
     performed
+
+2026-07-06 · Claude · EHDB · done: **EHDB Data Query Interface — read
+    surface, first slice** (noetl/ai-meta#178). Codex PAUSED → worked
+    repos/server + repos/cli directly (were previously Codex lane).
+    Server `/api/ehdb/*` read-only API: executions list / execution state /
+    event read-model (by-exec + global scan) served DIRECT from the
+    read-model (ExecutionService); `tiers/{tier}` raw-tier ROUTING SEAM
+    (501 + contract) — **no EHDB data-plane engine linked into the server**,
+    control-plane guard held. Secret-free by construction (payload-free
+    DTOs), bounded/paginated. CLI `noetl ehdb query executions|execution|
+    events` (table + --json). New ehdb-wiki page. Read-only, platform-only,
+    LOCAL/kind only — in-kind e2e PENDING image build. · repos/branches:
+    server#277 (merged → v3.53.0 ec75812), cli#61 (merged 78c139b),
+    ehdb-wiki 301688a · ai-meta gitlink-only, one gitlink/commit:
+    repos/server→ec75812, repos/cli→<merge>, repos/ehdb-wiki→301688a ·
+    review-gated PRs: none · prod/GKE: none (no prod, no GKE)
 ```
 
 ## Related
