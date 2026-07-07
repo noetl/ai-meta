@@ -334,6 +334,30 @@ Newest last. Append a line before you start and after you finish.
     consolidation) · ai-meta gitlink-only, one gitlink/commit:
     repos/ehdb-wiki→91e8823 (3656ae98; 7 other dirty repos/* pointers NOT
     swept) · review-gated PRs: none · prod/GKE: none
+
+2026-07-07 · Claude · EHDB · done: **Durable event-log backend — slice 2
+    (execution-affinity single-writer routing)** (noetl/ehdb#254 item 2).
+    Worked repos/ehdb ONLY. `ehdb-reference::affinity` (ShardOwnership +
+    shard_for_i64/shard_for_execution — XxHash64 seed-0 over the i64 exec id's
+    LE bytes % shard_count, byte-identical to noetl-worker/server
+    sharding::shard_for; twox-hash 1.6) + `durable_eventlog_affinity`
+    (AffinityRoutedEventLog: per-shard DurableSegmentStore under
+    <root>/shard-<NNNN>/; owner append serves, non-owner refused with no side
+    effect route-to-owner, non-owner read cold-loads read-only via new
+    DurableSegmentStore::open_read_only). CLI durable-eventlog-affinity{,-append,
+    -read}; affinity-append exit 6 = refused-non-owner (distinct). Single-writer
+    drive proves owner-writes/non-owner-refused/single-writer-invariant/
+    cold-load-read/crash-recovery. 21 new tests; fmt+clippy -D+workspace test
+    (200)+bench --no-run green. Disabled by default (single-owner; local_reference
+    still default). LOCAL/code only — no GKE, no worker image build; in-kind
+    PENDING (slice 5). **NOTE: a concurrent sibling task is wiring worker
+    runtime-mirrors in repos/worker — this slice deliberately touched NO
+    repos/worker files to avoid the collision; worker wiring is slice 4,
+    deferred.** repos/noetl + repos/server untouched (Codex lane). ·
+    repos/branches: ehdb#255 (merged → 6fbe88f), ehdb-wiki 4b5f122 · ai-meta
+    gitlink-only, one gitlink/commit: repos/ehdb→6fbe88f + repos/ehdb-wiki→4b5f122
+    (9ccc1f74; 8 other dirty repos/* pointers NOT swept incl. repos/worker) ·
+    review-gated PRs: none · prod/GKE: none
 ```
 
 ## Related
