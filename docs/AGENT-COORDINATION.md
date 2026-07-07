@@ -406,6 +406,31 @@ Newest last. Append a line before you start and after you finish.
     repos/ehdb→cca0d0d (53b9049) + repos/ehdb-wiki→e5aa701 (96ea714);
     other dirty repos/* pointers NOT swept · review-gated PRs: none ·
     prod/GKE: none
+2026-07-07 · Claude · EHDB · done: projection + vector runtime mirrors
+    (the last two tiers). PROJECTION live-wired via a windowed cadence
+    hook at the off-server state-builder drain post-batch checkpoint
+    (state_builder::run_drain_loop → projection::mirror_live_window) —
+    NOT per-event (batch fold would report false key-divergence); fresh
+    throwaway per-window store + independent worker-side fold, no false
+    divergence. VECTOR mirror code-ready + tested but deliberately NOT
+    live-wired — no platform vector-upsert site exists in the worker loop
+    (RAG ingest is lexical); documented-unreachable, seam noted for a
+    future executor embed+upsert. worker#170 → fa64e0a → v5.69.0 96a8b6b.
+    **TWO concurrent sibling tasks noted + respected: (1) object
+    subject-length fix owns ehdb-reference/object.rs + worker Cargo ehdb
+    pin — already merged (ehdb#256 bbc5047 → worker v5.68.1); I branched
+    OFF origin/main AFTER it, so my worker PR carries the bbc5047 pin, no
+    revert. (2) durable segment-store owns ehdb durable files — untouched.
+    I touched ONLY worker src/ehdb/{projection,vector,mod}.rs +
+    state_builder.rs; object.rs + durable files NOT touched.** repos/noetl
+    + repos/server untouched. LOCAL/KIND only — NO GKE, NO worker image
+    build inline (validated via cargo test + clippy -D + selfcheck); prod
+    stays worker v5.52.0, all NOETL_EHDB_* default off. In-kind live-drive
+    re-proof PENDING redeploy. · repos/branches: worker#170 merged →
+    fa64e0a (v5.69.0 96a8b6b), ehdb-wiki 4e5ec66 · ai-meta gitlink-only,
+    one gitlink/commit: repos/worker→96a8b6b (a3c34cb) +
+    repos/ehdb-wiki→4e5ec66 (d34ed5c); other dirty repos/* pointers NOT
+    swept · review-gated PRs: none · prod/GKE: none
 ```
 
 ## Related
