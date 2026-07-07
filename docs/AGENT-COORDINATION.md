@@ -383,6 +383,29 @@ Newest last. Append a line before you start and after you finish.
     gitlink/commit: repos/worker→3927bdf (2117ef6) + repos/ehdb-wiki→69e4714
     (174194e4); other dirty repos/* pointers NOT swept · review-gated PRs: none ·
     prod/GKE: none
+2026-07-07 · Claude · EHDB (durable-backend track) · done: durable
+    event-log backend **slice 3 — shared/object-store segment tier**.
+    ehdb#258 cca0d0d (`ehdb-reference::durable_eventlog_shared`):
+    SharedSegmentBackend trait (FilesystemSharedBackend/PVC now, EHDB
+    object tier later) + SharedTierEventLog (owner publishes segments to
+    shared; non-owner cold-loads / new owner hydrates from shared);
+    fixed-width digest-integrity-checked segment keys (avoids the
+    object-tier subject-length trap). durable-eventlog-shared selfcheck
+    holds (shard-count 2+4). 213 ehdb tests green, clippy -D clean, fmt
+    clean. **TWO concurrent sibling tasks noted + respected: (1) object
+    subject-length fix owns ehdb-reference/object.rs — merged as ehdb#256
+    bbc5047, my slice-3 branched OFF main after it so cca0d0d has bbc5047
+    as parent (no revert); (2) worker projection/vector runtime-mirror
+    owns worker src/ehdb/{projection,vector}.rs — untouched. My branch
+    touched ONLY durable_eventlog{,_shared}.rs + lib.rs + the CLI bin +
+    is ehdb-crate-only (worker wiring is slice 4, left for the sibling/
+    later).** repos/noetl + repos/server untouched. LOCAL/KIND only — NO
+    GKE, NO worker image build (validated via cargo test + clippy +
+    selfcheck). · repos/branches: ehdb#258 merged → cca0d0d,
+    ehdb-wiki e5aa701 · ai-meta gitlink-only, one gitlink/commit:
+    repos/ehdb→cca0d0d (53b9049) + repos/ehdb-wiki→e5aa701 (96ea714);
+    other dirty repos/* pointers NOT swept · review-gated PRs: none ·
+    prod/GKE: none
 ```
 
 ## Related
