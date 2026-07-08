@@ -550,6 +550,28 @@ Newest last. Append a line before you start and after you finish.
     f4a3616 (v3.53.1) + repos/worker→7747d0b (v5.70.2); NO sibling repos/* swept ·
     kind LOCAL only, NO GKE/prod · review-gated PRs: self-merged #278/#173 (no CI
     gate configured)
+
+2026-07-08 · Claude · Kind-first validation · done: **Phase 2 — GSM external
+    integration GREEN + Muno end-to-end LIVE in kind.** New capability (Alesha):
+    kind CAN reach Google Secret Manager. Stood up a deploy-time GSM metadata
+    bridge — host-ADC token shim (:48710) → in-cluster socat relay
+    (Deployment/Service gcp-metadata, ns noetl) → hostAliases
+    metadata.google.internal on all 4 worker pools; plus
+    NOETL_GCP_METADATA_TOKEN_URL + GOOGLE_CLOUD_PROJECT env on noetl-server.
+    Unblocks BOTH GSM paths (server keychain provider:gcp + worker in-python
+    metadata read). 9 providers LIVE: Duffel(10 offers)/GooglePlaces(10)/
+    HotelBeds hotels+activities+transfers/Firestore/Snowflake/OpenAI/Anthropic.
+    Muno planner (muno/playbooks/itinerary-planner v15 + 6 MCP sub-playbooks)
+    full flow GREEN: flight→book(real Duffel TEST order)→hotels→activities→
+    transfers→summary→map, all live. Kafka+PubSub subscription drains PASS.
+    Residual: #151 keychain-template gap (amadeus/ops-LLM/auth0 complete but
+    401 — cred reachable, fixture uses broken {{keychain}}), IBKR needs live
+    gateway, 6 FIXTURE-E + 2 fixture-data. · shared surface: kind cluster
+    (deploy-time env + gcp-metadata bridge Deployment/Service + worker
+    hostAliases — NOT persisted to repos/ops manifests; session artifact) ·
+    NO repos/noetl or repos/server source change · ai-meta gitlink-only:
+    repos/ehdb-wiki (matrix + Sessions-Log) · kind LOCAL only, NO GKE/prod ·
+    no secret values printed · review-gated PRs: none
 ```
 
 ## Related
