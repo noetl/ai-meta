@@ -509,6 +509,29 @@ Newest last. Append a line before you start and after you finish.
     ehdb#254 comment 4911623178 · ai-meta gitlink-only: repos/ehdb-wiki→f009220
     (+ ai-meta-wiki); NO sibling repos/* pointers swept · repos/noetl +
     repos/server untouched · review-gated PRs: none · prod/GKE: none
+
+2026-07-07 · Claude · Kind-first validation · done: **full-functionality
+    validation Phase 1 — inventory + baseline + first-run matrix** (Alesha
+    directive: green ALL playbooks in LOCAL kind before GKE). Inventoried 268
+    playbook/automation files (e2e+noetl+ops+travel). Standardised the kind
+    baseline: all 4 worker pools → v5.70.0 (was skewed v5.70.0 user/v5.69.0
+    others), server v3.53.0, EHDB tiers shadow, durable_segment non-primary on
+    the user-pool PVC. Reset cleared a system-pool orchestrate backlog (~720
+    stale `__orchestrate__` re-drives @ ~0.6/s) + leaked NATS consumers
+    (`drifttest` 23 992 msgs + 8 orphaned `noetl_events` consumers) that were
+    starving executions; post-reset `hello_world` = 4 s. Postgres `noetl.event`
+    untouched. Runs: core self-contained **61 PASS/4 FAIL (65)**, extended
+    in-cluster-infra **9 PASS/11 non-green (20)**, EHDB probes 2/2; EHDB
+    projection/query/durable live, KV/object/vector shadow (segments
+    26.9→32.3 MB). **2 platform bugs found: BUG-1 pagination
+    max_iterations/retry continuation wedge; BUG-2 large-result
+    output_select/storage-tier `/api/result/resolve` 404 (3 fixtures).** Rest
+    non-green = cred setup (kafka/pubsub decryption, 2 missing aliases) + 6
+    fixture DSL-drift. · ehdb-wiki 4a288de (new page
+    Kind-Full-Functionality-Validation + _Sidebar + Sessions-Log) · ai-meta
+    gitlink-only: repos/ehdb-wiki→4a288de; NO sibling repos/* pointers swept ·
+    repos/noetl + repos/server untouched; NO code changes · review-gated PRs:
+    none · prod/GKE: none
 ```
 
 ## Related
