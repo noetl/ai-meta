@@ -532,6 +532,24 @@ Newest last. Append a line before you start and after you finish.
     gitlink-only: repos/ehdb-wiki→4a288de; NO sibling repos/* pointers swept ·
     repos/noetl + repos/server untouched; NO code changes · review-gated PRs:
     none · prod/GKE: none
+2026-07-08 · Claude · Kind-first validation · done: **two platform bugs FIXED**
+    (umbrella ai-meta#179). BUG-1 pagination self-loop wedge (server#278
+    orchestrate-core → v3.53.1): a step whose own next arc re-enters itself
+    (src==target) was never a recognized loop back-edge — the #85 strict recency
+    test (src.completed_at > target.completed_at) is impossible for one step
+    (s>s=false); step wedged Completed, exit arc stayed Pending (14-event stall).
+    Fix: treat src==target as a back-edge directly. BUG-2 large-result artifact-get
+    resolve 404 (server#278 + worker#173 → v3.53.1 / v5.70.2): under #104
+    dual-write retirement the worker exposed the legacy _ref while resolve read
+    only result_store; fix = worker exposes canonical _ref under mint_authoritative
+    + server resolves Canonical refs from the JSON object tier + object-store PUT
+    body limit 2MB→64MB (producer-stage silently 413'd a 15MB result). Frozen OQ5
+    dual-write untouched. All 5 fixtures COMPLETED in kind (eids in topic file).
+    · shared surface: repos/server + repos/worker (Rust) — Claude authored both
+    PRs directly per handoff-routing rule · ai-meta gitlink-only: repos/server→
+    f4a3616 (v3.53.1) + repos/worker→7747d0b (v5.70.2); NO sibling repos/* swept ·
+    kind LOCAL only, NO GKE/prod · review-gated PRs: self-merged #278/#173 (no CI
+    gate configured)
 ```
 
 ## Related
