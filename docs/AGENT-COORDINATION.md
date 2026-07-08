@@ -622,6 +622,25 @@ Newest last. Append a line before you start and after you finish.
     2031a8b4, e2e 252006f8, ops 541e6b0d, ehdb-wiki 96e31c0 · kind LOCAL only,
     NO GKE/prod · no secret values printed/committed
     · review-gated PRs: none (all merged)
+
+2026-07-08 · Claude · EHDB integration · done: **EHDB perf/load-testing
+    Phase 1 — engine micro-benchmarks + design doc.** New workstream
+    ehdb#261 (on project 4). Deterministic criterion benches over all 5
+    reference drivers + the durable segment event-log backend
+    (`crates/ehdb-reference/benches/engine_micro.rs`, `cargo bench -p
+    ehdb-reference --bench engine_micro`); seeded, isolated, no engine
+    semantics changed. Baseline on M1 Max dev box (bench-only, NO deploy):
+    durable event-log beats local_reference **2.7× at sustained append**
+    (255 vs 96 ev/s @K=1000), flat ~3.9 ms/append (fsync-bound), rotation
+    ~2%, cold replay ~185K ev/s; KV/object/vector reference drivers are
+    O(n)/op shadow-only (no durable backend yet). SLO strawman drafted for
+    Alesha to confirm; Layer B in-cluster load + EHDB-vs-incumbent
+    (Postgres+JetStream) head-to-head = next phase pending scoping. ·
+    shared surface: `repos/ehdb` (PR branch), `repos/ehdb-wiki`. · ai-meta
+    gitlink-only via temp-index off HEAD: repos/ehdb + repos/ehdb-wiki
+    (f887686). · **repos/noetl + repos/server UNTOUCHED (Codex lane).** ·
+    kind: none touched · NO GKE/prod · no secret values ·
+    review-gated PRs: **ehdb#262 OPEN** (bench-only; merge → pointer bump)
 ```
 
 ## Related
