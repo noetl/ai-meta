@@ -572,6 +572,29 @@ Newest last. Append a line before you start and after you finish.
     NO repos/noetl or repos/server source change · ai-meta gitlink-only:
     repos/ehdb-wiki (matrix + Sessions-Log) · kind LOCAL only, NO GKE/prod ·
     no secret values printed · review-gated PRs: none
+
+2026-07-08 · Claude · Kind-first validation · done: **Phase 3 — #151
+    keychain-template gap FIXED (platform) + durable GSM bridge.** Root cause:
+    the drive (orchestrate-core::build_tool_command, in the system/orchestrate
+    wasm plug-in) renders tool configs against a context with no `keychain`
+    namespace → `{{ keychain.* }}` empty → 401. Fix DEFERS `keychain.*` through
+    the drive (render_value_deferring_keychain) + resolves TRANSIENTLY at
+    user-worker dispatch (secret never in noetl.event) + server resolves
+    `kind: credential` entries. PRs **server#279 / worker#174 / e2e#85
+    (fixtures) / ops#235 (durable bridge)**. Kind images server:v3.54.0-rc4 /
+    worker:v5.71.0-rc3 (4 pools uniform). PROVEN: openai GET /v1/models 200
+    (deferred, no leak); kind:credential probe deferred+resolved; amadeus token
+    +search 200. NOT green = external account limits (OpenAI chat 429
+    insufficient_quota billing; auth0 needs user creds) — like IBKR. Durable
+    bridge: fixed-clusterIP 10.96.0.53 relay + hostAliases + launchd shim;
+    pod-restart proof PASSED. KNOWN FOLLOW-UP: heavily-rerun execution_ai_analyze
+    openai_triage resolves the key drive-side (event-log exposure) while fresh
+    probes defer — not root-caused; audit render_pipeline_config. · shared
+    surface: kind cluster (new images + durable bridge manifests now committed
+    to repos/ops) · ai-meta gitlink-only: repos/ehdb-wiki (matrix + Sessions-Log)
+    · **PRs OPEN, NOT merged** (leak-flag surfaced for review) — no ai-meta
+    pointer bump · kind LOCAL only, NO GKE/prod · no secret values printed ·
+    review-gated PRs: server#279, worker#174, e2e#85, ops#235
 ```
 
 ## Related
