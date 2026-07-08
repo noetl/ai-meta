@@ -493,6 +493,22 @@ Newest last. Append a line before you start and after you finish.
     build time (v5.70.0) so it was unaffected · only touched repos/ehdb-wiki +
     docs + memory; repos/noetl + repos/server untouched · review-gated PRs: none ·
     prod/GKE: none
+
+2026-07-07 · Claude · EHDB (durable-backend track) · done: durable event-log
+    backend slice 6 — prod-durability SIGN-OFF PACKAGE (DOCS/PLANNING ONLY, no
+    prod action). New ehdb-wiki page Runbook-Durable-EventLog-Prod-Signoff:
+    go/no-go checklist (D1-D11: D1/D2/D6/D8/D10 MET, D3/D4/D5/D7/D9
+    NEEDS-PROD-VERIFICATION, D11=GAP no segment GC), evidence bundle (slices
+    1-5), residual-risk register (R1 segment-GC=Stage-C blocker, R2 GKE storage
+    class, R3 multi-replica affinity on the real event-writer pool, R4-R7),
+    extended durable-shadow→durable-primary rollout sequence (A′ v5.70.1
+    flags-off → B′ prod durable-shadow on a PVC → C′ primary, separately gated).
+    VERDICT: GO to prod durable-SHADOW; Stage C gated on soak + GC decision.
+    Cross-linked from tier-1 runbook §C + design page + _Sidebar; ehdb#254
+    slice-6 package comment posted, box LEFT UNCHECKED. · ehdb-wiki f009220,
+    ehdb#254 comment 4911623178 · ai-meta gitlink-only: repos/ehdb-wiki→f009220
+    (+ ai-meta-wiki); NO sibling repos/* pointers swept · repos/noetl +
+    repos/server untouched · review-gated PRs: none · prod/GKE: none
 ```
 
 ## Related
