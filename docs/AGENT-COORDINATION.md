@@ -459,6 +459,22 @@ Newest last. Append a line before you start and after you finish.
     dirty repos/* pointers NOT swept, no sibling revert · #254 items 2/3/4
     checked off; #234/#254 open (slices 5 kind-soak + 6 prod sign-off) ·
     review-gated PRs: none · prod/GKE: none
+
+2026-07-08 · Claude · EHDB · done: hardened KV + vector registry subjects
+    against the 256-char NATS Subject cap — fixed-width SHA-256 digest token
+    (noetl.kv.<bucket>.<sha256hex(key)>, noetl.vec.<sha256hex(col)>.<sha256hex(pt)>)
+    instead of hex-of-full-id, mirroring the object fix #256; latent-only (live KV
+    uses short circuit.<id> keys, no live vector site) so forward-safety, in-kind
+    re-proof deferred. 220 crate tests + kv/vector primary-serve selfcheck green,
+    clippy/fmt clean, no image build. · repos/branches: ehdb#259 merged → 52120a7,
+    ehdb#260 opened+closed, worker#172 merged → 93363d4 → release 0fb7ea5
+    (v5.70.1; pin cca0d0d→52120a7, pin+lockfile only), ehdb-wiki 2c7165c · ai-meta
+    gitlink-only, one gitlink/commit via temp-index off HEAD: repos/ehdb→52120a7 +
+    repos/worker→0fb7ea5 + repos/ehdb-wiki→2c7165c; other dirty repos/* pointers NOT
+    swept, no sibling revert · only touched repos/ehdb (crates/ehdb-reference) +
+    repos/worker (pin) +
+    repos/ehdb-wiki; repos/noetl + repos/server untouched (Codex lane) ·
+    review-gated PRs: none · prod/GKE: none
 ```
 
 ## Related
