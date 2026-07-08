@@ -475,6 +475,24 @@ Newest last. Append a line before you start and after you finish.
     repos/worker (pin) +
     repos/ehdb-wiki; repos/noetl + repos/server untouched (Codex lane) ·
     review-gated PRs: none · prod/GKE: none
+
+2026-07-07 · Claude · EHDB · done: durable event-log backend slice 5
+    (kind soak) — built worker v5.70.0, rolled onto noetl-worker-rust with
+    NOETL_EHDB_EVENTLOG_BACKEND=durable_segment on a 2Gi PVC; thousands of real
+    drives accumulated CRC-framed segments, segment ROTATION fired in-cluster
+    (seg-0001 sealed 8 387 133 B → seg-0002), mirror metrics past 11 731 with
+    zero invalid/degraded, CRASH RECOVERY on a real pod delete+reschedule proved
+    sealed-segment byte-identical + read-only replay of 11 856 records + gapless
+    continuing sequence. LOCAL kind only. · repos/branches: no worker code change
+    (validated already-merged v5.70.0 durable wiring; backend byte-identical to
+    the current v5.70.1 pointer — #172 diff is KV/vector-only), ehdb-wiki
+    8b20f73, ehdb#254 slice-5 checked · ai-meta gitlink-only: repos/ehdb-wiki→
+    8b20f73 (+ ai-meta-wiki); NO sibling repos/* pointers swept · SHARED-TREE
+    NOTE: the concurrent Codex worker#172 session fast-forwarded the shared
+    repos/worker tree 5e71319→0fb7ea5 mid-build; image was built from the tree at
+    build time (v5.70.0) so it was unaffected · only touched repos/ehdb-wiki +
+    docs + memory; repos/noetl + repos/server untouched · review-gated PRs: none ·
+    prod/GKE: none
 ```
 
 ## Related
