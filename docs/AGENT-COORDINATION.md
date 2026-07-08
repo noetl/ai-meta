@@ -595,6 +595,33 @@ Newest last. Append a line before you start and after you finish.
     · **PRs OPEN, NOT merged** (leak-flag surfaced for review) — no ai-meta
     pointer bump · kind LOCAL only, NO GKE/prod · no secret values printed ·
     review-gated PRs: server#279, worker#174, e2e#85, ops#235
+
+2026-07-08 · Claude · Kind-first validation · done: **Phase 3.5 — #151 PRs
+    MERGED, event-log leak FIXED before merge, Auth0 GREEN, OpenAI+IBKR scoped
+    out.** Re-verification caught a REAL leak the Phase-3 "known follow-up"
+    hand-waved: a fresh two-step probe (http step referencing a prior step's
+    output + a `{{ keychain.* }}` header — the openai_triage shape) leaked
+    `Bearer sk-<key>` into command.issued on rc3. Root cause = hop position,
+    not rerun count: the off-server drive runs as `__orchestrate__`
+    (tool_kind=wasm) whose input embeds follow-up steps' `{{ keychain.* }}`;
+    the worker's generic dispatch ran inject_keychain_namespace over that
+    input → resolved the secret INTO the drive context → drive persisted it
+    into the follow-up command.issued. Fix (worker#174): skip keychain
+    inject/render for the `__orchestrate__` drive command; keychain resolves
+    only at terminal user-pool dispatch. Rebuilt worker:v5.71.0-rc4, rolled 4
+    pools. Before/after: `Bearer sk-<LEAKED>` → `Bearer {{ keychain.* }}` (0
+    `Bearer sk-`); dispatch resolution intact; regression test added. MERGED
+    (squash): server#279→v3.53.2 (fe500df9), worker#174→v5.70.3 (2031a8b4),
+    e2e#85 (252006f8), ops#235 (541e6b0d). Auth0 password-grant GREEN via GSM
+    (`auth0-test-user-password` → provider:gcp keychain, never plaintext
+    workload): HTTP 200 + real access_token (expires_in 86400), COMPLETED, no
+    plaintext in noetl.event, eid 333298747507216384. OpenAI (429
+    insufficient_quota) + IBKR (live gateway) formally SCOPED OUT. · shared
+    surface: kind cluster (4 worker pools on v5.71.0-rc4 = merged v5.70.3) ·
+    ai-meta gitlink-only via temp-index off HEAD: server fe500df9, worker
+    2031a8b4, e2e 252006f8, ops 541e6b0d, ehdb-wiki 96e31c0 · kind LOCAL only,
+    NO GKE/prod · no secret values printed/committed
+    · review-gated PRs: none (all merged)
 ```
 
 ## Related
