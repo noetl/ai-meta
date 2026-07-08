@@ -431,6 +431,34 @@ Newest last. Append a line before you start and after you finish.
     one gitlink/commit: repos/worker→96a8b6b (a3c34cb) +
     repos/ehdb-wiki→4e5ec66 (d34ed5c); other dirty repos/* pointers NOT
     swept · review-gated PRs: none · prod/GKE: none
+2026-07-07 · Claude · EHDB (durable-backend track) · done: durable
+    event-log backend **slice 4 — WORKER WIRING** (ehdb#254 item 4).
+    Worked repos/worker ONLY. New src/ehdb/eventlog_backend.rs selects the
+    event-log storage engine from NOETL_EHDB_EVENTLOG_BACKEND
+    (local_reference default | durable_segment); durable_segment builds the
+    slice-1+2+3 stack (SharedTierEventLog over AffinityRoutedEventLog over
+    per-shard DurableEventLogDriver) with ownership from the worker's OWN
+    NOETL_SHARD_INDEX/COUNT (byte-identical XxHash64 to sharding::shard_for).
+    mirror_event dispatches through it (shadow mirror + gated primary append);
+    new EventLogOutcome::RoutedAway for non-owned single-writer refusals.
+    Config matrix surfaces eventlog_storage_backend; new ehdb-selfcheck
+    durable-eventlog verb proves durable-segment replay (reopen shard store
+    read-only). ehdb-reference pin bbc5047→cca0d0d (slices 1-3 + object fix).
+    13 new tests + 191 ehdb tests green; no new clippy warnings; fmt (reflow
+    gotcha — reverted 30 unrelated cargo-fmt files). Disabled-by-default,
+    reversible, byte-identical when unset. **SIBLING (concurrent): a v5.69.0
+    kind redeploy/re-proof task is running (ops-only, builds the EXISTING
+    image, NO worker code change) — minimal collision; worker moves to
+    v5.70.0 independently. repos/ehdb UNCHANGED (already cca0d0d); repos/noetl
+    + repos/server untouched.** LOCAL/KIND only — NO GKE, NO worker image
+    build inline; in-cluster durable-backend live proof PENDING a redeploy
+    (drive with NOETL_EHDB_EVENTLOG_BACKEND=durable_segment). · repos/branches:
+    worker#171 merged → 9947d9b → release 5e71319 (v5.70.0), ehdb-wiki 3574456 ·
+    ai-meta gitlink-only, one gitlink/commit via temp-index off HEAD:
+    repos/worker→5e71319 (f5af0c3) + repos/ehdb-wiki→3574456 (ff21f283); other
+    dirty repos/* pointers NOT swept, no sibling revert · #254 items 2/3/4
+    checked off; #234/#254 open (slices 5 kind-soak + 6 prod sign-off) ·
+    review-gated PRs: none · prod/GKE: none
 ```
 
 ## Related
