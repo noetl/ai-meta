@@ -641,6 +641,28 @@ Newest last. Append a line before you start and after you finish.
     (f887686). · **repos/noetl + repos/server UNTOUCHED (Codex lane).** ·
     kind: none touched · NO GKE/prod · no secret values ·
     review-gated PRs: **ehdb#262 OPEN** (bench-only; merge → pointer bump)
+
+2026-07-08 · Claude · EHDB integration · done: **EHDB perf/load-testing
+    Layer B — in-cluster load harness + EHDB-vs-incumbent head-to-head.**
+    Committed harness `scripts/perf/layer_b_eventlog_load.sh` (ehdb PR
+    #263, Refs #261). Ran in kind (`kind-noetl`, podman). Head-to-head,
+    same VM/same ~400B envelope: incumbent Postgres+NATS append
+    ~2150 ev/s p50 12.6ms/p99 52.5ms (0 fail); EHDB durable **local
+    engine primitive** fresh-segment ~3–10ms (corroborates Layer A
+    3.9ms); EHDB **as-deployed shared-tier** shadow mirror ~0.55–1.7s/
+    append (p99 ~1.17s), throttling worker emission to ~1–2/s + backlog.
+    Headline: `SharedTierEventLog::append` re-publishes the whole active
+    segment **synchronously in `emit_event`** (O(segment)) — bottleneck
+    is the shared-publish strategy, NOT the engine or VM fsync. SLO
+    split-by-backend flagged; follow-up = incremental shared publish +
+    off-hot-path (group-commit demoted to secondary). · shared surface:
+    `repos/ehdb` (PR branch, unmerged), `repos/ehdb-wiki`. · ai-meta
+    gitlink-only via temp-index off HEAD: **repos/ehdb-wiki only**
+    (ae206a3); repos/ehdb pointer stays at main until #263 merges. ·
+    **repos/noetl + repos/server + worker-runtime UNTOUCHED (harness
+    only).** · kind: load driven on shared/user pool, drained · NO
+    GKE/prod · no secret values · review-gated PRs: **ehdb#263 OPEN**
+    (harness; merge → pointer bump)
 ```
 
 ## Related
