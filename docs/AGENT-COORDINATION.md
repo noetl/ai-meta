@@ -678,14 +678,19 @@ Newest last. Append a line before you start and after you finish.
     segment on the per-op stack build — NOT the shared publish. Proven:
     fresh ~4ms; cost scales with LOCAL size (8MB~0.2s/20MB~0.6s) while
     shared O(delta); deployed `ehdb-drive` ~1.3/s p99~1.65s UNCHANGED.
-    Filed **ehdb#267** (local replay-on-open). #264 CLOSED. · shared
-    surface: `repos/ehdb` (a36484f), `repos/ehdb-wiki` (763147d). · ai-meta
-    gitlink-only via temp-index off HEAD: **repos/ehdb → a36484f +
-    repos/ehdb-wiki → 763147d**. · worker pin bump lives on branch
-    `chore/bump-ehdb-pin-264` (PR to persist; inert deployed until #267). ·
+    Filed **ehdb#267** (local replay-on-open). #264 CLOSED. **DECISION
+    (Alesha): merge on the micro-bench flat-append evidence (authoritative
+    signal), NOT gated on the slow in-kind rebuild — shared-publish SLO met at
+    engine level; in-kind deployed-rate confirmation DEFERRED to post-#267 (+
+    VM not build-contended; VM swap=0 → OOM is the failure mode).** ·
+    shared surface: `repos/ehdb` (a36484f), `repos/ehdb-wiki` (7b3c252),
+    `repos/worker` (fc203b9). · ai-meta gitlink-only via temp-index off HEAD:
+    **repos/ehdb a36484f + repos/ehdb-wiki 7b3c252 + repos/ai-meta-wiki +
+    repos/worker fc203b9**. · **worker#175 MERGED** (`fc203b9`, ehdb pin →
+    a36484f, pin+lockfile only; no auto-release, worker stays 5.70.3). ·
     **repos/noetl + repos/server UNTOUCHED.** · kind: user+system pools
     rolled to v5.72.0-ehdb266, hello_world green · NO GKE/prod · no secret
-    values · review-gated PRs: **ehdb#265+#266 MERGED**
+    values · review-gated PRs: **ehdb#265+#266 + worker#175 MERGED**
 ```
 
 ## Related
