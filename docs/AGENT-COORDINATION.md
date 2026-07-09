@@ -691,6 +691,23 @@ Newest last. Append a line before you start and after you finish.
     **repos/noetl + repos/server UNTOUCHED.** · kind: user+system pools
     rolled to v5.72.0-ehdb266, hello_world green · NO GKE/prod · no secret
     values · review-gated PRs: **ehdb#265+#266 + worker#175 MERGED**
+2026-07-08 · Claude · infra · done: hardened the `noetl-dev` Podman
+    machine VM (6 vCPU / 20 GiB / 200 GiB xfs, Fedora CoreOS) that
+    hosts kind-noetl — added an **8 GiB /var/swapfile** (dd on xfs,
+    chmod 600, mkswap, swapon; `vm.swappiness=10`) so heavy Rust
+    worker builds degrade instead of hard-OOM (the swap=0 failure
+    mode flagged in the prior line). Persisted via `/etc/fstab` +
+    `/etc/sysctl.d/90-swappiness.conf` (fstab generator emits an
+    active `var-swapfile.swap` unit → survives reboot). Added LIVE
+    with **no `podman machine` restart and no kind-node restart** —
+    cluster stayed healthy throughout (node Ready, /healthz ok, 32
+    pods Running unchanged). Docs: ops-wiki `local-kind-vm` page
+    (pushed `c0755fb`) + ai-meta memory. · shared surface:
+    `repos/noetl-ops-wiki` (pushed, NOT pointer-bumped — ai-meta's
+    recorded pointer 8f51b636 is already behind origin e035a3ab, so
+    a bump would absorb unrelated drift; left as-found). · repos/noetl
+    + repos/server UNTOUCHED · NO GKE/prod · no secret values ·
+    review-gated PRs: none
 ```
 
 ## Related
