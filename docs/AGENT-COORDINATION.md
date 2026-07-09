@@ -708,6 +708,25 @@ Newest last. Append a line before you start and after you finish.
     a bump would absorb unrelated drift; left as-found). · repos/noetl
     + repos/server UNTOUCHED · NO GKE/prod · no secret values ·
     review-gated PRs: none
+
+2026-07-09 · Claude · EHDB perf · done: **local replay-on-open FIXED
+    (ehdb#267)** — the dominant deployed durable-append cost. The worker
+    rebuilds the stack per op, so every mirrored append paid a fresh
+    `DurableSegmentStore::open` that replayed every segment (O(segment));
+    #266 had already made the shared publish O(delta), leaving this the
+    real gate. Fix (ehdb#268 → main `f6fdaea`, closes #267): a small
+    `checkpoint.json` sidecar makes open-for-append O(1) (offset index
+    lazy on first read; replay-is-truth fallback on missing/stale/
+    inconsistent; strict active-seg length anchor; CRC on read; durability
+    unchanged). Micro-bench per-op-open+append FLAT ~5ms(driver)/~14ms
+    (stack) across S=100/2000/10000; deployed kind before→after on the
+    ~20MB user-pool store **~0.509s → ~4–16ms/op (~30–120×)**; hello_world
+    green; both pools rolled clean. worker#176 → `0597351` (pin
+    a36484f→f6fdaea + 2 read-site `let mut`; img `v5.72.0-ehdb267`).
+    232 ehdb tests +5; clippy/fmt clean. · ai-meta gitlink-only bumps:
+    repos/ehdb→f6fdaea, repos/worker→0597351, repos/ehdb-wiki→5281116,
+    repos/ai-meta-wiki (mirror) · repos/noetl + repos/server UNTOUCHED ·
+    NO GKE/prod · no secret values · review-gated PRs: none
 ```
 
 ## Related
