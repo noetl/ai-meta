@@ -663,6 +663,29 @@ Newest last. Append a line before you start and after you finish.
     only).** · kind: load driven on shared/user pool, drained · NO
     GKE/prod · no secret values · review-gated PRs: **ehdb#263 OPEN**
     (harness; merge → pointer bump)
+2026-07-08 · Claude · EHDB perf · done: **shared-tier publish O(segment)
+    FIXED (ehdb#264 via #265+#266) + validated in kind — but the fix
+    CORRECTED the Layer-B headline.** #263 merged (d5ed46d). #265 =
+    append-delta publish (new `SharedSegmentBackend::append_segment`);
+    #266 = persist resumable XxHash on the segment sidecar (worker builds
+    the stack PER OP → #265's in-memory digest cache was useless). Shared
+    publish is now O(delta): micro-bench `append_at_size` flat ~12–13ms @
+    100/2000/10000; 227 tests pass. Rebuilt worker
+    `v5.72.0-ehdb266`, rolled user+system pools (2 pre-wedged
+    subscription pools reverted rc4 — pre-existing broken init container).
+    **CORRECTED HEADLINE:** the deployed per-op cost is dominated by a
+    SEPARATE O(segment) — `DurableSegmentStore::open` replays every
+    segment on the per-op stack build — NOT the shared publish. Proven:
+    fresh ~4ms; cost scales with LOCAL size (8MB~0.2s/20MB~0.6s) while
+    shared O(delta); deployed `ehdb-drive` ~1.3/s p99~1.65s UNCHANGED.
+    Filed **ehdb#267** (local replay-on-open). #264 CLOSED. · shared
+    surface: `repos/ehdb` (a36484f), `repos/ehdb-wiki` (763147d). · ai-meta
+    gitlink-only via temp-index off HEAD: **repos/ehdb → a36484f +
+    repos/ehdb-wiki → 763147d**. · worker pin bump lives on branch
+    `chore/bump-ehdb-pin-264` (PR to persist; inert deployed until #267). ·
+    **repos/noetl + repos/server UNTOUCHED.** · kind: user+system pools
+    rolled to v5.72.0-ehdb266, hello_world green · NO GKE/prod · no secret
+    values · review-gated PRs: **ehdb#265+#266 MERGED**
 ```
 
 ## Related
