@@ -371,21 +371,24 @@ entered (dry-run + missing-auth both return before `reqwest::send`).
 
 ### Build-cost handling (per the standing heavy-build constraint)
 
-The multi-hour `libduckdb-sys` C++ compile is gated off **only** on the
-in-flight #185 `feature/duckdb-opt-in-integration` branch, not on `main`. I
-based the provider branch on that gated branch so `cargo test`/`clippy` ran with
-DuckDB stubbed — **no heavy compile was kicked off** (checks finished in
-seconds/~25s cold). I did **not** rebuild the worker image or run kind
-validation (both would trigger the heavy compile) — those are deferred
-follow-ups to be scheduled deliberately.
+The multi-hour `libduckdb-sys` C++ compile is gated behind the non-default
+`duckdb-integration` feature. The provider branch was first based on the
+in-flight gating branch so `cargo test`/`clippy` ran DuckDB-stubbed — **no heavy
+compile was kicked off**. On 2026-07-13 the gating landed on `main` (v3.20.0,
+#85), and per user decision the branch was **rebased onto `main`** (clean, no
+conflicts) and **re-verified there**: `cargo check`/`clippy --tests` clean,
+`cargo test --lib provider` **13/13 green**, with no `libduckdb-sys` compile
+(main now stubs DuckDB by default). I did **not** rebuild the worker image or
+run kind validation (both would trigger the heavy compile) — deferred
+follow-ups to schedule deliberately.
 
 ## Phase C — report and integration instructions
 
 - **Repo / branch / commit:** `noetl/tools`, branch `feat/provider-tool-kind`,
-  commit `6dbcb3d` (`feat(provider): add cloud provider tool kind (Google REST MVP)`).
+  commit `82d63cb` (`feat(provider): add cloud provider tool kind (Google REST MVP)`;
+  rebased onto `main` — was `6dbcb3d` on the gating base).
 - **PR (opened, NOT merged):** <https://github.com/noetl/tools/pull/86> — base
-  `feature/duckdb-opt-in-integration` (see the stacking note below), citing
-  `noetl/ai-meta#189`.
+  **`main`** (v3.20.0), citing `noetl/ai-meta#189`. MERGEABLE.
 - **Umbrella issue:** <https://github.com/noetl/ai-meta/issues/189> (ai-task,
   repo:tools) — commented with the PR + status; added to roadmap board 3 and
   flipped to **In progress**.
@@ -403,10 +406,10 @@ follow-ups to be scheduled deliberately.
     `projects.ensure`, `organizations.iam.ensure_binding`,
     `billing_accounts.iam.ensure_binding` (multi-step read-modify-write; LRO
     polling to follow).
-- **Stacking / base note:** PR base is the #185 duckdb-opt-in branch to keep CI
-  off the `libduckdb-sys` compile; GitHub retargets to `main` when #185 lands
-  (the provider code is DuckDB-independent and can be rebased onto `main`
-  directly if preferred). #185 currently has no open PR — a coordination item.
+- **Base = `main` (rebased per user decision 2026-07-13).** #86 is no longer
+  stacked on the DuckDB chain — it stands on its own and can land independently.
+  The DuckDB gating merged to `main` as v3.20.0 (#85), so `main`-based CI/local
+  builds stub DuckDB by default (no heavy compile).
 - **Follow-ups (tracked on #189):** apply-mode multi-step `ensure`/`ensure_binding`
   with bounded LRO polling; genuine `runtime: rust-sdk` backend; runnable e2e
   fixture + kind validation (needs the announced worker image rebuild);
@@ -447,10 +450,10 @@ follow-ups to be scheduled deliberately.
 - **DONE — wait phrase `implement provider tool` given 2026-07-13.** Phase B
   implemented + PR opened (noetl/tools#86, not merged). Awaiting human review /
   merge decision.
-- **Coordination — PR base:** noetl/tools#86 stacks on the #185 duckdb-opt-in
-  branch (no open PR yet) to keep CI off the `libduckdb-sys` compile. Decide
-  whether to land #185 first (PR auto-retargets to `main`) or rebase this PR
-  onto `main` directly. Needs a human call.
+- **RESOLVED (user decision 2026-07-13):** rebase #86 onto `main`. Done —
+  branch rebased (commit `82d63cb`, no conflicts), force-pushed (feature branch
+  only), PR base retargeted to `main`, re-verified green (13/13). #86 no longer
+  blocked on the DuckDB chain.
 - **Deferred, needs the heavy build scheduled:** runnable e2e fixture + kind
   validation of the provider tool requires a worker image rebuild (multi-hour
   `libduckdb-sys` compile). Not started — flag before kicking off.
@@ -467,7 +470,8 @@ follow-ups to be scheduled deliberately.
 ---
 **Confirmation (round-01 complete):** Phase A (design) + Phase B (round-1 REST
 MVP) done. Implementation landed on `noetl/tools` branch `feat/provider-tool-kind`
-(commit `6dbcb3d`), PR #86 **opened, not merged**. 13 unit tests green, clippy
+(commit `82d63cb`, **rebased onto `main`** per user decision), PR #86 **opened
+against `main`, not merged**. 13 unit tests green (re-verified on `main`), clippy
 clean. **No real cloud/GCP mutations, no state-changing API calls** (tests
 exercise offline branches only). **No worker image rebuild, no kind validation,
 no GKE/prod actions** — deferred (they need the heavy `libduckdb-sys` compile;
