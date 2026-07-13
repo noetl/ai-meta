@@ -107,7 +107,16 @@ dispatch metrics (`noetl_worker_dispatch_duration_seconds{tool_kind}`,
 for free (satisfies `observability.md` Principle 1: span + metric +
 `execution_id` on the dispatch boundary).
 
-### 4. Google SDK vs REST — the MVP decision
+### 4. Google SDK vs REST — the MVP decision (RESOLVED)
+
+**RESOLVED (user decision, round-01 review): round 1 is REST-first.** The
+provider tool implements Cloud Resource Manager v3 / Cloud Billing v1 / Service
+Usage v1 over `reqwest` + the existing `GcpAuth` credential path, with **zero
+new heavy dependencies**. The `google-cloud-rust` gRPC SDK path
+(`runtime: rust-sdk`) is **deferred**: it stays behind the same YAML surface
+and maps to the REST backend for now (see §5), so adopting it later is a
+backend swap, not a playbook change. The dep-footprint tradeoff that motivated
+the question is settled in favor of the smaller footprint.
 
 Three build options were on the table (prompt Phase A.3):
 
@@ -129,10 +138,11 @@ Three build options were on the table (prompt Phase A.3):
   v3, Cloud Billing v1, and Service Usage v1. `reqwest` + a `gcp_auth` bearer
   token covers every one in a few hundred lines with **zero new heavy deps**.
 - The interface is designed (see §5) so a `runtime: rust-sdk` backend can be
-  added later behind the same YAML with no playbook change. MVP ships
-  `runtime: rest`; the prompt's example uses `rust-sdk`, so the tool accepts
-  both and maps `rust-sdk` → the REST backend for now, echoing which path ran
-  in `result.data.backend`. When the SDK backend lands it's a drop-in.
+  added later behind the same YAML with no playbook change. Round 1 ships the
+  `runtime: rest` backend; the prompt's example uses `rust-sdk`, so the tool
+  accepts both and maps `rust-sdk` → the REST backend, echoing which path ran
+  in `result.data.backend`. When the SDK backend lands it's a drop-in swap —
+  the deferred path is a seam, not a rewrite.
 
 Reference (from the target contract doc, not re-fetched live): Google Cloud
 Rust SDK GA 2025-09-09, `googleapis/google-cloud-rust`, Rust ≥1.88, covers
@@ -346,10 +356,10 @@ PR unless explicitly instructed).
 
 - **Human go-ahead to start Phase B** — reply with the wait phrase
   `implement provider tool`. Nothing further proceeds without it.
-- **Open decision (reversible, defaulted):** MVP ships `runtime: rest` and maps
-  `rust-sdk` → REST with a `backend` note, rather than adding the heavy
-  `google-cloud-rust` SDK now — say so if you want the real SDK backend in
-  round 1 (changes dep footprint + build time materially).
+- **RESOLVED during round-01 review (user):** round 1 is REST-first (Cloud
+  Resource Manager v3 / Cloud Billing v1 / Service Usage v1 over `reqwest` +
+  `GcpAuth`), **zero new heavy deps**; `runtime: rust-sdk` deferred and mapped
+  to REST behind the same YAML. Folded into §4/§5 — no longer open.
 - **RESOLVED during round-01 review (user):** apply-mode mutations require an
   explicit `auth:` alias (keychain/credential path), not ambient ADC. Folded
   into the §5 auth model and the §7 conformance check — no longer open.
