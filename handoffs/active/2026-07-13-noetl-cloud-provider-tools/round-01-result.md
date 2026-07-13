@@ -384,11 +384,16 @@ follow-ups to schedule deliberately.
 
 ## Phase C — report and integration instructions
 
-- **Repo / branch / commit:** `noetl/tools`, branch `feat/provider-tool-kind`,
-  commit `82d63cb` (`feat(provider): add cloud provider tool kind (Google REST MVP)`;
-  rebased onto `main` — was `6dbcb3d` on the gating base).
-- **PR (opened, NOT merged):** <https://github.com/noetl/tools/pull/86> — base
-  **`main`** (v3.20.0), citing `noetl/ai-meta#189`. MERGEABLE.
+- **MERGED (user decision 2026-07-13):** <https://github.com/noetl/tools/pull/86>
+  squash-merged into `noetl/tools` `main` as **`5e427fb`**; feature branch
+  deleted. semantic-release cut **`noetl-tools` v3.21.0** (minor bump from
+  3.20.0; release commit `cd9d71c`, tag `v3.21.0`) — Semantic Release CI run
+  green.
+- **ai-meta pointer bump:** `repos/tools` gitlink bumped `2e86886` → `cd9d71c`
+  in ai-meta commit **`e9b3e14e`** (gitlink-only via temp-index off HEAD;
+  verified the commit touches exactly one path, no sibling `repos/*` swept).
+- **Repo / branch / commit (pre-merge):** was `feat/provider-tool-kind` @
+  `82d63cb` (rebased onto `main`; originally `6dbcb3d` on the gating base).
 - **Umbrella issue:** <https://github.com/noetl/ai-meta/issues/189> (ai-task,
   repo:tools) — commented with the PR + status; added to roadmap board 3 and
   flipped to **In progress**.
@@ -406,10 +411,10 @@ follow-ups to schedule deliberately.
     `projects.ensure`, `organizations.iam.ensure_binding`,
     `billing_accounts.iam.ensure_binding` (multi-step read-modify-write; LRO
     polling to follow).
-- **Base = `main` (rebased per user decision 2026-07-13).** #86 is no longer
-  stacked on the DuckDB chain — it stands on its own and can land independently.
-  The DuckDB gating merged to `main` as v3.20.0 (#85), so `main`-based CI/local
-  builds stub DuckDB by default (no heavy compile).
+- **LANDED (user decision 2026-07-13):** #86 squash-merged into `main` as
+  `5e427fb`; `noetl-tools` **v3.21.0** released; ai-meta gitlink bumped to
+  `cd9d71c` (commit `e9b3e14e`). It landed independently — never stacked on the
+  DuckDB chain after the rebase.
 - **Follow-ups (tracked on #189):** apply-mode multi-step `ensure`/`ensure_binding`
   with bounded LRO polling; genuine `runtime: rust-sdk` backend; runnable e2e
   fixture + kind validation (needs the announced worker image rebuild);
@@ -450,10 +455,14 @@ follow-ups to schedule deliberately.
 - **DONE — wait phrase `implement provider tool` given 2026-07-13.** Phase B
   implemented + PR opened (noetl/tools#86, not merged). Awaiting human review /
   merge decision.
-- **RESOLVED (user decision 2026-07-13):** rebase #86 onto `main`. Done —
-  branch rebased (commit `82d63cb`, no conflicts), force-pushed (feature branch
-  only), PR base retargeted to `main`, re-verified green (13/13). #86 no longer
-  blocked on the DuckDB chain.
+- **RESOLVED (user decision 2026-07-13):** rebase #86 onto `main`, then merge.
+  Done — rebased (`82d63cb`, no conflicts) → squash-merged as `5e427fb` →
+  `noetl-tools` **v3.21.0** released → ai-meta gitlink bumped to `cd9d71c`
+  (`e9b3e14e`). PR closed/merged, feature branch deleted.
+- **#189 stays OPEN** — round-1 tool landed; deferred follow-ups remain
+  (apply-mode multi-step `ensure`/`ensure_binding` + LRO polling, genuine
+  `runtime: rust-sdk` backend, runnable e2e fixture + kind validation, wiki
+  `Provider-Tool` page). None of these were in round-1 scope.
 - **Deferred, needs the heavy build scheduled:** runnable e2e fixture + kind
   validation of the provider tool requires a worker image rebuild (multi-hour
   `libduckdb-sys` compile). Not started — flag before kicking off.
@@ -469,10 +478,11 @@ follow-ups to schedule deliberately.
 
 ---
 **Confirmation (round-01 complete):** Phase A (design) + Phase B (round-1 REST
-MVP) done. Implementation landed on `noetl/tools` branch `feat/provider-tool-kind`
-(commit `82d63cb`, **rebased onto `main`** per user decision), PR #86 **opened
-against `main`, not merged**. 13 unit tests green (re-verified on `main`), clippy
-clean. **No real cloud/GCP mutations, no state-changing API calls** (tests
+MVP) done and **LANDED**: PR #86 squash-merged into `noetl/tools` `main` as
+`5e427fb`, `noetl-tools` **v3.21.0** released, ai-meta gitlink bumped to
+`cd9d71c` (commit `e9b3e14e`, gitlink-only). 13 unit tests green (re-verified on
+`main`), clippy clean. **No real cloud/GCP mutations, no state-changing API
+calls** (tests
 exercise offline branches only). **No worker image rebuild, no kind validation,
 no GKE/prod actions** — deferred (they need the heavy `libduckdb-sys` compile;
 not kicked off). No force-push, no `main` rewrite, no unrelated dirty state
