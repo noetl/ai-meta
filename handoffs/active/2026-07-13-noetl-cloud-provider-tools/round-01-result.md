@@ -5,7 +5,7 @@ from: claude
 to: codex
 created: 2026-07-13T15:39:58Z
 in_reply_to: round-01-prompt.md
-status: partial
+status: complete
 ---
 
 # Phase A — NoETL Cloud Provider Tool: inspection + design
@@ -300,39 +300,129 @@ unrelated dirty state I must not disturb). The full design is embedded here.
 
 ## Phase B — implement MVP locally
 
-**NOT STARTED — gated on wait phrase `implement provider tool`.** No code
-written, no tests, no builds, no worker rebuild, no kind validation.
+**DONE.** Wait phrase `implement provider tool` given 2026-07-13; round-1 REST
+MVP implemented in `repos/tools`, unit-tested, PR opened (not merged). No real
+cloud calls were made — every network path is behind `dry_run`/explicit-auth and
+tests exercise only the offline branches.
 
-When authorized, the smallest useful path (recommended order):
+### What shipped
 
-1. `repos/tools/src/tools/provider.rs` — `ProviderTool` + `ProviderSpec`
-   parsing + `ProviderFamily`/`Backend` enums + `GoogleProvider` handler match.
-   Start with the 3 read-only actions (`folders.list`, `projects.describe`,
-   `services.list_enabled`) + 1 mutating with GET-first idempotency
-   (`services.enable`); stub the rest to
-   `ToolError::Configuration("<action> not yet implemented")`.
-2. `repos/tools/src/tools/mod.rs` — `mod provider; pub use …; registry.register(ProviderTool::new());`.
-3. Tests (prompt Phase B.6): spec parsing (both action forms); `dry_run=true`
-   returns `would_call` and mints **no** token / makes **no** network call
-   (assert with a no-network unit test); **mutating action with `auth:` omitted
-   → `Configuration` error and no network call** (the resolved explicit-auth
-   decision); unknown provider + unknown action → `Configuration` error;
-   **secret redaction** — assert the emitted result/echo never contains a token
-   or the `Authorization` header.
-4. Sample playbook under `repos/tools/examples/` or an e2e fixture mirroring the
-   `gcp-org-playbooks` `folders.list` / `services.enable` specs, `dry_run` only.
-5. No real cloud mutation in tests — every network-touching path behind
-   `dry_run` or a mocked transport.
-6. Kind validation (`deployment-validation.md`): rebuild the worker image, load
-   into `kind-noetl`, run the sample playbook in `plan` mode only.
+- **`repos/tools/src/tools/provider.rs`** (new, ~640 lines incl. tests) —
+  `ProviderTool` (`kind: provider`) implementing the `Tool` trait:
+  - `ProviderFamily` (`google` implemented; `aws`/`azure` parse → clear
+    not-implemented error — the cross-cloud seam), `Backend` (`rest`;
+    `rust-sdk` accepted and mapped to `rest`, echoed as `result.data.backend`).
+  - `ProviderSpec` deserialized from the flattened, template-rendered config;
+    `dry_run` via a flexible bool deserializer (bool **or** `"true"`/`"false"`/`""`),
+    **defaulting to `true`** (never silently mutate).
+  - `canonical_action()` normalizes both the fully-qualified
+    `google.<svc>.<resource>.<verb>` form and the short `<resource>.<verb>` +
+    `service` form the playbooks emit, via a service-domain table.
+  - `plan_google()` builds the concrete REST request (method/URL/body) for **all
+    11 target actions** — so `dry_run` echoes a correct, testable plan for every
+    one. Per-action `mutates` + `apply_supported` flags.
+  - **Plan mode**: returns `{provider, action, dry_run:true, changed:false,
+    backend, would_call, input}` with **no token minted and no network call**.
+  - **Apply mode**: requires `config.auth` — absent ⇒ `ToolError::Configuration`
+    naming apply-mode + `auth`, **no network call** (the settled explicit-auth
+    decision). Present ⇒ resolves via `AuthResolver` (reuses `GcpAdc`/keychain),
+    sends the request, returns `{…, changed, resource}`. Single-request actions
+    (reads, `services.enable`, `projects.link`, `*.iam.get_policy`) execute;
+    the 4 multi-step `ensure`/`ensure_binding` actions are `apply_supported=false`
+    → clear "not yet implemented (multi-step ensure); use dry_run" error (the
+    auth check runs first, so a missing-auth apply still errors on auth).
+  - `redact_sensitive()` — recursive field-allowlist scrub applied to echoed
+    `input` and request bodies (the bearer token never enters these structures
+    at all; this is defence-in-depth). API error bodies are redacted before they
+    enter the error string.
+  - Dispatch span `tool.dispatch.provider` with `execution_id`/`provider`/
+    `action`/`dry_run` (observability Principle 1; per-kind dispatch
+    duration/error metrics already fire generically for any registered kind).
+- **`repos/tools/src/tools/mod.rs`** — `mod provider;` + `pub use …ProviderTool;`
+  + `registry.register(ProviderTool::new())` + module-doc line. No worker change.
+- **`repos/tools/src/registry.rs`** — added `provider` to the
+  `kind_is_side_effecting` default-true coverage test (mutating provider actions
+  are side-effecting; conservative default is correct).
+- **`repos/tools/examples/provider_gcp_org.yaml`** — sample playbook mirroring
+  the gcp-org-playbooks specs (folders.list / projects.ensure / services.enable
+  / list_enabled), all `dry_run`, with the apply-mode `auth:` shape commented.
+
+### Tests (prompt Phase B.6) — all green
+
+`cargo test --lib provider` → **13 passed / 0 failed**. `cargo clippy --lib`
+and `cargo clippy --tests` clean. Coverage:
+
+- parse + `canonical_action` for both action forms (+ short-form-without-service
+  error);
+- `dry_run` default-true + flexible-bool (`"false"`, `""`→true);
+- dry-run echoes `would_call` (method/URL) with **no network** — for
+  `services.enable` and `folders.list`;
+- **apply without `auth:` → `Configuration` error, no network** (the
+  explicit-auth decision);
+- apply of a multi-step ensure → stubbed not-implemented (auth checked first);
+- unknown provider → not-implemented; unknown action → "unknown google provider
+  action";
+- secret redaction: `redact_sensitive` masks nested `access_token`/
+  `client_secret`/`api_key`; dry-run output redacts an `oauth_token` planted in
+  `input`.
+
+No real cloud mutation in any test — the network-executing branch is never
+entered (dry-run + missing-auth both return before `reqwest::send`).
+
+### Build-cost handling (per the standing heavy-build constraint)
+
+The multi-hour `libduckdb-sys` C++ compile is gated off **only** on the
+in-flight #185 `feature/duckdb-opt-in-integration` branch, not on `main`. I
+based the provider branch on that gated branch so `cargo test`/`clippy` ran with
+DuckDB stubbed — **no heavy compile was kicked off** (checks finished in
+seconds/~25s cold). I did **not** rebuild the worker image or run kind
+validation (both would trigger the heavy compile) — those are deferred
+follow-ups to be scheduled deliberately.
 
 ## Phase C — report and integration instructions
 
-**NOT STARTED — depends on Phase B.** No files changed, no commands run beyond
-read-only inspection, no branch/SHA to report, no PR. When Phase B lands, Phase
-C reports exact files changed, `cargo test`/`clippy` results, which actions
-ship vs remain stubbed, and the `repos/tools` branch + commit SHA (no push / no
-PR unless explicitly instructed).
+- **Repo / branch / commit:** `noetl/tools`, branch `feat/provider-tool-kind`,
+  commit `6dbcb3d` (`feat(provider): add cloud provider tool kind (Google REST MVP)`).
+- **PR (opened, NOT merged):** <https://github.com/noetl/tools/pull/86> — base
+  `feature/duckdb-opt-in-integration` (see the stacking note below), citing
+  `noetl/ai-meta#189`.
+- **Umbrella issue:** <https://github.com/noetl/ai-meta/issues/189> (ai-task,
+  repo:tools) — commented with the PR + status; added to roadmap board 3 and
+  flipped to **In progress**.
+- **Files changed** (4): `src/tools/provider.rs` (new), `src/tools/mod.rs`,
+  `src/registry.rs`, `examples/provider_gcp_org.yaml` (new).
+- **Commands run:** `cargo check --lib`, `cargo clippy --lib`,
+  `cargo clippy --tests`, `cargo test --lib provider`, `cargo test --lib
+  registry::tests`, `rustfmt --edition 2021 src/tools/provider.rs` (scoped — no
+  bare `cargo fmt`). All green.
+- **Shipped vs stubbed:**
+  - *Apply-executable now:* `folders.list`, `projects.describe`,
+    `services.list_enabled`, `organizations.iam.get_policy`,
+    `billing_accounts.iam.get_policy`, `services.enable`, `projects.link`.
+  - *Plan-able now, apply stubbed (round-1 boundary):* `folders.ensure`,
+    `projects.ensure`, `organizations.iam.ensure_binding`,
+    `billing_accounts.iam.ensure_binding` (multi-step read-modify-write; LRO
+    polling to follow).
+- **Stacking / base note:** PR base is the #185 duckdb-opt-in branch to keep CI
+  off the `libduckdb-sys` compile; GitHub retargets to `main` when #185 lands
+  (the provider code is DuckDB-independent and can be rebased onto `main`
+  directly if preferred). #185 currently has no open PR — a coordination item.
+- **Follow-ups (tracked on #189):** apply-mode multi-step `ensure`/`ensure_binding`
+  with bounded LRO polling; genuine `runtime: rust-sdk` backend; runnable e2e
+  fixture + kind validation (needs the announced worker image rebuild);
+  `noetl-tools` wiki `Provider-Tool` page; optional
+  `noetl_provider_action_total` counter.
+
+### Did NOT do (constraint stops)
+
+- **No real GCP/cloud calls, no state-changing API calls** — tests only exercise
+  offline branches.
+- **No worker image rebuild, no kind validation, no GKE/prod actions** — these
+  need the heavy `libduckdb-sys` compile; left for a deliberately-scheduled
+  follow-up rather than kicked off unannounced.
+- **PR opened, not merged.** No force-push, no `main` rewrite.
+- **No unrelated dirty state touched** in ai-meta or the submodule (only the 4
+  provider files staged in `repos/tools`; only this result file in ai-meta).
 
 ## Issues observed
 
@@ -354,8 +444,16 @@ PR unless explicitly instructed).
 
 ## Manual escalation needed
 
-- **Human go-ahead to start Phase B** — reply with the wait phrase
-  `implement provider tool`. Nothing further proceeds without it.
+- **DONE — wait phrase `implement provider tool` given 2026-07-13.** Phase B
+  implemented + PR opened (noetl/tools#86, not merged). Awaiting human review /
+  merge decision.
+- **Coordination — PR base:** noetl/tools#86 stacks on the #185 duckdb-opt-in
+  branch (no open PR yet) to keep CI off the `libduckdb-sys` compile. Decide
+  whether to land #185 first (PR auto-retargets to `main`) or rebase this PR
+  onto `main` directly. Needs a human call.
+- **Deferred, needs the heavy build scheduled:** runnable e2e fixture + kind
+  validation of the provider tool requires a worker image rebuild (multi-hour
+  `libduckdb-sys` compile). Not started — flag before kicking off.
 - **RESOLVED during round-01 review (user):** round 1 is REST-first (Cloud
   Resource Manager v3 / Cloud Billing v1 / Service Usage v1 over `reqwest` +
   `GcpAuth`), **zero new heavy deps**; `runtime: rust-sdk` deferred and mapped
@@ -367,7 +465,11 @@ PR unless explicitly instructed).
   runtime concern; nothing to escalate for Phase A.
 
 ---
-**Confirmation:** Phase B was NOT started. No remote writes, no cloud/GCP
-mutations, no state-changing `gcloud`/API calls, no deploys, no worker rebuild,
-no kind/prod actions occurred. Read-only inspection of the repos + this result
-file only; no unrelated dirty state was touched.
+**Confirmation (round-01 complete):** Phase A (design) + Phase B (round-1 REST
+MVP) done. Implementation landed on `noetl/tools` branch `feat/provider-tool-kind`
+(commit `6dbcb3d`), PR #86 **opened, not merged**. 13 unit tests green, clippy
+clean. **No real cloud/GCP mutations, no state-changing API calls** (tests
+exercise offline branches only). **No worker image rebuild, no kind validation,
+no GKE/prod actions** — deferred (they need the heavy `libduckdb-sys` compile;
+not kicked off). No force-push, no `main` rewrite, no unrelated dirty state
+touched (4 provider files in `repos/tools`; only this result file in ai-meta).
