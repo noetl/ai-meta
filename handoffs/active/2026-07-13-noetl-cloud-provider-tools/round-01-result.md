@@ -161,6 +161,16 @@ tool:
 Internal shape (Rust):
 
 - `ProviderTool` implements `Tool`, `name() == "provider"`.
+- **Auth model (RESOLVED — user decision, round-01 review): explicit `auth:`
+  required for mutations.** Any mutating action (apply mode, i.e. `dry_run`
+  false) MUST carry an explicit `auth:` alias naming a credential that is
+  resolved through the keychain/credential path — **no ambient ADC fallback**.
+  If a mutation is dispatched with `auth:` omitted (or empty), the tool returns
+  a clear `ToolError::Configuration` naming the missing `auth:` field and makes
+  **no** network call — it never silently falls back to ADC. Plan/dry-run mode
+  stays credential-free: it mints no token and needs no `auth:`, consistent
+  with the dry-run design below. (This is the recommended option from the
+  original open question #3; the user confirmed it during round-01 review.)
 - Parse `config` → `ProviderSpec { provider: ProviderFamily, runtime: Backend,
   action: String, dry_run: bool, input: serde_json::Value }`.
   - `dry_run` deserializes flexibly: bool **or** the strings
@@ -186,8 +196,11 @@ Internal shape (Rust):
   3. if `dry_run` → returns the planned request as normalized JSON
      (`{"dry_run": true, "would_call": {method, url, body_shape}}`) **without**
      minting a token or calling Google;
-  4. else mints an ADC bearer token via `AuthResolver::get_gcp_token(scopes)`,
-     issues the call, normalizes the response.
+  4. else (apply mode) resolves the **explicit `auth:` alias** through the
+     keychain/credential path (erroring if absent — see the auth model above),
+     mints the bearer token from the resolved credential (ADC-backed
+     service-account or the named credential), issues the call, normalizes the
+     response.
 - **Normalized result** (`ToolResult.data`):
   ```json
   {
@@ -249,11 +262,12 @@ follow-up, not built in the MVP).
   token. The `noetl-tools` crate has no shared scrubber today (grep found
   none) — the provider tool owns its own request-echo field allowlist. Flagged
   as a Phase B test. ✅
-- **`no-default-connection.md`**: `provider=google` defaulting to ADC is a
-  *platform* trust (GKE workload identity / gcloud), not a business-logic DB
-  connection, so no ambient DB fallback is introduced. Open question (§Issues):
-  require an explicit `auth:` alias in **apply** mode, allow ADC in
-  **plan/dry-run** mode. ✅ (recommendation documented)
+- **`no-default-connection.md`**: **RESOLVED (user decision, §5 auth model):**
+  a mutating (apply-mode) action **requires an explicit `auth:` alias**
+  resolved via the keychain/credential path — no ambient ADC fallback; omitting
+  `auth:` on a mutation is a clear config error, not a silent connection.
+  Plan/dry-run mode is credential-free (mints no token). This honors the
+  rule's intent — no implicit/default connection for a state-changing call. ✅
 - **Observability** (`observability.md`): dispatch span + per-kind metrics
   already fire; `execution_id` on the span. Recommend one added counter in
   Phase B: `noetl_provider_action_total{provider,action,dry_run,outcome}`. ✅
@@ -290,9 +304,11 @@ When authorized, the smallest useful path (recommended order):
 2. `repos/tools/src/tools/mod.rs` — `mod provider; pub use …; registry.register(ProviderTool::new());`.
 3. Tests (prompt Phase B.6): spec parsing (both action forms); `dry_run=true`
    returns `would_call` and mints **no** token / makes **no** network call
-   (assert with a no-network unit test); unknown provider + unknown action →
-   `Configuration` error; **secret redaction** — assert the emitted
-   result/echo never contains a token or the `Authorization` header.
+   (assert with a no-network unit test); **mutating action with `auth:` omitted
+   → `Configuration` error and no network call** (the resolved explicit-auth
+   decision); unknown provider + unknown action → `Configuration` error;
+   **secret redaction** — assert the emitted result/echo never contains a token
+   or the `Authorization` header.
 4. Sample playbook under `repos/tools/examples/` or an e2e fixture mirroring the
    `gcp-org-playbooks` `folders.list` / `services.enable` specs, `dry_run` only.
 5. No real cloud mutation in tests — every network-touching path behind
@@ -330,15 +346,15 @@ PR unless explicitly instructed).
 
 - **Human go-ahead to start Phase B** — reply with the wait phrase
   `implement provider tool`. Nothing further proceeds without it.
-- **Decision (reversible, defaulted; documented as open question):**
-  (a) MVP ships `runtime: rest` and maps `rust-sdk` → REST with a `backend`
-      note, rather than adding the heavy `google-cloud-rust` SDK now — say so if
-      you want the real SDK backend in round 1 (changes dep footprint + build
-      time materially);
-  (b) require an explicit `auth:` alias for **apply**-mode mutations vs allow
-      ADC in both modes — recommend explicit `auth:` in apply mode.
-- **No credentials were requested or used.** ADC resolution is a Phase B runtime
-  concern; nothing to escalate for Phase A.
+- **Open decision (reversible, defaulted):** MVP ships `runtime: rest` and maps
+  `rust-sdk` → REST with a `backend` note, rather than adding the heavy
+  `google-cloud-rust` SDK now — say so if you want the real SDK backend in
+  round 1 (changes dep footprint + build time materially).
+- **RESOLVED during round-01 review (user):** apply-mode mutations require an
+  explicit `auth:` alias (keychain/credential path), not ambient ADC. Folded
+  into the §5 auth model and the §7 conformance check — no longer open.
+- **No credentials were requested or used.** Credential resolution is a Phase B
+  runtime concern; nothing to escalate for Phase A.
 
 ---
 **Confirmation:** Phase B was NOT started. No remote writes, no cloud/GCP
