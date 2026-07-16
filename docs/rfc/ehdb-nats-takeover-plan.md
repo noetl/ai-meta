@@ -1,5 +1,19 @@
 # RFC: EHDB Takeover of NATS — Master Plan + Gap List
 
+> **⚠️ REPOSITIONED (2026-07-15): this is now the L1 (streaming) design detail
+> of the layered platform.** The top-level program is
+> [`ehdb-layered-platform.md`](./ehdb-layered-platform.md) (L0 replicated
+> object store → **L1 streaming = this doc** → L2 KV → L3 SQL), built
+> **L0-first**. The (c) one-hop delivery design below stands as the L1
+> streaming layer. **Two things are superseded by L0:** (i) the HA story — the
+> per-shard **PVC + deferred per-shard-Raft "T-RF"** (§2.6, §4) is **replaced**
+> by **L0 object-store replication + a lightweight L1 ordering lease** (writers
+> become *fungible* over shared durable object storage; no consensus build);
+> (ii) L1's durability/storage is now **inherited from L0**, not per-shard PVCs.
+> Read §2.6 and the T-RF phase here as historical; the current HA design is
+> `ehdb-layered-platform.md` §2.5. L1 cutover (delete NATS) is **gated behind
+> L0 maturity**.
+
 **Status:** RFC — design + build plan. DESIGN ONLY, no code lands from this
 document.
 **Decisions settled:** **(1) EHDB takes over from NATS.** **(2) Transport =
