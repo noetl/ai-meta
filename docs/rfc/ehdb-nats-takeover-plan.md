@@ -176,13 +176,12 @@ so keep the claim gate initially and treat body-in-push as a T1+ optimization.
 2. **Per-shard HA is unbuilt — and today there is none.** The system pool is
    `Deployment, replicas: 1`, no failover; a pod death **stalls the drive**
    until k8s reschedules (correctness held by the reconcile poller +
-   cold-rebuild, `events.rs:2500`, `:3716`). Under (c), a writer must become a
-   **StatefulSet** with a **PVC** (the durable log must survive a restart) and
-   **stable per-pod DNS**. Failover = reschedule same identity + reattach PVC +
-   cold-load the log + workers reconnect — **parity with a NATS restart, but
-   scoped to one shard (smaller blast radius than today's single NATS).** True
-   HA (multi-replica per shard) collides with single-writer ordering → needs
-   consensus/leader-election (deferred, same class as EHDB log replication).
+   cold-rebuild, `events.rs:2500`, `:3716`). The **HA posture is decided
+   (§2.6, LOCKED): shards-only now, per-shard replication deferred** — a writer
+   is a StatefulSet+PVC single owner per shard (parity with today's
+   single-replica NATS), with a bounded loss-free failover stall; multi-replica
+   HA is a named, later, non-blocking phase. See §2.6 for the parity check, the
+   replication-ready seam, and the failover/stall estimate.
 3. **Worker↔writer discovery is net-new** (G9). Today no worker addresses a
    specific pod; everything is load-balanced Service DNS. (c) needs workers to
    resolve `shard_for(execution_id)` → the **specific** writer's StatefulSet
@@ -214,6 +213,90 @@ server), **more work than (b)**, and it carries a real connection-fan-out cost
 that scales with shard count and a real concentration risk on the OOM-prone
 system pod.
 
+### 2.6 HA posture — shards-only now, replication-ready, RF deferred (LOCKED 2026-07-15)
+
+**Decision:** ship (c) **shards-only** — one writer per shard, no per-shard
+replicas — and defer per-shard **replication factor (RF)** to a named,
+post-cutover HA phase (§4 T-RF). The NATS takeover **completes at shards-only
+parity** (NATS deleted at T5); RF is hardening *beyond* parity, not a blocker.
+
+**Parity check (verified against the manifests, read-only):** prod NATS is
+`kind: StatefulSet … replicas: 1` (`ops/ci/manifests/nats/nats.yaml:56`),
+single-node JetStream (`store_dir /data/jetstream`, file store, no cluster
+peers), and the command/event streams set **no `num_replicas`** override
+(`server/src/nats/publisher.rs` / `event_publisher.rs` use default Config) → a
+1-node JetStream cannot host R>1 anyway, so streams are **R1**. (A
+`nats-supercluster/` manifest set exists — cluster-a/cluster-b — but it is the
+separate multi-region variant, **not** the deployed baseline.) So **prod NATS
+delivery has no HA today**; single-writer-per-shard is **parity, not
+regression**. If a future prod moves NATS to a clustered R3, revisit — but as
+deployed, the claim holds.
+
+**Replication-READY seam (the hard requirement — additive-only, no rewrite
+later).** The #254 durable log is already shaped for replication; T0–T4 must
+build on these primitives (not a pod-local-only shortcut) so RF is purely
+additive:
+
+- **Immutable append + shippable segments.** `DurableSegmentStore` writes
+  append-only CRC-framed segments (`seg-<id>.eslog`) with `fsync` + a bounded
+  offset index and O(1) open via a `StoreCheckpoint` sidecar
+  (`durable_eventlog.rs`). Segments are immutable once written ⇒ byte-for-byte
+  **shippable and replayable** to a follower with no format change.
+- **Single-writer + read-only followers already modeled.**
+  `durable_eventlog_affinity.rs` enforces "at most one replica writes"; a
+  non-owner does `open_read_only`. The leader/follower distinction thus exists
+  at the storage layer **today** — a runtime lock, **not** a format assumption
+  of "exactly one writer forever."
+- **Log-shipping contract already exists.** `durable_eventlog_shared.rs` has
+  the owner publish new segment bytes to a shared store and a non-owner
+  cold-load + replay them. That is log replication to a shared medium, already
+  built (for cold-load failover).
+- **Cursors are durable + external.** The global-sequence cursor and the
+  consumer-ack cursor persist in the transaction log / checkpoint sidecar
+  (cross-process), so they are **derivable by any promoted follower**, not
+  owned by a single process's memory.
+
+The one **new discipline (c) must observe** for RF-readiness at the *delivery*
+layer: the consumer-group **in-flight / ack state must stay derivable** from
+(durable cursor + DB `claim_command` state), never the sole source of truth in
+the leader's memory. Then a promoted follower reconstructs it (at-least-once;
+the DB claim gate collapses any redelivery). Bake this in at T1.
+
+**What a future RF phase ADDS vs. REWRITES:**
+
+| RF adds (additive) | Must NOT rewrite (already RF-shaped) |
+|---|---|
+| **Hot followers** — continuously tail the shared-store log (vs cold-load only on failover) to stay caught up | Segment format, CRC framing, offset index, `StoreCheckpoint` |
+| **Leader election** — promote a follower on leader failure (Raft, or a lease/lock over the shared store); the affinity single-writer lock already gates *who* writes | The single-writer invariant + `open_read_only` follower path |
+| **Replicated delivery in-flight/ack** (optional) — so unacked in-flight survives promotion without redelivery | The global-sequence + consumer-ack durable cursors |
+| A per-shard leader-selecting Service (or keep the same StatefulSet DNS pointing at the leader) | Worker discovery (stable shard DNS is unchanged across RF) |
+
+Net: RF adds *hot-follow + election (+ optional delivery-state replication)*
+and rewrites **nothing** in the log/cursor/shipping layer, provided T0–T4 use
+the `durable_segment` + shared-tier primitives above.
+
+**Failover story (shards-only, the accepted downtime mode until RF):**
+
+1. Shard-N writer pod dies.
+2. The StatefulSet controller reschedules `…-shard-N-0` (**same** stable
+   identity + DNS).
+3. Its per-shard **PVC reattaches** (StatefulSet `volumeClaimTemplate` → same
+   volume) — the #254 log is intact (loss-free).
+4. The writer opens the log **O(1)** via the `StoreCheckpoint` sidecar
+   (ai-meta#267) + replays only the bounded tail — not the whole history.
+5. It rebuilds delivery in-flight state from the durable cursor + the DB
+   unclaimed-command set.
+6. Workers re-dial the **unchanged** shard DNS (backoff) and resume from their
+   durable cursor.
+
+**Stall estimate:** dominated by k8s pod reschedule (typically single-digit to
+low-tens of seconds, image cached / `imagePullPolicy` permitting) + PVC
+reattach (seconds); the replay is O(1)-open + bounded tail (ai-meta#267 +
+the #166 cold-load lineage), **not** O(history). Net: a **bounded,
+loss-free, single-shard (1/N-of-traffic) stall on the order of seconds** —
+the same class as a NATS pod restart today, but scoped to one shard instead of
+all delivery. This is the **accepted downtime mode until T-RF lands.**
+
 ---
 
 ## 3. LOAD-BEARING GUARANTEES — met how, and where WEAKER
@@ -229,7 +312,7 @@ system pod.
 | **Backpressure / autoscaling** | KEDA `nats-jetstream` | writer per-shard pending gauge + KEDA `prometheus` | No once the swap lands; **breaks if it lags the cutover** |
 | **Cursor-survives-reconnect** | durable consumer by name | #254 durable cursor, writer-local (needs PVC) | No |
 | **Exactly-once execution** | DB claim gate (not NATS) | DB claim gate (unchanged) | No |
-| **Broker availability / failover** | 1-replica NATS, restart-recovery, **no HA** | 1-writer-per-shard, restart-recovery via StatefulSet+PVC, **no HA yet** | **Parity (both restart-recovery); (c) has smaller blast radius but needs new StatefulSet infra to reach even parity** |
+| **Broker availability / failover** | 1-replica NATS (verified `nats.yaml:56`), restart-recovery, **no HA** | 1-writer-per-shard StatefulSet+PVC, loss-free bounded-stall failover (§2.6); **RF deferred** | **Parity (both single-owner restart-recovery); (c) smaller blast radius (1/N); RF phase later exceeds NATS** |
 | **Single-broker connection simplicity** | 1 worker connection, subject-filtered | **S connections per worker** (fan-out) | **WEAKER — the real cost of distributing the broker (§2.5.4)** |
 
 **Risks to surface loudly:** (1) **connection fan-out** (S per worker, grows
@@ -266,12 +349,21 @@ prerequisite work with Track T. After Track S, NATS carries only transport.
 - **T4 — command-bus cutover:** workers take commands from the writers; server
   publishes to the writers; KEDA on `prometheus`; dual-run bake with NATS
   resident.
-- **T5 — POINT OF NO RETURN:** delete the NATS StatefulSet + PVC.
+- **T5 — POINT OF NO RETURN:** delete the NATS StatefulSet + PVC. **The
+  takeover completes here, at shards-only parity.**
+- **T-RF (deferred HA phase, post-cutover, NON-BLOCKING):** add per-shard
+  **replication factor** — hot followers (continuous shared-store tail) +
+  leader election + optional replicated delivery in-flight state (§2.6). Turns
+  the seconds-stall failover into sub-second/seamless promotion, exceeding
+  today's NATS availability. **Additive on the §2.6 seam — no log/cursor
+  rewrite. Cost: quarters** (the consensus/election build is the biggest,
+  riskiest piece — the reason it is deferred, not folded into the cutover).
 - **T-drive (optional, end-state):** move the drive fully into the writer to
   collapse the 6→2 inter-step cycle. Not required to remove NATS; a latency
   follow-on.
 
-Everything through T4 reversible with NATS resident. T5 is the PONR.
+Everything through T4 reversible with NATS resident. T5 is the PONR; **T-RF and
+T-drive are post-takeover hardening, explicitly not gating T5.**
 
 ---
 
@@ -287,7 +379,9 @@ Everything through T4 reversible with NATS resident. T5 is the PONR.
   connection-fan-out policy — on top of the same delivery stack (change-feed,
   group, ack, push) (b) needed, now hosted in the writer. It **buys** the
   one-hop latency (b) couldn't and the drive-collapse potential.
-- **T-HA / T-drive:** separate follow-ons (quarters each).
+- **T-RF / T-drive:** separate post-takeover follow-ons (quarters each); the
+  per-shard replication build (T-RF) is deliberately **outside** the ~2q cutover
+  estimate — folding consensus in would blow it (§2.6).
 
 ### Biggest risks
 
@@ -300,16 +394,19 @@ Everything through T4 reversible with NATS resident. T5 is the PONR.
    T0 (§5.4).
 4. **Autoscaling gap** if the KEDA swap lags T4 (§5.3).
 
-### Decisions — THREE LOCKED, three OPEN
+### Decisions — FOUR LOCKED, two OPEN
 
 - **5.1 — Transport = server-controlled, EHDB-backed push. ✅ LOCKED.**
 - **§2 — Topology = (c) per-shard-writer-as-broker. ✅ LOCKED (2026-07-15).**
   (a) rejected-as-monolith; (b) superseded-on-latency; (b′) set-aside
   (cross-replica fan-out).
-- **5.2 — HA timing. ⬜ OPEN.** Accept per-shard restart-recovery
-  (StatefulSet+PVC, parity with today's single NATS, smaller blast radius) at
-  cutover + fund multi-writer HA (consensus, constrained by single-writer
-  ordering) as a fast-follow, or gate cutover on it? *A durability posture.*
+- **§2.6 — HA posture = shards-only now, RF deferred. ✅ LOCKED (2026-07-15).**
+  Ship (c) single-writer-per-shard (parity with prod's verified 1-replica
+  NATS), loss-free bounded-stall failover via StatefulSet+PVC; per-shard
+  replication factor is the named, non-blocking **T-RF** phase. **Requirement
+  carried into the build:** T0–T4 use the #254 `durable_segment` + shared-tier
+  primitives so RF is additive (§2.6 seam), and the delivery in-flight/ack
+  state stays derivable from the durable cursor + DB claim gate.
 - **5.3 — KEDA-before-command-cutover. ⬜ OPEN — HARD RULE.** T2 must validate
   before T4 or autoscaling breaks.
 - **5.4 — Delivery-latency go/no-go budget. ⬜ OPEN — needs a number.** Set the
@@ -387,11 +484,15 @@ for stable DNS). It opens per-round sub-issues under the umbrella at build.
 ## 7. What this plan reuses / what is net-new
 
 **Reused:** the system-pool worker's existing `:9090` axum server (push
-endpoint host); the #254 durable segment log (store + append-notify hook); the
-ai-meta#130 append-notify pattern; the DB `claim_command` exactly-once gate;
-the off-server drive state builder (`state_builder.rs`); VictoriaMetrics + GMP
-(KEDA `prometheus` needs no new observability infra); the shadow→primary
-discipline.
+endpoint host); the #254 durable segment log (store + append-notify hook) **and
+its already-replication-shaped modules** (`durable_eventlog_affinity.rs`
+single-writer + `open_read_only` followers; `durable_eventlog_shared.rs`
+owner-publish + follower-cold-load log shipping) — the §2.6 seam that makes the
+deferred T-RF additive; the ai-meta#130 append-notify pattern; the DB
+`claim_command` exactly-once gate; the off-server drive state builder
+(`state_builder.rs`); the ai-meta#267 O(1) checkpoint open + #166 cold-load
+lineage (bounds the failover replay); VictoriaMetrics + GMP (KEDA `prometheus`
+needs no new observability infra); the shadow→primary discipline.
 
 **Net-new (this is the honest bulk of Track T):** the system pool as a
 **StatefulSet + PVC + stable per-pod identity** (today a single-replica
