@@ -11,8 +11,10 @@
 > become *fungible* over shared durable object storage; no consensus build);
 > (ii) L1's durability/storage is now **inherited from L0**, not per-shard PVCs.
 > Read §2.6 and the T-RF phase here as historical; the current HA design is
-> `ehdb-layered-platform.md` §2.5. L1 cutover (delete NATS) is **gated behind
-> L0 maturity**.
+> `ehdb-layered-platform.md` §2.7. L1 cutover (delete NATS) is **gated behind
+> L0 maturity**. Note also the program invariant in that doc: **EHDB is
+> noetl-internal-only, a fixed set of predefined datasets, not a general DB** —
+> L1's streaming serves datasets D1 (event log) / D2 (commands) only.
 
 **Status:** RFC — design + build plan. DESIGN ONLY, no code lands from this
 document.
