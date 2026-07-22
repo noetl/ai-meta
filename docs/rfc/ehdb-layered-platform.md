@@ -4,6 +4,18 @@
 > **EHDB is a noetl-centric internal store. It exists solely to hold the
 > internal information noetl requires to operate, over a FIXED set of
 > predefined datasets (§0.1).** It is NOT a hosted/user-facing database.
+>
+> **Operations & references, never payloads (the sharpened boundary).** EHDB
+> stores noetl's own **control-plane metadata** (executions, events, commands,
+> catalog, runtime registration) and the **data-plane operational state of
+> worker workloads** (operation state, references/pointers, coherence/KV). It
+> does **NOT** store the actual data a playbook processes. **Playbook payload /
+> business data flows through connectors** to user-defined systems (Postgres,
+> object stores, Redis, Kafka, …). EHDB holds the *operations and references*,
+> never the *payloads*. A dataset that would hold a business payload inline is a
+> boundary violation — it must hold a **reference** and let the payload live in
+> the user's system via a connector (see §0.2 for the per-dataset audit).
+>
 > Consequences, binding on every layer L0→L3:
 > - **Optimize for noetl's known access patterns** — fixed sort keys, fixed
 >   prunable dimensions, hand-coded resolution paths per dataset.
@@ -93,6 +105,56 @@ Out of scope for EHDB: **secret values** (`noetl.credential` / `noetl.keychain`
 stay in the keychain — EHDB holds at most alias references), and **all
 business/domain data** (external systems, forever). That is the entire dataset
 universe; there is no "arbitrary table" case to design for.
+
+### 0.2 Boundary audit — operations-&-references vs payloads (code-verified 2026-07-15)
+
+A read-only audit of D1–D10 against the sharpened boundary (EHDB holds
+operations + references, never payloads). **5 clean; 4 boundary-risk sharing one
+root cause; 1 clean-today-with-a-latent-seam.**
+
+| Dataset | Verdict | Why (code) |
+|---|---|---|
+| **D1 events** | ⚠️ **boundary-risk** | Step result rides **inline** in the `call.done` event when `≤ INLINE_CONTEXT_MAX_BYTES = 100 KB` (`worker/src/executor/command.rs:1493`); a `result_ref` URN only when larger (`:1562`). So small **business** results sit inline in the durable append-only log. |
+| **D2 commands** | ⚠️ **boundary-risk (minor)** | Command **input** carried inline as `serde_json::Value`, no size-tiering (`server/src/handlers/execute.rs:1218`). Business step input can ride inline. |
+| **D3 projections** | ⚠️ **boundary-risk** | Slim chain **deliberately keeps `context` + `result`** (`SLIM_EVENT_KEYS`, `worker/src/state_builder.rs:128`), so it mirrors D1's inline small payloads (the drive reads result fields for `when:`/`set:`). |
+| **D5 object/blob** | ✅ **large: in-scope** / ⚠️ **small: see D1** | Large results (>100 KB) are externalized reference-only — URN in state, bytes in an **object-store byte-source** (`command.rs:1591`, `result_materializer.rs:399`, URN grammar `result_locator.rs:109`). This **honors reference-only-state** and matches the accepted "payload → byte-source" shape. The residual exposure is the ≤100 KB inline path (D1/D3), not the large-payload tier. |
+| **D4 KV/coherence** | ✅ in-scope | Operational only — circuit-breaker state, leases, CAS keys (`worker/src/ehdb/kv.rs:7,566`). No business payload. |
+| **D6 vector/RAG** | ✅ **in-scope today; latent seam** | Platform RAG only (system docs / catalog embeddings), control-plane-guarded (`worker/src/ehdb/rag.rs:241`), ingest is **lexical not embedding**, and **no playbook `tool:` is wired to `rag::ingest`** (only the diagnostic binary calls it). BUT `rag::ingest` is role-permissive (`rag.rs:301`) — if a future playbook tool were wired to it, **user documents could land in the platform tier**. Guardrail below. |
+| **D7 catalog** | ✅ in-scope | noetl's own playbook/tool/resource definitions (control-plane). |
+| **D8 runtime** | ✅ in-scope | Worker registration / heartbeat (`server/src/handlers/runtime.rs`). |
+| **D9 system-WASM** | ✅ in-scope | Immutable module manifests + bindings (platform code refs). |
+| **D10 provider-facts** | ✅ in-scope | Infra operational state about the user's cloud, **secrets scrubbed** (`redact_sensitive`, `tools/src/tools/provider.rs:45`); records resource state/ownership, not business payload. (Fact-writer currently in an unmerged worktree.) |
+
+**Root cause (D1/D2/D3/D5-small are one issue):** the **100 KB inline threshold**
+(`command.rs:1493`) lets small step **payloads** ride inline in the durable
+event log + slim projection + command input, instead of being reference-only.
+Large payloads already do the right thing (URN + byte-source).
+
+**Recommended fixes — RECORDED for routing as their own slices; NOT applied
+here (this pass is read-only on the datasets):**
+
+- **Slice A — reference-only for small payloads too (D1/D3/D5).** Make the
+  event/projection carry a **URN + the bounded `extracted` predicate block**
+  only, for *all* result sizes — drop the 100 KB inline payload from the
+  durable log. Payload (any size) lives in the byte-source (the operational
+  object tier — rebuildable, GC'd — or a user connector for genuinely business
+  data). Removes business payload from D1/D3. Root: `command.rs:1493`,
+  `state_builder.rs:128`.
+- **Slice B — tier command input (D2)** the same way results are tiered, so
+  business input isn't carried inline untiered. Root: `execute.rs:1218`.
+- **Slice C — guardrail for D6 (no code today, keep it that way):** the platform
+  vector/RAG tier stays **system-docs / catalog-embeddings only**; **do NOT wire
+  a playbook user-document ingest tool to `rag::ingest`.** User-document RAG is
+  business data → it goes to the user's own vector store (pgvector / Qdrant) via
+  a connector, never the platform tier. Keep the vector-upsert hook unwired for
+  user data.
+
+**Framing note:** the object-store **byte-source** holding large payloads is the
+operational **state-vehicle** (Arrow-IPC, scoped to `execution_id`+step,
+rebuildable from the log, GC'd) — that is *operational state*, not a durable
+business-data store, so it is in-scope. The sharp line the audit draws is
+**inline business payload in the durable control-plane datasets** (D1/D3, small
+results; D2, input) — that is what Slices A/B remove.
 
 ---
 
