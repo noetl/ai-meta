@@ -5,16 +5,26 @@
 > internal information noetl requires to operate, over a FIXED set of
 > predefined datasets (§0.1).** It is NOT a hosted/user-facing database.
 >
-> **Operations & references, never payloads (the sharpened boundary).** EHDB
-> stores noetl's own **control-plane metadata** (executions, events, commands,
-> catalog, runtime registration) and the **data-plane operational state of
-> worker workloads** (operation state, references/pointers, coherence/KV). It
-> does **NOT** store the actual data a playbook processes. **Playbook payload /
-> business data flows through connectors** to user-defined systems (Postgres,
-> object stores, Redis, Kafka, …). EHDB holds the *operations and references*,
-> never the *payloads*. A dataset that would hold a business payload inline is a
-> boundary violation — it must hold a **reference** and let the payload live in
-> the user's system via a connector (see §0.2 for the per-dataset audit).
+> **Write-behind cache, never the system of record (the refined boundary,
+> 2026-07-15).** EHDB is **never the durable *system of record* for business
+> data** — the **customer's connector-backed data store is the system of
+> record.** EHDB may, however, hold business *processing context* **transiently,
+> as a working cache**. Two distinct roles on one engine:
+> - **(a) Durable control-plane log** — events, commands, routing, catalog,
+>   runtime. Stays **lean + reference-based + permanent** (the append-only
+>   `noetl.event` record + the command/txn log). Business payloads do **not**
+>   accumulate here permanently.
+> - **(b) Transient processing cache** — MAY hold full business context (the
+>   inter-step state vehicle), but only **transiently**: bounded retention,
+>   **synced/sunk to the customer's store**, then **evictable** (GC). A
+>   write-behind cache, **not** a permanent business-data warehouse.
+>
+> So the earlier "EHDB never holds business payload" absolute is **refined**:
+> EHDB may cache business context in-flight, but it must sink that context to the
+> customer's system of record and evict it — it never becomes the durable home
+> of business data. The line to hold: **the permanent log (a) stays lean; the
+> cache (b) stays bounded + sunk + evictable.** See §0.2 for the per-dataset
+> audit under this model.
 >
 > Consequences, binding on every layer L0→L3:
 > - **Optimize for noetl's known access patterns** — fixed sort keys, fixed
@@ -106,11 +116,18 @@ stay in the keychain — EHDB holds at most alias references), and **all
 business/domain data** (external systems, forever). That is the entire dataset
 universe; there is no "arbitrary table" case to design for.
 
-### 0.2 Boundary audit — operations-&-references vs payloads (code-verified 2026-07-15)
+### 0.2 Boundary audit — read under the write-behind-cache model (code-verified 2026-07-15)
 
-A read-only audit of D1–D10 against the sharpened boundary (EHDB holds
-operations + references, never payloads). **5 clean; 4 boundary-risk sharing one
-root cause; 1 clean-today-with-a-latent-seam.**
+A read-only audit of D1–D10. **Under the refined model (§0) the question per
+dataset is not "does it ever touch business data" but "is business context kept
+in the PERMANENT control-plane log (role a — must stay lean), or only in the
+TRANSIENT cache (role b — bounded + sunk + evictable, may hold context)."** The
+refinement also **dissolves the earlier drive-breaking tension**: the off-server
+drive reads inline `context`/`result` from the **transient** WAL index / slim
+projection / state shards (bounded 24h / GC'd) — *not* from the permanent
+`noetl.event` — so keeping the permanent log lean does **not** touch the drive
+decision path. Verdicts: **5 clean; the D1/D2/D3/D5 concern narrows to
+permanence in the durable log; 1 clean-today-with-a-latent-seam.**
 
 | Dataset | Verdict | Why (code) |
 |---|---|---|
@@ -125,48 +142,55 @@ root cause; 1 clean-today-with-a-latent-seam.**
 | **D9 system-WASM** | ✅ in-scope | Immutable module manifests + bindings (platform code refs). |
 | **D10 provider-facts** | ✅ in-scope | Infra operational state about the user's cloud, **secrets scrubbed** (`redact_sensitive`, `tools/src/tools/provider.rs:45`); records resource state/ownership, not business payload. (Fact-writer currently in an unmerged worktree.) |
 
-**Root cause (D1/D2/D3/D5-small are one issue):** the **100 KB inline threshold**
-(`command.rs:1493`) lets small step **payloads** ride inline in the durable
-event log + slim projection + command input, instead of being reference-only.
-Large payloads already do the right thing (URN + byte-source).
+**Reframed root cause (write-behind-cache model):** the concern is **not**
+"business context ever touches EHDB" — role (b) transient cache legitimately
+holds it. The concern is **permanence in the durable control-plane log (role
+a)**: the ≤100 KB inline result (`command.rs:1493`) lands in the **permanent**
+`noetl.event` (append-only, never-purged), and command input rides inline in
+`noetl.command`. Large results already do the right thing (reference in the
+permanent log; payload in the bounded/GC'd byte-source). So the fix keeps the
+**permanent log lean** while letting the **transient cache** keep full context —
+and adds the missing **sink** so cached business context lands in the customer's
+system of record before eviction.
 
-**The boundary finding's fix is three tracked items (filed 2026-07-15; NOT
-built here — the durable-dataset code lives in `noetl/worker` + orchestrate-core
-in `noetl/server`, which the L1 T4 command-bus work is actively validating, so
-these are sequenced, not done in parallel):**
+**The boundary finding's fix is four tracked items (filed 2026-07-15; NOT built
+here — the code lives in `noetl/worker` + orchestrate-core in `noetl/server`,
+under active L1 T4 validation, so these are sequenced, not parallel):**
 
-- **Issue A — noetl/ai-meta#195 (DESIGN-LEVEL, not a blind refactor).** The
-  durable event log + slim projection carry **only the bounded `extracted`
-  predicate block** the drive needs for `when:`/`set:`/routing — **not** the raw
-  business-payload envelope; raw payload stays reference-only (URN + byte-source,
-  as D5-large already does). **Important:** "drop *all* inline payload for all
-  sizes" is architecturally wrong — `context`/`result` are **load-bearing for the
-  drive decision** (`state_builder.rs:124`: a `from_events` build over the slim
-  payload must yield the *identical* drive decision; orchestrate-core reads these
-  for routing). The real fix is to prove the `extracted` block is **sufficient**
-  for all condition/routing evaluation and carry only that — an orchestrate-core
-  design decision spanning `noetl/server` (WASM crate) + `noetl/worker` + the
-  resolver. Root: `command.rs:1493`, `state_builder.rs:124`.
-- **Issue B — noetl/ai-meta#196.** Tier command **input** (D2) the same way
-  results are tiered — same reference-resolution design as #195. Root:
-  `execute.rs:1218`. Sequenced after L1 T4.
-- **Issue C — noetl/ai-meta#197.** The D6 guardrail is **already documented**
-  (this section + the wiki): the platform vector/RAG tier stays **system-docs /
-  catalog-embeddings only**; **never wire a playbook user-document ingest to
-  `rag::ingest`** (user-doc RAG → the user's own vector store via a connector).
-  #197 tracks only the remaining **guard test** + code comment; the vector-upsert
-  hook stays unwired for user data.
+- **noetl/ai-meta#195 (REFRAMED — permanent log lean, transient context
+  bounded).** Keep the **permanent** `noetl.event` lean/reference-based (business
+  payloads don't accumulate there permanently); the transient WAL index / slim
+  projection / state shards keep full `context`/`result` (bounded 24h / GC'd) for
+  the drive. **The refinement dissolves the earlier drive-breaking risk:** the
+  drive reads the *transient* cache, not `noetl.event`, so keeping the permanent
+  log lean does **not** touch the drive decision (`state_builder.rs:124` intact).
+  The `extracted` block need only be sufficient to **replay control/routing
+  state**, not live drive. Root: `command.rs:1493`, `state_builder.rs:124,1859`.
+- **noetl/ai-meta#198 (NEW — the write-behind sink path).** The genuinely new
+  capability: sink transient business context to the **customer's system of
+  record**, and **gate cache eviction on sink-confirmation**. Builds on existing
+  connector tools (`postgres`/`http`/`snowflake`/`transfer`/`artifact`), the
+  result-tier byte-source (#104), and the existing GC timers — the new part is
+  sink-confirmation-gated eviction + the sink contract.
+- **noetl/ai-meta#196 (reframed).** Command **input**: the concern is permanence
+  in `noetl.command`, not the transient copy. Tier large input to a reference;
+  transient in-flight input is fine. Root: `execute.rs:1218`.
+- **noetl/ai-meta#197.** The D6 guardrail is **already documented** (this section
+  + wiki): the platform vector/RAG tier stays **system-docs / catalog-embeddings
+  only**; **never wire a playbook user-document ingest to `rag::ingest`**
+  (user-doc RAG → the user's own vector store via connector). #197 tracks only
+  the remaining **guard test** + comment.
 
-So the boundary finding is **tracked, not unfixed** — #195 (design-level, the
-real fix), #196 (input tiering), #197 (RAG guard test), all `Refs`
-noetl/ai-meta#194, all sequenced behind the live L1 T4 command-bus work.
+So the boundary finding is **tracked, not unfixed** — #195 (permanent-log lean),
+#198 (sink + evict), #196 (input), #197 (RAG guard) — all `Refs` noetl/ai-meta#194,
+sequenced behind the live L1 T4 command-bus work.
 
-**Framing note:** the object-store **byte-source** holding large payloads is the
-operational **state-vehicle** (Arrow-IPC, scoped to `execution_id`+step,
-rebuildable from the log, GC'd) — that is *operational state*, not a durable
-business-data store, so it is in-scope. The sharp line the audit draws is
-**inline business payload in the durable control-plane datasets** (D1/D3, small
-results; D2, input) — that is what Slices A/B remove.
+**Framing note:** the object-store **byte-source** is the transient
+state-vehicle (Arrow-IPC, scoped to `execution_id`+step, bounded, GC'd) — role
+(b), fine to hold context. The sharp line is **business payload accumulating in
+the PERMANENT control-plane log** (`noetl.event`, `noetl.command`) — that is what
+#195/#196 keep lean, and #198 lets the cache sink + evict so it never becomes a
+durable business-data store.
 
 ---
 
