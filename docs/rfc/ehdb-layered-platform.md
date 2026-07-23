@@ -130,24 +130,36 @@ root cause; 1 clean-today-with-a-latent-seam.**
 event log + slim projection + command input, instead of being reference-only.
 Large payloads already do the right thing (URN + byte-source).
 
-**Recommended fixes — RECORDED for routing as their own slices; NOT applied
-here (this pass is read-only on the datasets):**
+**The boundary finding's fix is three tracked items (filed 2026-07-15; NOT
+built here — the durable-dataset code lives in `noetl/worker` + orchestrate-core
+in `noetl/server`, which the L1 T4 command-bus work is actively validating, so
+these are sequenced, not done in parallel):**
 
-- **Slice A — reference-only for small payloads too (D1/D3/D5).** Make the
-  event/projection carry a **URN + the bounded `extracted` predicate block**
-  only, for *all* result sizes — drop the 100 KB inline payload from the
-  durable log. Payload (any size) lives in the byte-source (the operational
-  object tier — rebuildable, GC'd — or a user connector for genuinely business
-  data). Removes business payload from D1/D3. Root: `command.rs:1493`,
-  `state_builder.rs:128`.
-- **Slice B — tier command input (D2)** the same way results are tiered, so
-  business input isn't carried inline untiered. Root: `execute.rs:1218`.
-- **Slice C — guardrail for D6 (no code today, keep it that way):** the platform
-  vector/RAG tier stays **system-docs / catalog-embeddings only**; **do NOT wire
-  a playbook user-document ingest tool to `rag::ingest`.** User-document RAG is
-  business data → it goes to the user's own vector store (pgvector / Qdrant) via
-  a connector, never the platform tier. Keep the vector-upsert hook unwired for
-  user data.
+- **Issue A — noetl/ai-meta#195 (DESIGN-LEVEL, not a blind refactor).** The
+  durable event log + slim projection carry **only the bounded `extracted`
+  predicate block** the drive needs for `when:`/`set:`/routing — **not** the raw
+  business-payload envelope; raw payload stays reference-only (URN + byte-source,
+  as D5-large already does). **Important:** "drop *all* inline payload for all
+  sizes" is architecturally wrong — `context`/`result` are **load-bearing for the
+  drive decision** (`state_builder.rs:124`: a `from_events` build over the slim
+  payload must yield the *identical* drive decision; orchestrate-core reads these
+  for routing). The real fix is to prove the `extracted` block is **sufficient**
+  for all condition/routing evaluation and carry only that — an orchestrate-core
+  design decision spanning `noetl/server` (WASM crate) + `noetl/worker` + the
+  resolver. Root: `command.rs:1493`, `state_builder.rs:124`.
+- **Issue B — noetl/ai-meta#196.** Tier command **input** (D2) the same way
+  results are tiered — same reference-resolution design as #195. Root:
+  `execute.rs:1218`. Sequenced after L1 T4.
+- **Issue C — noetl/ai-meta#197.** The D6 guardrail is **already documented**
+  (this section + the wiki): the platform vector/RAG tier stays **system-docs /
+  catalog-embeddings only**; **never wire a playbook user-document ingest to
+  `rag::ingest`** (user-doc RAG → the user's own vector store via a connector).
+  #197 tracks only the remaining **guard test** + code comment; the vector-upsert
+  hook stays unwired for user data.
+
+So the boundary finding is **tracked, not unfixed** — #195 (design-level, the
+real fix), #196 (input tiering), #197 (RAG guard test), all `Refs`
+noetl/ai-meta#194, all sequenced behind the live L1 T4 command-bus work.
 
 **Framing note:** the object-store **byte-source** holding large payloads is the
 operational **state-vehicle** (Arrow-IPC, scoped to `execution_id`+step,
