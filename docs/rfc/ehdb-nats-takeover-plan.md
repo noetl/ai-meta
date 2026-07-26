@@ -1,533 +1,424 @@
 # RFC: EHDB Takeover of NATS — Master Plan + Gap List
 
-> **⚠️ REPOSITIONED (2026-07-15): this is now the L1 (streaming) design detail
-> of the layered platform.** The top-level program is
-> [`ehdb-layered-platform.md`](./ehdb-layered-platform.md) (L0 replicated
-> object store → **L1 streaming = this doc** → L2 KV → L3 SQL), built
-> **L0-first**. The (c) one-hop delivery design below stands as the L1
-> streaming layer. **Two things are superseded by L0:** (i) the HA story — the
-> per-shard **PVC + deferred per-shard-Raft "T-RF"** (§2.6, §4) is **replaced**
-> by **L0 object-store replication + a lightweight L1 ordering lease** (writers
-> become *fungible* over shared durable object storage; no consensus build);
-> (ii) L1's durability/storage is now **inherited from L0**, not per-shard PVCs.
-> Read §2.6 and the T-RF phase here as historical; the current HA design is
-> `ehdb-layered-platform.md` §2.7. L1 cutover (delete NATS) is **gated behind
-> L0 maturity**. Note also the program invariant in that doc: **EHDB is
-> noetl-internal-only, a fixed set of predefined datasets, not a general DB** —
-> L1's streaming serves datasets D1 (event log) / D2 (commands) only.
-
 **Status:** RFC — design + build plan. DESIGN ONLY, no code lands from this
 document.
-**Decisions settled:** **(1) EHDB takes over from NATS.** **(2) Transport =
-noetl-server-controlled, EHDB-backed push (§5.1).** **(3) Topology (§2, locked
-2026-07-15): (c) per-shard-writer-as-broker** — the stateful per-shard writer
-(system pool) owns its shard's durable log **and** delivery (change-feed,
-consumer-group, ack, push); **workers subscribe directly to their shard's
-writer**; the **stateless server** publishes the next command to the writer
-and is **out of the delivery path**. Delivery is **one hop** (writer→worker),
-matching NATS. Superseded/rejected topologies are in the ledger (§2.1).
+**Decision context:** The keep-or-replace question is **settled — EHDB takes
+over from NATS.** The transport approach is **also settled (§5.1, locked
+2026-07-15): noetl-server-owned push, reusing the gateway's SSE
+`ConnectionHub`, over EHDB's durable log + change-feed primitives.** A
+standalone `ehdb-server` stream broker is the **rejected** alternative
+(§2.1). This document is the *how* for the chosen approach, and the honest
+list of *what is not yet built*.
 **Date:** 2026-07-15.
-**Builds on:** [`nats-vs-ehdb-transport-boundary.md`](./nats-vs-ehdb-transport-boundary.md).
-**Program tracker:** noetl/ai-meta#194.
-**Issues:** ehdb#241, ehdb#254, ai-meta#178, ai-meta#166 (command sharding —
-**dormant in prod, see §2.2**), ai-meta#116 (affinity), ai-meta#115 (stateless
-edge / off-server drive), ai-meta#130 (append-notify), ai-meta#163 (system-pool
-OOM), ai-meta#188.
+**Builds on:** [`nats-vs-ehdb-transport-boundary.md`](./nats-vs-ehdb-transport-boundary.md)
+(the role inventory + capability boundary this reuses).
+**Prior art:** `ehdb-wiki/RFC-Server-EHDB-Coupling-and-Storage-Substrate.md`,
+`ehdb-wiki/Design-Event-Log-Core-Engine.md`,
+`ehdb-wiki/Design-{Projection,KV-Object-Vector}-*.md`,
+`ehdb-wiki/Roadmap.md` (Phases 6–10),
+`repos/docs/docs/architecture/sharded_state_builder.md`.
+**Program tracker:** noetl/ai-meta#194 (this program's umbrella).
+**Issues:** ehdb#241 (completion program), ehdb#254 (durable event-log),
+ai-meta#178 (query interface), ai-meta#166 (command sharding), ai-meta#116
+(affinity), ai-meta#130 (append-notify), ai-meta#188 (plaintext NATS cred).
 
 ---
 
-## 0. The one-paragraph reality (read this first — the premise was corrected)
+## 0. The one-paragraph reality
 
-A code trace of the live command cycle corrected two assumptions behind
-earlier drafts, and they shape everything below:
-
-1. **The off-server inter-step cycle is 6 message hops today**, server-relayed
-   throughout: `step-worker →(HTTP)→ server →(NATS)→ system-worker →(HTTP)→
-   server →(NATS)→ step-worker`. The two worker pools **never talk directly**;
-   the server is a mandatory relay on every hop (`execute.rs:1680` is the
-   *only* command-publish site; the system-pool drive worker hands its result
-   **back to the server** via `POST /api/events`, and the server publishes the
-   next command — `events.rs:3811 → 3357 → execute.rs:1680`).
-2. **#166 per-shard sharding is dormant in prod.** The system pool is a single
-   **`Deployment`, `replicas: 1`** (`worker-system-pool-deployment-prod.yaml:25,36`),
-   **no StatefulSet, no PVC, no per-shard deployments, no per-pod identity**,
-   and `NOETL_SHARD_INDEX`/`NOETL_SHARD_COUNT` are unset → affinity inert. No
-   worker addresses a specific pod anywhere; all pod-to-pod traffic is NATS +
-   the load-balanced server Service.
-
-So (c) is **not** a cheap "relocate delivery onto the writers #166 already
-built" — those stateful, addressable, connection-terminating per-shard writers
-**do not exist yet**. (c) is sound and worth adopting (§2.3), but it is a
-**build**, not a relocation, and it is **more work than the superseded (b)**,
-not less — justified because it is the only shape that gets NATS-parity
-one-hop delivery *and* a stable per-shard fan-out point (§2.4). This RFC states
-that honestly rather than forcing the earlier framing.
+EHDB already covers — or is building, as disabled-by-default shadows — every
+**storage** role NATS plays (durable event log via ehdb#254 durable segments,
+KV coherence, object/blob, vector, plus projections). What is unbuilt is the
+**transport**: real-time worker wakeup, consumer-group work distribution,
+ack/redelivery, live subject routing for sharding/affinity, the KEDA lag
+signal, and the gateway event feed. The **locked approach** builds that
+transport in the **noetl stack, not inside EHDB**: EHDB grows a
+**change-feed / watch primitive over its durable log** so consumers stop
+polling; the **noetl-server owns delivery** — it pushes command
+notifications and lifecycle events to workers and the SPA over the SSE
+fan-out the gateway already runs (`connection_hub.rs`), and owns
+consumer-group assignment, ack, and redelivery. This choice removes NATS
+**and** — because the command transport lives in the server (which is already
+the event gatekeeper) while the durable log stays a data-plane worker
+concern — it **dissolves the control-plane/data-plane write problem** that a
+shared broker would have created (§2.6). The result is a smaller build than a
+standalone broker (§5), reusing three things already in production: the
+server's execution-affinity, the DB command queue, and the gateway's SSE hub.
 
 ---
 
 ## 1. THE GAP LIST — what NoETL needs internally that EHDB does not cover
 
 Transport roles (the real gaps) first; storage roles (built/in-flight) last.
+The "Covered by" column names, under the locked approach, whether EHDB or the
+noetl-server provides it.
 
-| # | Capability | Where NoETL uses it (code) | EHDB today | Covered by (topology (c)) |
+| # | Capability NoETL depends on | Where NoETL uses it (code) | EHDB today | Covered by (locked approach) |
 |---|---|---|---|---|
-| **G1** | **Real-time wakeup** (worker learns of a command in ~ms) | server `execute.rs:1680` `js.publish`; worker `nats/subscriber.rs:277` pull | **None** (no push/watch/notify; grep=0). | **Per-shard writer pushes to the worker** over a direct subscription (one hop). |
-| **G2** | **Consumer-group distribution** (one message → one pool member) | worker `subscriber.rs:252` shared durable consumer | **None.** | **Per-shard writer** assigns each command to one subscribed worker. |
-| **G3** | **Ack + redelivery + ack_wait** | worker `worker.rs:437`; `subscriber.rs:318` | **Partial** (cursor advance, no timeout/redelivery/NAK). | **Per-shard writer**: HTTP `claim_command` = ack; ack_wait re-push; NAK steering. |
-| **G4** | **Shard routing / affinity** | server `sharding.rs:241`; **dormant** | Filter-for-replay only. | **Intrinsic**: the writer *is* the shard; a worker subscribes to the writer that owns its execution's shard. |
-| **G5** | **Backpressure / autoscaling signal** | 5× `nats-jetstream` ScaledObjects; worker `metrics.rs:491` | **None.** | **Per-shard writer** exports its pending/in-flight as a Prometheus gauge; KEDA `prometheus` (VM+GMP already scrape). |
-| **G6** | **Gateway → SPA event feed** (SSE fed by `noetl.events.>`) | gateway `sse.rs:88`, `playbook_state.rs:14` **subscribes NATS** | **None** — and note the gateway's cross-pod fan-out *is* NATS today. | Gateway subscribes to the writers' change-feeds (or the server relays lifecycle events it already receives at `/api/events`). |
-| **G7** | **Change-feed / watch over the durable log** | today workers/gateway learn via NATS push | **None** (`tail` poll-only, `Roadmap.md:531`). | **EHDB, in the writer**: in-process append-notify over #254 + the writer's own push loop (no separate network watch — the writer is co-located with the log it serves). |
-| **G8** | **Stable per-shard fan-out point + HA** | NATS: 1 stable broker pod (`nats.yaml:47`, **1 replica**) | Deferred. | **Per-shard writer** as a stable addressable pod (needs StatefulSet + PVC + identity — **new, §2.5**). |
-| **G9** | **Worker↔broker discovery** (find + reconnect to the broker) | `NATS_URL` / `NOETL_SERVER_URL` = load-balanced Service DNS | n/a | **New**: workers must resolve + connect to the *specific* shard writer (StatefulSet stable DNS) — **no analogue today (§2.5)**. |
-| — | Request/reply · no-responders · heartbeats · leader election | Not used (HTTP). | n/a | **No gap.** |
-| S1–S5 | Durable log / projection / KV / object / vector **store** | (Track S) | **Built shadows**; projection primary merged. | **EHDB in the per-shard writer** — gated primary cutovers. |
+| **G1** | **Real-time wakeup** (worker learns of a command in ~ms) | server `handlers/execute.rs:1679` `js.publish`; worker `nats/subscriber.rs:277` blocking pull | **None.** `tail` is a stateless pull; empty ⇒ `pending_count:0` (`durable_eventlog.rs:1055`). No push/watch/notify (grep = 0). Embedded, no service. | **noetl-server** pushes over SSE (reuses gateway `ConnectionHub`); the server is the command author, so it needs no EHDB read to know there is work. |
+| **G2** | **Consumer-group distribution** (one message → one pool member) | worker `nats/subscriber.rs:252` shared `durable_name`; ai-meta#166 Phase 5 | **None.** Single-cursor replay; N subscribers all see the same records. | **noetl-server** assigns each notification to one subscribed worker per shard (in-memory in-flight table, DB-backed). |
+| **G3** | **Ack + redelivery + ack_wait** (at-least-once wakeup) | worker `worker.rs:437-583`; `subscriber.rs:318-350` | **Partial.** `ack` moves a cursor; no visibility timeout, no auto-redelivery, no NAK. | **noetl-server**: the existing HTTP `claim_command` **is** the ack; an ack_wait timer re-pushes an unclaimed notification to another worker; `Nak`+delay = affinity steering. |
+| **G4** | **Live subject routing** (`noetl.commands.system.shard.<n>.<eid>`, subtree of `…system.>`, + subsumption invariant) | server `sharding.rs:241-254`, `:228-234` | **Filter-for-replay only** (`ehdb-stream` `SubjectFilter`), not live routing. | **noetl-server** keeps the exact shard scheme as the SSE subscription key (`subscribe(shard=n)`); assignment honors the same subsumption fallback. |
+| **G5** | **Backpressure / autoscaling signal** (KEDA on JetStream `num_pending` at `:8222`) | 5× `type: nats-jetstream` ScaledObjects; worker `lag_poller.rs`, `metrics.rs:491` | **None.** | **noetl-server** exports per-shard unclaimed/in-flight as a Prometheus gauge (VictoriaMetrics + GMP already scrape); KEDA `type: prometheus` replaces `nats-jetstream`. |
+| **G6** | **Gateway → SPA event feed** (SSE fed by `noetl.events.>`) | gateway `sse.rs:88` + `connection_hub.rs:121`, fed by `playbook_state.rs:14` | **None.** | **noetl-server** fans lifecycle events to the gateway/SPA (every event already flows through the server's `POST /api/events` write path — no NATS, no EHDB read needed). |
+| **G7** | **Change-feed / watch over the durable log** (so the co-located drain consumers — materializer, projector, state-builder — stop polling) | worker `materializer.rs`, `state_builder.rs:1176`, server 3× durable consumers on `noetl_events` | **None** — `tail` is poll-only, "without a background subscription loop" (`Roadmap.md:531`). | **EHDB**: an **in-process append-notify** over the #254 segment log wakes the co-located drains on commit (they run *inside* the worker/system-pool where EHDB is embedded — no network needed). Optional networked watch only if a drain ever moves cross-process. |
+| **G8** | **HA / no SPOF** | 1-replica NATS (`nats.yaml:47`) — no HA now | Consensus/replication deferred (`Architecture.md:961`). | **Largely inherited:** command transport HA rides the server's existing execution-affinity + the durable DB command queue (a dead replica re-routes; unclaimed commands recover from the DB). EHDB durable-log HA is a separate S-track concern. |
+| — | Request/reply · no-responders · heartbeats · leader election | **Not used** — claim + heartbeat are HTTP (`control_plane.rs:366`, `:839`); no NATS RPC/leader election found. | n/a | **No gap.** |
+| S1 | Durable event **log** store (`noetl_events`) | server `event_publisher.rs:140` | **Built (shadow).** ehdb#254 durable segments; Phase 6 parity. | **EHDB** — primary-serve cutover + prod disk format. |
+| S2 | Projection / read-model store | worker `materializer.rs` | **Built — primary-serve merged** (Phase 9 tier 2, off). | **EHDB** — prod cutover only. |
+| S3 | KV coherence (`chain_heads`, `exec_descriptors`, `subscription_circuit`) | server `coherence.rs:65`; worker `spool_runtime.rs` | **Built (shadow).** Phase 8 `KvStateDriver`. | **EHDB** — primary-serve; resolve who writes coherence KV (§2.6). |
+| S4 | Object / blob spool | tools `spool/backend.rs:170` | **Built (shadow).** Phase 8 `ObjectBlobDriver`. | **EHDB** — primary-serve. |
+| S5 | Vector / RAG | worker `src/ehdb/rag.rs` | **Built (shadow), in-process.** Phase 8 `VectorDriver`. | **EHDB** — primary-serve. |
 
-**One line:** delivery (G1–G5, G7) lands **in the per-shard writer**; G8/G9
-(stable per-shard identity + worker discovery) are **net-new infrastructure**
-that does not exist today; S1–S5 are built shadows needing gated cutovers.
+**One line:** G1–G6 are unbuilt and land in the **noetl-server**; G7 (the only
+new EHDB primitive) is an **in-process append-notify** over the #254 log; G8
+is largely inherited from server affinity + the DB; S1–S5 are built shadows
+needing gated cutovers.
 
 ---
 
-## 2. THE TAKEOVER DESIGN (topology (c): per-shard-writer-as-broker)
+## 2. THE TAKEOVER DESIGN (locked approach)
 
-### 2.1 Alternatives ledger (so the progression is legible)
+Storage (S1–S5) uses the existing shadow → primary machinery (§4 Track S).
+This section designs the transport under the locked split: **EHDB provides a
+change-feed; the noetl-server provides delivery.**
 
-| Option | Shape | Verdict |
+### 2.1 Split of responsibilities — and why the broker is rejected
+
+| Concern | Owner | Mechanism |
 |---|---|---|
-| **(a)** standalone `ehdb-server` broker | one new networked service brokers all shards | **REJECTED — monolith.** Re-implements JetStream centrally; reintroduces a single broker (SPOF like NATS) + a new service from zero. |
-| **(b)** storage/delivery split | writer owns log+change-feed; **stateless server tails it** and delivers | **SUPERSEDED — latency.** Two delivery hops (writer→server→worker); the server-tail added a hop for no delivery benefit. |
-| **(b′)** server-direct-push | server pushes the command it already computes, straight to the worker | **SET ASIDE — cross-replica fan-out.** One hop *in principle*, but the server is multi-replica and stateless with **no stable identity**; "push to worker W" needs to reach the replica holding W's connection — exactly the fan-out a broker provides. A stateless fleet cannot be a stable fan-out point. |
-| **(c)** per-shard-writer-as-broker | the **stateful** per-shard writer owns log + delivery; workers subscribe to it; server publishes to it | **ADOPTED.** One hop (writer→worker); the writer is the **stable addressable fan-out point** the stateless server can't be; distributed (not a monolith); server stays stateless. Cost: it's a build, not a relocation (§2.5). |
+| Durable log + ordering + retention | **EHDB** (data-plane, embedded in worker/system-pool) | #254 durable segments, gapless global sequence, `KeepAll` |
+| Change-feed / watch (stop polling) | **EHDB** | in-process append-notify over the segment log (G7) |
+| Command wakeup + fan-out | **noetl-server** | SSE push to workers via the `ConnectionHub` pattern (G1) |
+| Consumer-group assignment | **noetl-server** | per-shard in-flight table, one-notification-to-one-member (G2) |
+| Ack / redelivery / NAK | **noetl-server** | HTTP `claim_command` = ack; ack_wait re-push; NAK+delay steering (G3) |
+| Live subject routing | **noetl-server** | shard = SSE subscription key; subsumption fallback (G4) |
+| Lag signal | **noetl-server** | per-shard pending gauge → KEDA `prometheus` (G5) |
+| Gateway/SPA feed | **noetl-server** | lifecycle fan-out off the `/api/events` write path (G6) |
 
-The load-bearing insight (b′ surfaced, c resolves): **delivery needs a stable,
-addressable fan-out point per shard.** NATS was that point. A stateless,
-horizontally-fungible server fleet (#115) cannot be. The **stateful per-shard
-writer** can — which is why delivery belongs on the writer, not the server.
+**REJECTED — standalone `ehdb-server` stream broker.** Rationale (one line):
+it would re-implement JetStream's client-facing semantics (server-streaming
+Subscribe, consumer groups, ack_wait, a monitoring endpoint, and its own
+consensus story) as a **new deployed service from zero** — a multi-quarter
+build — when the noetl-server + gateway SSE hub + DB command queue already
+provide the delivery substrate. Do not relitigate; if the server-owned path
+proves inadequate on latency (§5.5), the broker returns as the fallback, not
+the default.
 
-### 2.2 The hop validation — is (c) genuinely one delivery hop?
+### 2.2 Command dispatch (G1–G4) — server-owned, EHDB not in the path
 
-**Yes, at the per-command delivery level, and it can collapse the whole
-cycle.** Today (offserver, code-traced):
+The server already authors commands (writes `command.issued` + the DB command
+row). It does not need to read EHDB to know there is work — it just created
+it. So the wakeup is a pure noetl-stack push:
 
-```
-step-worker ─HTTP─► server ─NATS─► system-worker ─HTTP─► server ─NATS─► step-worker
-     completion         __orchestrate__        call.done(result)      next command
-   H1            H2            H3          H4/H5          H6           H7   (+HTTP claims H4,H8)
-                                   = 6 message hops (8 with claims)
-```
+1. **Worker subscribes** to the server for its shard(s): a long-lived
+   server→worker SSE (or gRPC server-stream) keyed by
+   `noetl.commands.system.shard.<n>` — the exact #166 scheme, now a
+   subscription key instead of a NATS subject. This reuses the gateway's
+   `ConnectionHub` (`connection_hub.rs:121`, per-client `mpsc::UnboundedSender`)
+   generalized from browser clients to worker clients.
+2. **On command creation** the owning server replica (execution-affinity, #116)
+   pushes a lightweight `Delivery{event_id, shard, ...}` to **one** subscribed
+   worker for that shard (G2 assignment; round-robin / least-in-flight), and
+   records it in an in-flight table.
+3. **The worker claims** the full command over the existing HTTP
+   `claim_command(event_id)` (`control_plane.rs:366`) — unchanged. A successful
+   claim is the **ack** (G3): the server clears the in-flight entry. `409
+   AlreadyClaimed` also clears it (a duplicate push collapsed by the DB claim
+   gate).
+4. **Redelivery** (G3): an ack_wait timer (default 30 s) re-pushes any
+   in-flight entry that was never claimed to another worker; `Nak(delay)` for
+   affinity steering (#166 Phase 4). Unlimited re-push = `max_deliver=-1`
+   parity.
+5. **Recovery** after a server-replica crash: the DB command queue is the
+   durable truth; the re-routed affinity owner re-scans unclaimed commands and
+   re-pushes. No wakeup is lost because the DB — not the transport — is the
+   source of truth (today's `noetl_commands` is already best-effort/1h).
 
-The server relays every hop; the drive worker and the step worker never touch.
+Latency: an in-memory push over an already-open SSE connection — comparable to
+NATS push, no poll interval, no EHDB read.
 
-Under (c), the per-shard writer owns store **and** drive **and** delivery, so
-the server exits the inter-step loop:
+### 2.3 The EHDB change-feed / watch primitive (G7) — the only new EHDB part
 
-```
-step-worker ─► shard-writer(store+drive+deliver) ─► step-worker
-   completion            (in-process)               next command
-        = ~2 hops; delivery (writer→worker) = ONE hop, matching NATS
-```
+The **drain consumers** (materializer, projector, state-builder,
+result/state materializers) fold the durable event log. They run **inside the
+worker/system-pool process, where EHDB is embedded** — so the change-feed is
+in-process, not networked:
 
-- **Per-command delivery** (the latency the worker feels): `writer → worker`,
-  **one hop** — identical to today's `NATS → worker`. This is the fix for
-  (b)'s two-hop regression. ✓
-- **Full inter-step cycle:** if the writer also drives (it already builds the
-  state — `state_builder.rs`), the 6-hop server round-trip collapses to ~2.
-  That is a *bigger* win than "one delivery hop," but it means **moving
-  orchestration off the server into the writer** — today the server drives
-  (`events.rs` `apply_orchestration_result`) and the writer only builds state.
-  Treat the full collapse as the end-state; the first cut can keep the server
-  computing "next" and *publishing to the writer* (still one delivery hop).
+- **Append-notify.** When the event-log engine commits an append to the #254
+  segment log, it signals a `tokio::sync::Notify` / per-stream `broadcast`
+  keyed by `(stream, subject-prefix)`. A drain task parked on that key wakes
+  on commit and drains via the existing `tail`/`scan_global` — **no poll
+  interval.** This generalizes the ai-meta#130 append-notify already proven
+  for the WAL index ("the index under the mutex is the source of truth"; the
+  signal is a liveness hint) — the sharded-state-builder RFC §6.3 already
+  relies on this shape.
+- **Durable cursor + resume.** Each drain keeps its durable per-consumer
+  cursor (already in #254); a restart resumes from the cursor then follows the
+  notify — uniform "catch-up then live," no special case (G7 / the old #163
+  cursor-survives-reconnect property, now purely storage-local).
+- **No networked watch needed for the drains** because they are co-located
+  with the engine. A networked watch RPC is deferred and only revisited if a
+  drain ever moves to a separate process — which the current architecture does
+  not require.
 
-**No hidden extra hop, with one caveat:** today the pushed message is a
-*pointer* and the worker does an HTTP `claim_command` round-trip to fetch the
-body (`control_plane.rs:369`). (c) can carry the **full command** in the
-writer's push (it owns the log + the command), eliminating the claim
-round-trip — but that moves the exactly-once gate off the DB `claim_command`,
-so keep the claim gate initially and treat body-in-push as a T1+ optimization.
+This is the whole EHDB-side delta for the transport: **an in-process
+append-notify + a resumable durable cursor over the #254 log.** No broker, no
+new service, no consensus.
 
-### 2.3 The component split
+### 2.4 Consumer groups + ack/redelivery live in the server (G2, G3)
 
-```
-  server (STATELESS, #115)                         PER-SHARD WRITER (STATEFUL, system pool)
-  ├─ kicks off executions                          ├─ owns the EHDB durable log shard (#254) + PVC
-  ├─ publishes the initial (and, first cut,        ├─ single writer per shard ⇒ ordered append
-  │   each next) command TO the owning writer  ──► ├─ (end-state) drives: builds state + computes next
-  └─ never in the delivery path                    ├─ change-feed = in-process append-notify (#130)
-                                                    ├─ consumer-group assignment + ack_wait + NAK
-                                                    └─ pushes to subscribed workers  ──┐
-                                                                                        │ ONE hop
-   worker (SSE/stream push client) ◄────────────────────────────────────────────────┘
-   └─ claims/acks; executes; emits completion back to the owning writer
-```
+Because delivery is server-owned, the in-flight table, group assignment,
+ack_wait timer, and NAK all live in the noetl-server (§2.2 steps 2–4) — the
+same logic a broker would hold, but hosted in the service that already owns
+affinity and the DB command queue. The **ack is the existing HTTP claim** —
+no new ack protocol. Crash semantics: a worker crash → its in-flight entries
+never claim → ack_wait re-pushes; a server-replica crash → affinity re-route +
+DB re-scan. At-least-once wakeup holds; the DB claim gate collapses
+duplicates (exactly-once execution, unchanged).
 
-| Component | State | Owns |
-|---|---|---|
-| **Per-shard writer** (system pool) | **Stateful** | Durable log shard + delivery (change-feed, group assignment, ack/redelivery, push); (end-state) the drive |
-| **noetl-server** | **Stateless** (#115) | Kick-off + publish-to-writer; **not** in the delivery path; holds no durable state |
-| **worker** | Stateless compute | A direct push subscription to its shard's writer + claim/ack; emits completion to the writer |
+### 2.5 The lag signal (G5)
 
-### 2.4 Preserved invariants
+The server already knows, per shard, how many commands are unclaimed
+(in-flight table + a bounded DB query on the command queue). Export it as a
+Prometheus gauge (e.g. `noetl_command_shard_pending{shard}`). VictoriaMetrics
++ GMP already scrape the cluster, so a KEDA **`type: prometheus`** ScaledObject
+reads it in place of `type: nats-jetstream`. The worker's existing lag-gauge
+shape (`metrics.rs:491`) is the template.
 
-- **#115 stateless server:** the server embeds no EHDB, holds no durable state,
-  and is out of the delivery path — it publishes to the writer (like it
-  publishes to NATS today) and stays horizontally fungible. **Preserved — more
-  cleanly than (b)** (no change-feed tail state on the server).
-- **#166 per-shard ordering:** one writer per shard is the sole appender **and**
-  the sole deliverer for its shard, so append order = delivery order per
-  execution. **Preserved / strengthened** (same pod owns order and push).
-- **Data/control-plane boundary:** the durable log + delivery live in the
-  data-plane writer (system pool); the control-plane server never reads/writes
-  EHDB. **Preserved.**
+### 2.6 Control/data-plane — resolved by the split, not deferred
 
-### 2.5 The honest downsides — spelled out, not glossed
+A standalone broker would have forced the stateless server to read/write an
+EHDB data-plane stream — breaching coupling-RFC Decision 1. The locked split
+**avoids it entirely**:
 
-1. **The writer now terminates worker subscriptions** — a stateful pod serving
-   many long-lived client connections. **Cost:** the system pool is the
-   memory-pressured pod (ai-meta#163 OOM'd it 768Mi→2Gi under the WAL index
-   alone). Adding N worker connections + a push loop + (end-state) the drive
-   concentrates three heavy jobs on that pod. It already runs an axum server on
-   `:9090` (metrics/query), so the serving machinery exists, but sizing/QoS
-   needs real headroom. **Not fatal; a real sizing risk.**
-2. **Per-shard HA is unbuilt — and today there is none.** The system pool is
-   `Deployment, replicas: 1`, no failover; a pod death **stalls the drive**
-   until k8s reschedules (correctness held by the reconcile poller +
-   cold-rebuild, `events.rs:2500`, `:3716`). The **HA posture is decided
-   (§2.6, LOCKED): shards-only now, per-shard replication deferred** — a writer
-   is a StatefulSet+PVC single owner per shard (parity with today's
-   single-replica NATS), with a bounded loss-free failover stall; multi-replica
-   HA is a named, later, non-blocking phase. See §2.6 for the parity check, the
-   replication-ready seam, and the failover/stall estimate.
-3. **Worker↔writer discovery is net-new** (G9). Today no worker addresses a
-   specific pod; everything is load-balanced Service DNS. (c) needs workers to
-   resolve `shard_for(execution_id)` → the **specific** writer's StatefulSet
-   DNS, and reconnect on failover/rebalance. StatefulSet stable identity gives
-   the addressing, but the worker-side resolve/connect/reconnect layer has **no
-   analogue in the codebase** and must be built.
-4. **Connection fan-out grows with shard count.** A step worker executes steps
-   for executions across **many** shards, so it must connect to **many** shard
-   writers (up to S). NATS avoided this — one connection, subject-filtered. (c)
-   trades that for `S`-connections-per-worker; at 2 shards negligible, at 16
-   (the point of sharding is to grow S) it is a real connection-management +
-   discovery burden, and adding a shard makes every worker discover + connect a
-   new writer. **This is the genuinely new cost NATS's single-broker model did
-   not have.** Mitigation options (shard-partition the step pool; or a
-   subset-subscription policy) are T1+ design, not free.
-5. **EHDB moves from library toward service** — each per-shard writer now
-   terminates connections and serves a push protocol. But it is **distributed
-   per-shard, not a monolith** (contrast (a)), and rides the writer's existing
-   `:9090` server, so it is an extension, not new standalone infra. Still, "the
-   storage engine now runs a client-facing push server" is a real scope-shift
-   to acknowledge.
+- The **command transport carries no EHDB access** — the server pushes from
+  its own DB-backed command state; EHDB is not in the command path.
+- The **EHDB change-feed is consumed only by co-located data-plane drains**
+  (worker/system-pool) — a data-plane read by a data-plane role, exactly what
+  the boundary permits.
+- The **server never reads or writes EHDB** for transport. It stays the
+  control-plane gatekeeper of *what* enters the log (via `/api/events`), while
+  the physical append is the data-plane worker's job (the Phase 6 model,
+  unchanged).
 
-**Verdict: (c) is sound and not fatally flawed — adopt it.** It uniquely
-delivers one-hop latency *and* a stable per-shard fan-out point, keeps the
-server stateless, and shrinks the blast radius vs today's single NATS. But it
-is a **build** (StatefulSet + PVC + identity + worker↔writer channel +
-discovery + the delivery stack in the writer + moving publish/drive off the
-server), **more work than (b)**, and it carries a real connection-fan-out cost
-that scales with shard count and a real concentration risk on the OOM-prone
-system pod.
+Residual boundary item: **who writes coherence KV** (S3 `chain_heads` /
+`exec_descriptors`), which the *server* writes today. That is an S-track
+storage question (keep on a control-plane store vs move to EHDB), unchanged by
+this transport decision and tracked separately.
 
-### 2.6 HA posture — shards-only now, replication-ready, RF deferred (LOCKED 2026-07-15)
+### 2.7 Exactly-once + ordering (unchanged, not the transport's job)
 
-**Decision:** ship (c) **shards-only** — one writer per shard, no per-shard
-replicas — and defer per-shard **replication factor (RF)** to a named,
-post-cutover HA phase (§4 T-RF). The NATS takeover **completes at shards-only
-parity** (NATS deleted at T5); RF is hardening *beyond* parity, not a blocker.
-
-**Parity check (verified against the manifests, read-only):** prod NATS is
-`kind: StatefulSet … replicas: 1` (`ops/ci/manifests/nats/nats.yaml:56`),
-single-node JetStream (`store_dir /data/jetstream`, file store, no cluster
-peers), and the command/event streams set **no `num_replicas`** override
-(`server/src/nats/publisher.rs` / `event_publisher.rs` use default Config) → a
-1-node JetStream cannot host R>1 anyway, so streams are **R1**. (A
-`nats-supercluster/` manifest set exists — cluster-a/cluster-b — but it is the
-separate multi-region variant, **not** the deployed baseline.) So **prod NATS
-delivery has no HA today**; single-writer-per-shard is **parity, not
-regression**. If a future prod moves NATS to a clustered R3, revisit — but as
-deployed, the claim holds.
-
-**Replication-READY seam (the hard requirement — additive-only, no rewrite
-later).** The #254 durable log is already shaped for replication; T0–T4 must
-build on these primitives (not a pod-local-only shortcut) so RF is purely
-additive:
-
-- **Immutable append + shippable segments.** `DurableSegmentStore` writes
-  append-only CRC-framed segments (`seg-<id>.eslog`) with `fsync` + a bounded
-  offset index and O(1) open via a `StoreCheckpoint` sidecar
-  (`durable_eventlog.rs`). Segments are immutable once written ⇒ byte-for-byte
-  **shippable and replayable** to a follower with no format change.
-- **Single-writer + read-only followers already modeled.**
-  `durable_eventlog_affinity.rs` enforces "at most one replica writes"; a
-  non-owner does `open_read_only`. The leader/follower distinction thus exists
-  at the storage layer **today** — a runtime lock, **not** a format assumption
-  of "exactly one writer forever."
-- **Log-shipping contract already exists.** `durable_eventlog_shared.rs` has
-  the owner publish new segment bytes to a shared store and a non-owner
-  cold-load + replay them. That is log replication to a shared medium, already
-  built (for cold-load failover).
-- **Cursors are durable + external.** The global-sequence cursor and the
-  consumer-ack cursor persist in the transaction log / checkpoint sidecar
-  (cross-process), so they are **derivable by any promoted follower**, not
-  owned by a single process's memory.
-
-The one **new discipline (c) must observe** for RF-readiness at the *delivery*
-layer: the consumer-group **in-flight / ack state must stay derivable** from
-(durable cursor + DB `claim_command` state), never the sole source of truth in
-the leader's memory. Then a promoted follower reconstructs it (at-least-once;
-the DB claim gate collapses any redelivery). Bake this in at T1.
-
-**What a future RF phase ADDS vs. REWRITES:**
-
-| RF adds (additive) | Must NOT rewrite (already RF-shaped) |
-|---|---|
-| **Hot followers** — continuously tail the shared-store log (vs cold-load only on failover) to stay caught up | Segment format, CRC framing, offset index, `StoreCheckpoint` |
-| **Leader election** — promote a follower on leader failure (Raft, or a lease/lock over the shared store); the affinity single-writer lock already gates *who* writes | The single-writer invariant + `open_read_only` follower path |
-| **Replicated delivery in-flight/ack** (optional) — so unacked in-flight survives promotion without redelivery | The global-sequence + consumer-ack durable cursors |
-| A per-shard leader-selecting Service (or keep the same StatefulSet DNS pointing at the leader) | Worker discovery (stable shard DNS is unchanged across RF) |
-
-Net: RF adds *hot-follow + election (+ optional delivery-state replication)*
-and rewrites **nothing** in the log/cursor/shipping layer, provided T0–T4 use
-the `durable_segment` + shared-tier primitives above.
-
-**Failover story (shards-only, the accepted downtime mode until RF):**
-
-1. Shard-N writer pod dies.
-2. The StatefulSet controller reschedules `…-shard-N-0` (**same** stable
-   identity + DNS).
-3. Its per-shard **PVC reattaches** (StatefulSet `volumeClaimTemplate` → same
-   volume) — the #254 log is intact (loss-free).
-4. The writer opens the log **O(1)** via the `StoreCheckpoint` sidecar
-   (ai-meta#267) + replays only the bounded tail — not the whole history.
-5. It rebuilds delivery in-flight state from the durable cursor + the DB
-   unclaimed-command set.
-6. Workers re-dial the **unchanged** shard DNS (backoff) and resume from their
-   durable cursor.
-
-**Stall estimate:** dominated by k8s pod reschedule (typically single-digit to
-low-tens of seconds, image cached / `imagePullPolicy` permitting) + PVC
-reattach (seconds); the replay is O(1)-open + bounded tail (ai-meta#267 +
-the #166 cold-load lineage), **not** O(history). Net: a **bounded,
-loss-free, single-shard (1/N-of-traffic) stall on the order of seconds** —
-the same class as a NATS pod restart today, but scoped to one shard instead of
-all delivery. This is the **accepted downtime mode until T-RF lands.**
+Exactly-once stays the DB `claim_command` gate; per-execution ordering stays
+server affinity + `ChainHeads`; EHDB's global sequence is gapless+monotonic
+(if anything stronger than JetStream). Nothing to build; do not regress.
 
 ---
 
 ## 3. LOAD-BEARING GUARANTEES — met how, and where WEAKER
 
-| Guarantee | NATS today | Topology (c) | Weaker than today? |
+| Guarantee | NATS today | Locked design | Weaker than today? |
 |---|---|---|---|
-| **At-least-once wakeup** | durable consumer, `max_deliver=-1` | writer in-flight table + ack_wait re-push; DB claim gate | No once built |
-| **Redelivery after worker crash** | ack_wait redelivery | writer ack_wait re-push to another subscriber | No once built |
-| **Redelivery after broker crash** | JetStream file replay (1 replica) | writer PVC durable log survives; reschedule + cold-load; **one shard, not all** | **No — smaller blast radius** |
-| **Ordering per execution** | stream seq + subject | #166 single-writer-per-shard = sole appender **and** deliverer | **Stronger / equal** |
-| **Stateless edge (#115)** | already stateless | server publishes + kicks off; not in delivery; no durable state | **Preserved (cleaner than (b))** |
-| **Delivery p99 latency** | JetStream push, 1 hop | writer→worker, **1 hop** (fixes (b)'s 2-hop); inter-step cycle can collapse 6→2 | **Parity; potentially better** |
-| **Backpressure / autoscaling** | KEDA `nats-jetstream` | writer per-shard pending gauge + KEDA `prometheus` | No once the swap lands; **breaks if it lags the cutover** |
-| **Cursor-survives-reconnect** | durable consumer by name | #254 durable cursor, writer-local (needs PVC) | No |
+| **At-least-once wakeup** | durable consumer, `max_deliver=-1` | server in-flight table + ack_wait re-push + DB re-scan (§2.2/2.4) | No once built; N/A until built |
+| **Redelivery after worker crash** | ack_wait redelivery | unclaimed in-flight re-pushed after ack_wait | No once built |
+| **Redelivery after transport-owner crash** | JetStream file replay | DB command queue is durable truth; affinity re-route + re-scan | **No — arguably stronger** (DB-backed, not a 1h best-effort stream) |
+| **Ordering per execution** | stream seq + subject filter | gapless monotonic global sequence + affinity | **Stronger** |
+| **Backpressure / autoscaling** | KEDA `nats-jetstream` `:8222` | server per-shard pending gauge + KEDA `prometheus` (§2.5) | No once the scaler swap lands; **BREAKS if command cutover precedes the swap** |
+| **Delivery p99 latency** | JetStream push, sub-ms | in-memory SSE push over an open connection (§2.2) | **RISK: parity depends on the SSE feed staying push, not degrading to reconnect/poll** — the central risk; measure on kind before T4 |
+| **Change-feed for drains (no poll)** | JetStream push consumer | in-process append-notify over #254 (§2.3) | No — in-process notify is faster than a network consumer |
+| **Cursor-survives-reconnect** | durable consumer by name | durable segment cursor, storage-local (§2.3) | No |
+| **Request-reply / no-responders / heartbeats** | not used / HTTP | unchanged | N/A |
 | **Exactly-once execution** | DB claim gate (not NATS) | DB claim gate (unchanged) | No |
-| **Broker availability / failover** | 1-replica NATS (verified `nats.yaml:56`), restart-recovery, **no HA** | 1-writer-per-shard StatefulSet+PVC, loss-free bounded-stall failover (§2.6); **RF deferred** | **Parity (both single-owner restart-recovery); (c) smaller blast radius (1/N); RF phase later exceeds NATS** |
-| **Single-broker connection simplicity** | 1 worker connection, subject-filtered | **S connections per worker** (fan-out) | **WEAKER — the real cost of distributing the broker (§2.5.4)** |
+| **HA / no SPOF** | 1-replica NATS (no HA now) | inherited: server affinity + DB command queue; EHDB-log HA is S-track (deferred) | **Not weaker than today; transport HA is actually better** (DB-backed) |
 
-**Risks to surface loudly:** (1) **connection fan-out** (S per worker, grows
-with shards) — the one place (c) is genuinely weaker than NATS; (2)
-**concentration on the OOM-prone system pod** (#163); (3) **autoscaling gap**
-if the KEDA swap lags the cutover; (4) (c) needs **new StatefulSet+PVC+identity
-+ discovery** infra to reach even today's restart-recovery parity — that infra
-is the bulk of the build.
+**Two risks to surface loudly:** (1) **delivery latency** if the server→worker
+SSE feed degrades to reconnect/poll under churn — measure on kind before
+cutover; (2) an **autoscaling gap** if the KEDA `prometheus` swap does not
+precede the command-bus cutover — a hard sequencing rule (§5.4), not a
+preference.
 
 ---
 
-## 4. PHASED MIGRATION
+## 4. PHASED MIGRATION — keep prod working throughout
 
-### Track S — storage cutover (independent, proceed now)
+Two tracks, parallel. NATS stays fully resident until the last phase.
 
-Existing Phase 9 per-tier `shadow → primary`, reversible by flag, kind before
-GKE. **S1 event-log additionally needs the system pool converted to a
-StatefulSet + PVC** (the durable log must survive restarts) — this is shared
-prerequisite work with Track T. After Track S, NATS carries only transport.
+### Track S — Storage cutover (independent, proceed now)
 
-### Track T — transport build + cutover (topology (c))
+Existing Phase 9 per-tier primary cutover; unchanged by this RFC. Each tier:
+shadow (done) → dual-run parity → `NOETL_EHDB_<TIER>=primary` on kind → GKE,
+per-tier flag rollback.
 
-- **T0 — direct writer→worker delivery SHADOW** (spec §6). Stand up ONE
-  per-shard writer as a StatefulSet pod exposing a push subscription; a worker
-  subscribes directly and receives a shadow command over one hop; NATS still
-  authoritative; **latency-vs-NATS measured as a first-class output.**
-- **T1 — writer delivery stack:** consumer-group assignment + ack_wait
-  redelivery + NAK steering + worker↔writer discovery/reconnect + the
-  connection-fan-out policy. Validate multi-writer distribution + failover on
-  kind.
-- **T2 — lag export + KEDA `prometheus` SHADOW** beside the live
-  `nats-jetstream` scaler; prove parity. **Green before T4.**
-- **T3 — gateway/SPA feed cutover** off `noetl.events.>`.
-- **T4 — command-bus cutover:** workers take commands from the writers; server
-  publishes to the writers; KEDA on `prometheus`; dual-run bake with NATS
-  resident.
-- **T5 — POINT OF NO RETURN:** delete the NATS StatefulSet + PVC. **The
-  takeover completes here, at shards-only parity.**
-- **T-RF (deferred HA phase, post-cutover, NON-BLOCKING):** add per-shard
-  **replication factor** — hot followers (continuous shared-store tail) +
-  leader election + optional replicated delivery in-flight state (§2.6). Turns
-  the seconds-stall failover into sub-second/seamless promotion, exceeding
-  today's NATS availability. **Additive on the §2.6 seam — no log/cursor
-  rewrite. Cost: quarters** (the consensus/election build is the biggest,
-  riskiest piece — the reason it is deferred, not folded into the cutover).
-- **T-drive (optional, end-state):** move the drive fully into the writer to
-  collapse the 6→2 inter-step cycle. Not required to remove NATS; a latency
-  follow-on.
+- **S1 Event log** (`NOETL_EHDB_EVENTLOG`) — needs prod segmented disk format +
+  sharded ordering aligned with #166 first.
+- **S2 Projection** — primary-serve merged; prod cutover only.
+- **S3 KV / S4 Object / S5 Vector** — primary-serve; S3 resolves the
+  coherence-KV-writer question (§2.6).
 
-Everything through T4 reversible with NATS resident. T5 is the PONR; **T-RF and
-T-drive are post-takeover hardening, explicitly not gating T5.**
+After Track S, NATS carries **only** transport (G1–G7). That is the
+prerequisite for Track T's command cutover.
+
+### Track T — Transport build + cutover (server-owned-push variant)
+
+- **T0 — command/lifecycle feed SHADOW** (spec in §6). Generalize the gateway
+  `ConnectionHub` to a server→worker SSE feed + EHDB in-process append-notify
+  for the drains; the server **dual-notifies** (NATS authoritative + SSE
+  shadow); a canary worker compares. **No prod change**, reversible.
+- **T1 — consumer groups + ack_wait + shard routing.** In-flight table, one-to-one
+  assignment, HTTP-claim-as-ack, ack_wait re-push, `Nak` steering; shard =
+  subscription key. Validate multi-replica distribution + redelivery-on-crash
+  on kind (reuse `worker/tests/affinity_multi_replica.rs` shape).
+- **T2 — lag export + KEDA `prometheus` SHADOW.** Server per-shard pending
+  gauge; a `prometheus` ScaledObject observe-only beside the live
+  `nats-jetstream` one; prove scale decisions match. **Green before T4.**
+- **T3 — gateway/SPA feed cutover (G6).** Gateway lifecycle feed off the
+  server push instead of `noetl.events.>`. Lowest-risk (browser-facing, has
+  the `/api/internal/callback` fallback, `sse.rs:294`).
+- **T4 — command-bus cutover (G1–G4).** Workers take commands over the server
+  SSE feed; server stops publishing to NATS; KEDA switches to the `prometheus`
+  scaler. Dual-run **bake** with NATS resident-but-unused → flag rollback.
+- **T5 — POINT OF NO RETURN: delete the NATS StatefulSet + PVC.** Only after
+  T4 bakes clean. Self-sufficiency (k8s-only for platform functionality).
+
+**Point of no return = T5.** Everything through T4 is reversible with NATS
+resident. T-HA (multi-node EHDB durable log) is an S-track fast-follow; the
+transport's HA is inherited (§2.6/§3) and does not gate T4.
 
 ---
 
-## 5. COST, RISK, DECISIONS
+## 5. COST, RISK, AND THE OPEN SUB-DECISIONS
 
-### Effort (topology (c))
+### Effort (revised for the server-owned-push variant)
 
-- **Track S:** mostly built; + the StatefulSet/PVC conversion of the system
-  pool (shared with T). Weeks to a couple months.
-- **Track T: ~2 quarters** — **more than the superseded (b)** (~1.5q), because
-  (c) adds net-new infra (per-shard StatefulSet + PVC + stable identity), the
-  worker↔writer discovery/connection layer (no analogue today), and the
-  connection-fan-out policy — on top of the same delivery stack (change-feed,
-  group, ack, push) (b) needed, now hosted in the writer. It **buys** the
-  one-hop latency (b) couldn't and the drive-collapse potential.
-- **T-RF / T-drive:** separate post-takeover follow-ons (quarters each); the
-  per-shard replication build (T-RF) is deliberately **outside** the ~2q cutover
-  estimate — folding consensus in would blow it (§2.6).
+- **Track S:** mostly built; remaining = per-tier primary cutover + S1 prod
+  disk format + tunable drivers. **Weeks to a couple months**, in flight.
+- **Track T:** **materially less than a standalone broker.** No new service,
+  no bus consensus story — it reuses the `ConnectionHub` SSE fan-out, the
+  server's affinity, and the DB command queue; the only new EHDB primitive is
+  an in-process append-notify (a generalization of #130). Realistic estimate
+  **~1–1.5 quarters** (vs 1–3 for the rejected broker), dominated by getting
+  the in-flight/redelivery/latency right under load and the KEDA swap.
+- **T-HA:** EHDB durable-log multi-node replication is a **separate S-track
+  effort** (quarters); the transport does not depend on it.
 
 ### Biggest risks
 
-1. **Connection fan-out** scaling with shard count (§2.5.4) — the one genuine
-   regression vs NATS; needs a subscription policy.
-2. **Concentration on the #163 OOM-prone system pod** (log + drive + N
-   connections + push loop).
-3. **Latency:** one hop *in principle*, but a stateful writer under memory
-   pressure serving many connections could still miss the budget — measure at
-   T0 (§5.4).
-4. **Autoscaling gap** if the KEDA swap lags T4 (§5.3).
+1. **SSE feed latency/stability under churn** — the drive hot path must stay
+   push, not degrade to reconnect/poll. Measure on kind before T4 (§5.5).
+2. **Autoscaling gap** if the KEDA swap (T2) does not precede T4 (§5.4).
+3. **Underestimating server-side redelivery/in-flight correctness** — it is
+   the same hard logic a broker needs, just hosted in the server.
 
-### Decisions — FOUR LOCKED, two OPEN
+### Decisions — one LOCKED, three still OPEN (for the user)
 
-- **5.1 — Transport = server-controlled, EHDB-backed push. ✅ LOCKED.**
-- **§2 — Topology = (c) per-shard-writer-as-broker. ✅ LOCKED (2026-07-15).**
-  (a) rejected-as-monolith; (b) superseded-on-latency; (b′) set-aside
-  (cross-replica fan-out).
-- **§2.6 — HA posture = shards-only now, RF deferred. ✅ LOCKED (2026-07-15).**
-  Ship (c) single-writer-per-shard (parity with prod's verified 1-replica
-  NATS), loss-free bounded-stall failover via StatefulSet+PVC; per-shard
-  replication factor is the named, non-blocking **T-RF** phase. **Requirement
-  carried into the build:** T0–T4 use the #254 `durable_segment` + shared-tier
-  primitives so RF is additive (§2.6 seam), and the delivery in-flight/ack
-  state stays derivable from the durable cursor + DB claim gate.
-- **5.3 — KEDA-before-command-cutover. ⬜ OPEN — HARD RULE.** T2 must validate
-  before T4 or autoscaling breaks.
+- **5.1 — Transport approach. ✅ LOCKED (2026-07-15):** noetl-server-owned
+  push over EHDB's durable log + change-feed, reusing the gateway SSE
+  `ConnectionHub`. Standalone `ehdb-server` broker rejected (§2.1).
+- **5.2 — HA timing. ⬜ OPEN.** Transport HA is inherited (DB + affinity), so
+  this narrows to the **EHDB durable-log** S-track: accept single-node EHDB
+  log at S1 primary (parity with today's 1-replica NATS store) and fund
+  replication as a fast-follow, or gate S1 primary on multi-node durability?
+  *Needs a call; not a regression either way, but it is a durability posture.*
+- **5.3 — KEDA-before-command-cutover sequencing. ⬜ OPEN — HARD RULE.** The
+  `prometheus` scaler (T2) must land and validate **before** the command-bus
+  cutover (T4), or autoscaling breaks at cutover. This is an ordering
+  **constraint**, not a preference — confirm it is accepted as a gate.
 - **5.4 — Delivery-latency go/no-go budget. ⬜ OPEN — needs a number.** Set the
-  drive-hop **p99**; T0 measures the real writer→worker hop vs NATS and it is a
-  go/no-go for T4.
-- **5.5 — Connection-fan-out policy (NEW open item). ⬜ OPEN.** Decide before
-  T1: do step workers connect to all S shard writers, or is the step pool
-  shard-partitioned (bigger change), or a subset policy? This bounds how (c)
-  scales with shard count.
-- **5.6 — ai-meta#188 (adjacent).** Plaintext NATS cred; own track; NATS
-  resident until T5.
+  acceptable drive-hop **p99** for the SSE feed. If T0/T1 can't hit it on
+  kind, T4 does not proceed and the broker fallback is reconsidered. Name the
+  p99 target now so the go/no-go is objective.
+- **5.5 — ai-meta#188 (adjacent).** The plaintext NATS credential reinforces
+  removing NATS but rides its own track; NATS stays resident until T5.
 
 ---
 
 ## 6. T0 SLICE SPEC — the first buildable step (do NOT build yet)
 
-**Name:** T0 — direct per-shard-writer → worker delivery SHADOW, over the EHDB
-durable log, with NATS still authoritative, and a **latency-vs-NATS
-comparison** as a first-class output.
+**Name:** T0 — command/lifecycle notification feed, SHADOW over EHDB durable
+log via the SSE hub.
 
-**Goal / what T0 proves:** a worker can subscribe **directly** to one shard's
-writer and receive a command over a **single hop** (writer→worker) at
-acceptable latency, with per-shard ordering preserved and cursor-resume on
-reconnect against the #254 durable cursor — while **NATS stays fully
-authoritative** (shadow only, reversible, kind-only).
+**Goal / what T0 proves:** the **append → notify → push** path works
+end-to-end at acceptable latency, entirely in the noetl stack, with **NATS
+still fully authoritative** — i.e. a command notification can travel
+server→worker over an SSE feed (backed by the server's command state) and a
+lifecycle event can travel worker→server→SPA, while an EHDB in-process
+append-notify wakes a co-located drain on commit — all as an **observed
+shadow** that changes no prod behavior and is reversible by a flag.
 
 **Scope (build):**
-1. **One writer-as-broker pod (shadow).** Stand up a single system-pool writer
-   as a StatefulSet pod (PVC-backed #254 log) exposing a bounded push
-   subscription (server-stream over its existing `:9090` axum server), fed by
-   the in-process append-notify (#130) on append commit. One shard.
-2. **Direct worker subscription (shadow).** A worker resolves that one shard
-   writer's stable DNS and opens a shadow push subscription
-   (`NOETL_SHADOW_DIRECT_SUB=on`, default off) **alongside** its live NATS pull.
-   It acts on the NATS command and **records the direct-push one for comparison
-   only** (does not claim off the shadow).
-3. **Latency comparison (first-class).** Emit, per command, both the
-   NATS-deliver timestamp and the direct-writer-push timestamp for the same
-   `event_id`, so T0 yields the **real writer→worker hop cost vs NATS** — the
-   number §5.4 needs.
-4. **Instrumentation.** Secret-free metrics: writer commit→worker-recv p99
-   (direct) vs NATS-recv p99; per-shard **ordering** check; parity per
-   `event_id`.
+1. **Server→worker SSE feed (shadow).** Generalize the gateway
+   `ConnectionHub` (`connection_hub.rs`) into a server-side per-worker SSE
+   registry keyed by `shard`. Workers open a shadow subscription
+   (`NOETL_SHADOW_PUSH=on`, default off) alongside their live NATS pull.
+2. **Shadow dual-notify.** On command creation, the server continues to
+   `js.publish` to NATS (authoritative) **and** pushes a shadow `Delivery` over
+   SSE. The worker receives both; it acts on the NATS one and **records the
+   SSE one for comparison only** (does not claim off the shadow).
+3. **EHDB append-notify (shadow).** Wire a `tokio::sync::Notify` on the #254
+   event-log append commit (behind `NOETL_EHDB_EVENTLOG` shadow, already
+   present) and have one co-located drain wake on it, recording
+   notify→drain latency — **without** serving any read from it.
+4. **Latency instrumentation.** Secret-free metrics: server-push→worker-recv
+   latency, EHDB commit→notify→drain latency, and shadow-vs-NATS delivery
+   parity (did the SSE `Delivery` match the NATS notification for the same
+   `event_id`?).
 
 **Explicitly OUT of T0:** no consumer-group assignment, no ack/redelivery, no
-multi-shard fan-out, no discovery layer beyond one hard-wired shard, no KEDA,
-no gateway cutover, no command claimed off the shadow, no NATS removal, no GKE.
-All T1+.
+KEDA change, no gateway cutover, no command claimed off the shadow feed, no
+NATS removal, no GKE. All of that is T1+.
 
 **Exit criteria (all on kind, NATS authoritative throughout):**
-- **Parity:** every command NATS delivered also arrived on the direct shadow
-  push with a matching `event_id` (0 missed, 0 spurious).
-- **Ordering:** direct deliveries arrived in per-shard **append order** (#166
-  single-writer property holds through the writer's push) — 0 inversions.
-- **Latency:** direct writer→worker p99 captured **and compared head-to-head
-  against the NATS→worker p99 on the same drives** — the deliverable that
-  answers "is one-hop-via-writer really NATS-parity?" (go/no-go against §5.4).
-- **Reconnect / cursor-resume:** kill + reconnect the worker's direct
-  subscription; it resumes from the #254 durable cursor with no missed / no
-  duplicated shadow delivery (duplicate acceptable only if the DB claim gate
-  would collapse it).
-- **Reversibility:** `NOETL_SHADOW_DIRECT_SUB=off` ⇒ byte-identical `/metrics`
-  + behavior; worker on NATS alone.
-- **Boundary:** the server is **not** involved in the shadow delivery path; the
-  writer serves it from its co-located log; the server embeds no EHDB.
-- **No prod/GKE change; kind-only; rollback = unset the flag.**
+- **Parity:** for ≥ N drive executions, every command that NATS delivered also
+  arrived on the SSE shadow feed with a matching `event_id` (0 missed, 0
+  spurious) — the feed is delivery-complete.
+- **Latency:** server-push→worker-recv p99 and EHDB commit→notify→drain p99 are
+  both **at or below the §5.4 target** the user sets (the number T0 exists to
+  measure) — captured as evidence, not asserted.
+- **Reversibility:** `NOETL_SHADOW_PUSH=off` ⇒ byte-identical `/metrics` and
+  behavior; the worker runs on NATS alone with the shadow removed.
+- **Boundary:** the server holds SSE connections + its own command state only;
+  it performs **zero EHDB reads/writes**; the EHDB append-notify is consumed by
+  a co-located data-plane drain only (control-plane guard unviolated).
+- **No prod/GKE change**; kind-only; documented rollback = unset the flag.
 
-**Hand-off note:** T0 is a `noetl/worker` change (writer push server-stream in
-the system-pool worker's `:9090` server + a worker-side direct subscription
-client) + an `ops` change (system pool → StatefulSet + PVC + headless Service
-for stable DNS). It opens per-round sub-issues under the umbrella at build.
+**Hand-off note:** T0 is a `worker` + `server` change (SSE feed + shadow
+dual-notify + append-notify wiring), reusing `gateway/src/connection_hub.rs`
+as the fan-out template. It opens per-round sub-issues in `noetl/server` and
+`noetl/worker` under the umbrella when it goes to build.
 
 ---
 
-## 7. What this plan reuses / what is net-new
+## 7. What this plan reuses (so it is buildable, not greenfield)
 
-**Reused:** the system-pool worker's existing `:9090` axum server (push
-endpoint host); the #254 durable segment log (store + append-notify hook) **and
-its already-replication-shaped modules** (`durable_eventlog_affinity.rs`
-single-writer + `open_read_only` followers; `durable_eventlog_shared.rs`
-owner-publish + follower-cold-load log shipping) — the §2.6 seam that makes the
-deferred T-RF additive; the ai-meta#130 append-notify pattern; the DB
-`claim_command` exactly-once gate; the off-server drive state builder
-(`state_builder.rs`); the ai-meta#267 O(1) checkpoint open + #166 cold-load
-lineage (bounds the failover replay); VictoriaMetrics + GMP (KEDA `prometheus`
-needs no new observability infra); the shadow→primary discipline.
-
-**Net-new (this is the honest bulk of Track T):** the system pool as a
-**StatefulSet + PVC + stable per-pod identity** (today a single-replica
-Deployment); the **writer's delivery stack** (group assignment, ack_wait,
-push loop); the **worker↔writer discovery + connection layer** (no analogue in
-the codebase); the **connection-fan-out policy** (§5.5); and moving
-command-publish (and, end-state, the drive) off the server into the writer.
+- **gateway `ConnectionHub` SSE** (`connection_hub.rs`, `sse.rs`) — the
+  in-house push fan-out the server-owned feed generalizes. **This is the load
+  reduction vs a broker.**
+- **noetl-server execution-affinity (#116) + the DB command queue** — the
+  transport's HA and recovery substrate; no new consensus needed for the bus.
+- **ehdb#254 durable segment log** — the storage floor + the append point the
+  change-feed notify hooks.
+- **ai-meta#130 append-notify** — the proven in-process wakeup pattern G7
+  generalizes.
+- **ai-meta#166 sharding + #116 affinity** — the shard scheme reused as the
+  SSE subscription key + assignment fallback.
+- **VictoriaMetrics + GMP** — already scraping, so the KEDA `prometheus` swap
+  needs no new observability infra.
+- **The shadow → primary discipline** (`off|shadow|primary` flags, parity
+  harnesses, compile-time guards) — every transport phase copies it.
 
 ---
 
 ## Related
 
 - [`nats-vs-ehdb-transport-boundary.md`](./nats-vs-ehdb-transport-boundary.md)
-  — the code-cited role inventory + capability boundary.
-- `ehdb-wiki/RFC-Server-EHDB-Coupling-and-Storage-Substrate.md`,
-  `Design-Event-Log-Core-Engine.md`, `Roadmap.md` — Track S engines.
-- `repos/docs/docs/architecture/sharded_state_builder.md` — the #166 per-shard
-  stateful-writer + append-notify patterns (note: sharding is **dormant in
-  prod** per §2.2; (c) is what would activate + extend it).
+  — the role inventory + capability boundary (code-cited) this plan builds on.
+- `ehdb-wiki/RFC-Server-EHDB-Coupling-and-Storage-Substrate.md` — the
+  loose-coupling decisions; §2.6 shows the locked split preserves them.
+- `ehdb-wiki/Design-Event-Log-Core-Engine.md`,
+  `Design-Projection-Read-Model-Engine.md`,
+  `Design-KV-Object-Vector-Engines-Phase-8.md`, `Roadmap.md` — Track S engines.
+- `repos/docs/docs/architecture/sharded_state_builder.md` — the append-notify
+  + shard-routing patterns reused.
 - Program tracker: noetl/ai-meta#194.
 - Issues: ehdb#241, ehdb#254, ai-meta#178, ai-meta#166, ai-meta#116,
-  ai-meta#115, ai-meta#163, ai-meta#130, ai-meta#188.
+  ai-meta#130, ai-meta#188.
