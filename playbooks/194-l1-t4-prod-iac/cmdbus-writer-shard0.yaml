@@ -1,0 +1,113 @@
+# EHDB command-bus writer — SHARD 0 (noetl/ai-meta#194 L1 T4, shastaratech prod).
+#
+# Adapted from noetl/ops#241 for the 2-SHARD shastaratech-noetl-prod cluster.
+# ops#241 shipped ONE writer for a single-shard cluster; this prod cluster runs
+# NOETL_COMMAND_SHARD_COUNT=2 (server) with the system pool already split into
+# shard0 + shard1 deployments, so the command bus needs ONE writer PER shard
+# (server/src/command_bus.rs PublishRouter keeps one client per shard and errors
+# on a missing shard; worker spawn_writer_host binds ONE ClaimCoordinator to
+# NOETL_COMMAND_BUS_SHARD). This is writer shard 0.
+#
+# SINGLETON by construction — never add an HPA/ScaledObject, never raise replicas.
+# Recreate strategy because the log PVC is RWO (one writer per shard's log).
+# FLAG-NEUTRAL as applied: NOETL_COMMAND_BUS=nats => writer faces NOT spawned;
+# the pod is an inert worker on the dead-end subject noetl.commands.cmdbus.>.
+# The cutover flips the mode with `kubectl set env`, never by re-applying.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: noetl-cmdbus-writer-0-data
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer-0, component: cmdbus-writer, shard: "0", managed-by: noetl }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: premium-rwo   # GKE PD-SSD; fsync-per-append posture A wants SSD latency
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: noetl-cmdbus-writer-0
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer-0, component: cmdbus-writer, shard: "0", runtime: rust, command-bus: ehdb, managed-by: noetl }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: noetl-cmdbus-writer-0 }
+  template:
+    metadata:
+      labels: { app: noetl-cmdbus-writer-0, component: cmdbus-writer, shard: "0", runtime: rust, command-bus: ehdb }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9102"
+    spec:
+      serviceAccountName: noetl-worker
+      initContainers:
+        - name: wait-for-api
+          image: curlimages/curl:8.7.1
+          imagePullPolicy: IfNotPresent
+          command: ["sh","-c","until curl -sf http://noetl-server-rust.noetl.svc.cluster.local:8082/api/health; do echo waiting-for-api; sleep 3; done"]
+      containers:
+        - name: noetl-worker
+          image: ghcr.io/noetl/worker@sha256:27807d74c2cc356883b057a814a9d4300323763b0f11fcd0eb34844f5a82fbe1  # v5.81.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: cmdbus-ingest, containerPort: 9100 }
+            - { name: cmdbus-claim,  containerPort: 9101 }
+            - { name: cmdbus-lag,    containerPort: 9102 }
+            - { name: metrics,       containerPort: 9090 }
+          env:
+            - { name: WORKER_POOL_NAME, value: cmdbus-writer }
+            - { name: WORKER_ID, valueFrom: { fieldRef: { fieldPath: metadata.name } } }
+            - { name: NATS_URL, valueFrom: { configMapKeyRef: { name: noetl-worker-config, key: NATS_URL } } }
+            - { name: NATS_STREAM, value: NOETL_COMMANDS_RUST }
+            - { name: NATS_CONSUMER, value: noetl_cmdbus_writer_0 }
+            - { name: NATS_FILTER_SUBJECT, value: noetl.commands.cmdbus.> }
+            - { name: NOETL_SERVER_URL, value: http://noetl-server-rust.noetl.svc.cluster.local:8082 }
+            - { name: WORKER_HEARTBEAT_INTERVAL, value: "15" }
+            - { name: WORKER_MAX_CONCURRENT, value: "1" }
+            - { name: WORKER_METRICS_BIND, value: "0.0.0.0:9090" }
+            - { name: RUST_LOG, value: "info,noetl_worker=info,ehdb_feed=info" }
+            # ---- command bus (inert until mode flipped) ----
+            - { name: NOETL_COMMAND_BUS, value: "nats" }
+            - { name: NOETL_COMMAND_BUS_HOST, value: "true" }
+            - { name: NOETL_COMMAND_BUS_SHARD, value: "0" }
+            - { name: NOETL_COMMAND_SHARD_COUNT, value: "2" }   # MUST match server + workers
+            - { name: NOETL_COMMAND_BUS_WRITER_DIR, value: /data/cmdbus }
+            - { name: NOETL_COMMAND_BUS_INGEST_BIND, value: "0.0.0.0:9100" }
+            - { name: NOETL_COMMAND_BUS_CLAIM_BIND, value: "0.0.0.0:9101" }
+            - { name: NOETL_COMMAND_BUS_METRICS_BIND, value: "0.0.0.0:9102" }
+            - { name: NOETL_COMMAND_BUS_ACK_WAIT_SECS, value: "30" }
+          volumeMounts:
+            - { name: cmdbus-data, mountPath: /data/cmdbus }
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits:   { cpu: "2",    memory: "4Gi" }
+          livenessProbe:
+            tcpSocket: { port: 9090 }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 6
+      volumes:
+        - name: cmdbus-data
+          persistentVolumeClaim: { claimName: noetl-cmdbus-writer-0-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: noetl-cmdbus-writer-0
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer-0, component: cmdbus-writer, shard: "0", command-bus: ehdb, managed-by: noetl }
+spec:
+  type: ClusterIP
+  selector: { app: noetl-cmdbus-writer-0 }
+  ports:
+    - { name: cmdbus-ingest, port: 9100, targetPort: cmdbus-ingest }
+    - { name: cmdbus-claim,  port: 9101, targetPort: cmdbus-claim }
+    - { name: cmdbus-lag,    port: 9102, targetPort: cmdbus-lag }
+    - { name: metrics,       port: 9090, targetPort: metrics }

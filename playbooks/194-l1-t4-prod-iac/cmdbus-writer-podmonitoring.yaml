@@ -1,0 +1,29 @@
+# EHDB command-bus writer scrape — GMP PodMonitoring (noetl/ai-meta#194 L1 T4).
+#
+# ADAPTED from ops#241's VMServiceScrape: shastaratech-noetl-prod runs Google
+# Managed Prometheus (gke-gmp-system collector + gmp-operator), NOT VictoriaMetrics
+# — there is no VMServiceScrape CRD in this cluster. GMP scrapes via PodMonitoring.
+# One PodMonitoring covers BOTH per-shard writers via the shared component label.
+#
+# Scrapes ehdb_feed_total_lag / ehdb_feed_shard_lag{shard} on the cmdbus-lag port
+# (:9102) and the ordinary worker surface on metrics (:9090). Inert as applied:
+# while NOETL_COMMAND_BUS=nats the writer binds no :9102 so that target is down.
+# For live cutover gates the writer :9102 is also read directly via port-forward.
+---
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: noetl-cmdbus-writer
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer, command-bus: ehdb, managed-by: noetl }
+spec:
+  selector:
+    matchLabels:
+      component: cmdbus-writer
+  endpoints:
+    - port: cmdbus-lag
+      path: /metrics
+      interval: 10s
+    - port: metrics
+      path: /metrics
+      interval: 15s
