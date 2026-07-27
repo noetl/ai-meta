@@ -5,6 +5,8 @@ export SERVER_IMG=ghcr.io/noetl/server@sha256:99b84214ce9f8430a612a814f5b924b8b3
 export WORKER_IMG=ghcr.io/noetl/worker@sha256:27807d74c2cc356883b057a814a9d4300323763b0f11fcd0eb34844f5a82fbe1   # v5.81.0
 export WRITER0=noetl-cmdbus-writer-0.noetl.svc.cluster.local
 export WRITER1=noetl-cmdbus-writer-1.noetl.svc.cluster.local
-export WRITER_ADDRS="0@${WRITER0}:9100,1@${WRITER1}:9100"
+# Option 2 (chosen 2026-07-27): single command-bus shard -> single writer (writer-0).
+# writer-1 is scaled to 0 by step1b. WRITER_ADDRS carries shard 0 only.
+export WRITER_ADDRS="0@${WRITER0}:9100"
 export DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 K() { kubectl --context "$CTX" -n "$NS" "$@"; }

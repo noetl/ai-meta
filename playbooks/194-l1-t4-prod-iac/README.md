@@ -66,7 +66,29 @@ session).
   monotonically (expected F6 — nothing claims in shadow); PVC 72K/19.5G; 0 restarts.
 - No EHDB KEDA scaler exists in this cluster (nothing to pause).
 
-### Step 3 — CANARY — **HELD (not attempted). Blocker below.**
+### Step 3 — CANARY — **HELD (round 1). Blocker below → resolved by Option 2 (round 2).**
+
+---
+
+## Round 2 — 2026-07-27 — Option 2 (collapse command bus to 1 shard)
+
+User chose **Option 2**. Kind-validated first, then reconfigured prod to 1 command shard, then re-ran the staged cutover.
+
+- **Kind re-validation — PASS.** Mirrored prod-after-Option-2 (dedicated single writer + 2 state-shard system pools + `NOETL_COMMAND_SHARD_COUNT=1`). Single writer holds all commands (`ehdb_feed_total_lag→0`); user pool + both state-shard system pools compete **exactly-once (0 dup / 5 consumers)**; pod-kill redelivery 8/8 0-loss; rollback clean. **Axis independence** proven in code (command bus reads only `NOETL_COMMAND_SHARD_COUNT`; state materializer uses `NOETL_RESULT_SHARD_COUNT` + the event stream; `sharding.rs:172` "correctness never depends on affinity"). **Caught 3 config bugs, baked into the scripts:** system pools must share ONE NATS consumer (else JetStream double-delivers → dup exec); writer `NATS_STREAM` must match the cluster; **writer in `ehdb` mode requires `NOETL_COMMAND_BUS_CLAIM_ADDR` (self)**.
+- **Prod reconfigure (`step1b-collapse-1shard.sh`, bus stayed NATS) — clean.** Unified system pools → shared consumer `noetl_worker_system_rust` on `noetl.commands.system.>`; server `NOETL_COMMAND_SHARD_COUNT=1` + single writer addr; writer-0 cmdshard=1 + self CLAIM_ADDR; writer-1 scaled to 0. **#166 state sharding INTACT** (both pools keep `NOETL_SHARD_COUNT=2`/index, `STATE_BUILDER=offserver`, `STATE_SHARD_WRITE=true`). 12/12 over NATS.
+- **Shadow (`step2-shadow.sh`) — PASS, 0 divergence** (121 pub == 121 feed on the single writer, 0 errors, DNS connect).
+- **Canary (`step3-canary.sh`, user pool → ehdb) — PASS** (15/15, **pool isolation 0 system claims**, 0 dup).
+- **Full flip (`step4-fullflip.sh`) — FAILED.** All-ehdb steady-state (writer stable, feed lag=0): **~10% of executions stall permanently** — `command.issued` with no `command.claimed`. Server logged a successful EHDB publish + `ehdb_sort_key`; writer had no errors; lag=0 — the record is **ingested into the writer feed but never surfaced to a claimer**. Same load on NATS = 30/30 clean. Bug: **noetl/ai-meta#203** (ehdb-feed ClaimCoordinator/SubjectConsumerGroup ingest↔cursor race).
+- **Rolled back (`rollback.sh`) — 30/30 clean, prod healthy.**
+
+### Hold state after round 2
+
+- Bus: **NATS** everywhere. Command bus config: **1 shard** (server cmdshard=1, single writer `noetl-cmdbus-writer-0` inert, writer-1 at 0 replicas, system pools on the shared consumer). Staged for a retry once #203 is fixed.
+- #166 state/event sharding intact and healthy.
+- ~6–9 orphaned synthetic `hello_world` execs stuck RUNNING (ehdb-loss casualties; harmless test data). Orphaned NATS consumers `noetl_worker_system_rust_shard0/shard1` hold ~40 stale msgs each (deletable).
+- **T5 (delete NATS) never approached.**
+
+### Round-1 blocker (kept for history)
 
 ## BLOCKER for canary + full flip — per-shard user-pool split (2-shard only)
 
