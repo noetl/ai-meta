@@ -88,6 +88,40 @@ User chose **Option 2**. Kind-validated first, then reconfigured prod to 1 comma
 - ~6–9 orphaned synthetic `hello_world` execs stuck RUNNING (ehdb-loss casualties; harmless test data). Orphaned NATS consumers `noetl_worker_system_rust_shard0/shard1` hold ~40 stale msgs each (deletable).
 - **T5 (delete NATS) never approached.**
 
+## Round 3 — 2026-07-27 — RETRY with the #203 fix — **FULL FLIP SUCCEEDED**
+
+Images carrying the #203 fix, copied ghcr→project-AR by crane, deployed by digest:
+- worker **v5.81.1** = `…/noetl-worker-rust@sha256:db156fa6e20ce006393f989f29936e5b23fb15cf476719d9439a2cd0844bcab3`
+- server **v3.58.1** = `…/server-rust@sha256:5a73f4a5477f9ed2f8cc3bc2a390a4bf30515c90f17ef3bc9884ae4832782f8f`
+
+(ghcr now denies anonymous pulls → crane auth'd with a GH token; images live in
+`us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/`.)
+
+| Stage | Result |
+| :-- | :-- |
+| Step 0 (fixed images, bus NATS) | ✅ 20/20 over NATS, 0 restarts |
+| Shadow | ✅ **0 divergence** (123 pub == 123 feed), 0 errors, writer flat (5m/4Mi) |
+| Canary (user pool → ehdb) | ✅ 30/30, 0 dup, **pool isolation 0 system claims**, redelivery on graceful pod-kill 12/12 0-loss |
+| **Full flip (all + server → ehdb)** | ✅ **30/30 + 50/50 soak = 80/80, 0 dup, 0 loss**; server NATS_pub=0; feed lag→0; pool isolation 0 system; writer 0 restarts |
+
+**The #203 fix holds** — the ~10% ingested-but-never-claimed loss that failed
+round 2's full flip is gone (80/80 at the exact same stage).
+
+**⚠ Latency caveat (flagged for the T5 decision):** the ehdb command-dispatch
+(issued→claimed) latency is **load-variable p50 285–557 ms** (p99 up to ~1040 ms,
+min ~145 ms) vs the ~200 ms NATS baseline — a ~1.5–2.8× elevation, sub-second,
+attributable to the ehdb poll-claim path + the fix's writer-assigned ordering-key
+append. Correctness is perfect; latency is the open question for go/no-go on T5.
+`out_of_order_appends` is not yet exposed on the writer :9102 (metric-wiring
+follow-up) so the shadow gate used end-to-end completion + 0-divergence instead.
+
+### Final state (HOLD for T5)
+- **Bus = EHDB end-to-end in prod** (server 3.58.1 + worker 5.81.1, single writer,
+  `NOETL_COMMAND_SHARD_COUNT=1`, #166 state sharding intact). NATS still installed.
+- **T5 (delete NATS) NOT done** — awaiting the human decision (couples to #188).
+- Rollback recipe still valid: `NOETL_COMMAND_BUS=nats` on server + both worker
+  pools + writer, `rollout restart`, unpause the user-pool scaler.
+
 ### Round-1 blocker (kept for history)
 
 ## BLOCKER for canary + full flip — per-shard user-pool split (2-shard only)
