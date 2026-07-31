@@ -1,0 +1,1 @@
+{"phase":"before","ts":"2026-07-31T13:44:09Z","nats":{"messages": 17301, "last_seq": 28103},"ehdb_groups":{"noetl_materializer": {"committed": 0, "lag": 0}, "noetl_result_materializer": {"committed": 0, "lag": 0}, "noetl_state_materializer": {"committed": 0, "lag": 0}, "_cursor_errors": 0},"server":{"nats": {}, "ehdb": {}, "errors": {}},"event_rows":null}
