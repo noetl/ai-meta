@@ -1,0 +1,36 @@
+================ round 1/6  03:34:55 UTC ================
+fired=40 accepted=40 errors=0
+  accepted=40 unique=40 dup=0 publish_errors=0
+  completed=40 not_completed=0 dup=0 publish_errors=0
+  out_of_order_appends=0 appends=358 resume_replay=140 replicas=20
+================ round 2/6  03:35:38 UTC ================
+fired=40 accepted=40 errors=0
+  accepted=40 unique=40 dup=0 publish_errors=0
+  completed=40 not_completed=0 dup=0 publish_errors=0
+  out_of_order_appends=0 appends=620 resume_replay=140 replicas=20
+================ round 3/6  03:36:22 UTC ================
+fired=40 accepted=40 errors=0
+  accepted=40 unique=40 dup=0 publish_errors=0
+  completed=40 not_completed=0 dup=0 publish_errors=0
+  out_of_order_appends=0 appends=885 resume_replay=140 replicas=20
+================ round 4/6  03:37:05 UTC ================
+fired=40 accepted=40 errors=0
+  accepted=40 unique=40 dup=0 publish_errors=0
+  completed=40 not_completed=0 dup=0 publish_errors=0
+  out_of_order_appends=0 appends=1145 resume_replay=140 replicas=20
+================ round 5/6  03:37:49 UTC ================
+fired=40 accepted=40 errors=0
+  accepted=40 unique=40 dup=0 publish_errors=0
+  completed=40 not_completed=0 dup=0 publish_errors=0
+  out_of_order_appends=0 appends=1444 resume_replay=140 replicas=11
+================ round 6/6  03:39:08 UTC ================
+fired=40 accepted=40 errors=0
+  accepted=40 unique=40 dup=0 publish_errors=0
+  completed=40 not_completed=0 dup=0 publish_errors=0
+  out_of_order_appends=0 appends=1720 resume_replay=140 replicas=11
+
+================ SOAK SUMMARY ================
+rounds=6 per_round=40
+fired=240 completed=240
+publish_errors=0 duplicate_ids=0
+max out_of_order_appends observed=0
