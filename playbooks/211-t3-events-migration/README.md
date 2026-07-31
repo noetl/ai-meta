@@ -1,6 +1,7 @@
 # T3 — migrate the `noetl.events.>` fan-out off NATS onto the EHDB feed bus
 
-Status: **design + survey complete; no code shipped yet.**
+Status: **design complete; publish-side code shipped and merged; nothing
+deployed to prod.** See "Implementation status" below for exactly what exists.
 Surveyed 2026-07-31 against `gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot`
 (ns `noetl`, ns `gateway`, ns `nats`).
 
@@ -243,6 +244,46 @@ highest-risk consumer is proven first while the fallback is still live.
 EHDB-only.**
 
 ---
+
+## 6a. Implementation status (2026-07-31)
+
+| Slice | State | Where |
+|---|---|---|
+| Named durable groups (`GroupCoordinator`) | **merged** | noetl/ehdb#306 → `25def72` |
+| Events writer host (own engine, ports 9103/9104/9106) | **merged** | noetl/worker#199 → `8aa2fab` |
+| `NOETL_EVENT_BUS` + dual-publish | **merged** | noetl/server#293 → `6894886` |
+| `noetl_events_projected_total` (the cutover's ground-truth gate) | **merged** | noetl/server#294 → `f4f821a` |
+| Writer IaC patch (ports, PVC, env — flag-neutral) | written, **not applied** | [`eventbus-writer-patch.yaml`](eventbus-writer-patch.yaml) |
+| Parity tooling | written, smoke-tested against prod | [`parity-check.sh`](parity-check.sh) |
+| **Materializer `ehdb` source (the consume half)** | **not built** | — |
+| **Gateway SSE client** | **not built** | — |
+| Release tags + images to AR | not done | — |
+| Prod shadow deploy | **not done** | — |
+
+Everything merged is **default-off**: `NOETL_EVENT_BUS` unset means `nats`,
+`NOETL_EVENT_BUS_HOST` unset means the host never spawns and binds no port.
+Prod is unchanged by any of it.
+
+The next slice on the critical path is the materializer `ehdb` source in
+`noetl/worker` — without it, `shadow` mirrors events onto a feed nothing reads,
+which is a valid STEP 1 posture but cannot progress to STEP 2.
+
+## 6b. What the build surfaced that the design did not predict
+
+- **`events/project` had no metric.** The sole writer of the durable event log
+  emitted only a log line, so "are rows still landing in `noetl.event`" had no
+  queryable answer — and that is precisely STEP 2c's gate.
+  `noetl_events_materialized_total` looks like it covers this but counts the
+  *other* sink (`events/materialize`), which this deployment does not use; it is
+  absent from prod's `/metrics` entirely because it has never been incremented.
+  Fixed in noetl/server#294; the gate was unmeasurable before it.
+- **`ehdb-feed` already had fan-out.** `serve` / `serve_sse` hold a
+  per-subscriber cursor, and `sse.rs` was written for this exact T3 use. The
+  design question "does EHDB support broadcast?" resolved to yes; the real gap
+  was N independently-cursored *groups*, which is narrower and was the only new
+  primitive needed.
+- **Two subject shapes coexist on `noetl.events.>`** (§1a) — harmless today only
+  because the gateway falls back to `payload.execution_id`.
 
 ## 7. Parity measurement
 

@@ -1,0 +1,108 @@
+# EHDB **events feed** — additive patch to the existing command-bus writer
+# (noetl/ai-meta#212 L1 T3, shastaratech prod).
+#
+# The events feed is hosted in the SAME pod as the command-bus writer, on its own
+# L0 engine, its own PVC, and its own ports.  Separate engine is the load-bearing
+# part: noetl/ai-meta#205 established that the binding constraint on this design
+# is fsync inside the engine lock, and events run roughly an order of magnitude
+# hotter than commands (~17k/day vs ~2.2k), so a shared engine would put event
+# volume directly in front of command dispatch latency.
+#
+# Co-locating the *process* is a deliberate, smaller trade: at ~0.2 events/s the
+# CPU/memory cost is negligible against the pod's 2 CPU / 4Gi limits, and one
+# fewer singleton PVC-bound deployment is one fewer thing to operate.  If event
+# volume grows enough that the two workloads contend for CPU, split this into its
+# own Deployment — nothing in the code assumes co-location, only the addresses do.
+#
+# FLAG-NEUTRAL as applied: NOETL_EVENT_BUS_HOST=false means spawn_event_writer_host
+# is never called and no port is bound.  Enabling is `kubectl set env`, never a
+# re-apply.
+#
+# Apply with:
+#   kubectl --context $KCTX -n noetl patch deployment noetl-cmdbus-writer-0 \
+#     --patch-file playbooks/211-t3-events-migration/eventbus-writer-patch.yaml
+#
+# The PVC below must be applied FIRST (it is a separate object, not part of the
+# deployment patch):
+#   kubectl --context $KCTX -n noetl apply -f - <<'EOF'   # the PVC block only
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: noetl-eventbus-writer-0-data
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer-0, component: eventbus-writer, shard: "0", managed-by: noetl }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: premium-rwo   # same posture-A rationale as the command log
+  # Larger than the command log's 20Gi: this carries every noetl.event payload,
+  # not a small notification.  Sized for the observed ~14 MiB/day of stream bytes
+  # with generous headroom for a retention window and a backlog.
+  resources:
+    requests:
+      storage: 50Gi
+---
+# ---- the Deployment patch (strategic merge) ----
+spec:
+  template:
+    metadata:
+      annotations:
+        # The command-bus lag endpoint stays the scraped one; the events feed is
+        # scraped as a second target via the PodMonitoring in this directory.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9102"
+    spec:
+      containers:
+        - name: noetl-worker
+          ports:
+            - { name: cmdbus-ingest,  containerPort: 9100 }
+            - { name: cmdbus-claim,   containerPort: 9101 }
+            - { name: cmdbus-lag,     containerPort: 9102 }
+            - { name: metrics,        containerPort: 9090 }
+            - { name: events-ingest,  containerPort: 9103 }
+            - { name: events-claim,   containerPort: 9104 }
+            - { name: events-lag,     containerPort: 9106 }
+          env:
+            # ---- events feed (inert until NOETL_EVENT_BUS_HOST is flipped) ----
+            - { name: NOETL_EVENT_BUS_HOST, value: "false" }
+            - { name: NOETL_EVENT_BUS_SHARD, value: "0" }
+            - { name: NOETL_EVENT_SHARD_COUNT, value: "1" }
+            - { name: NOETL_EVENT_BUS_WRITER_DIR, value: /data/eventbus }
+            - { name: NOETL_EVENT_BUS_INGEST_BIND, value: "0.0.0.0:9103" }
+            - { name: NOETL_EVENT_BUS_CLAIM_BIND, value: "0.0.0.0:9104" }
+            - { name: NOETL_EVENT_BUS_METRICS_BIND, value: "0.0.0.0:9106" }
+            - { name: NOETL_EVENT_BUS_ACK_WAIT_SECS, value: "30" }
+            # `tail` — a group with no persisted cursor starts at the shard tip.
+            # For the events feed this is the safe default: a wiped volume has no
+            # log to replay, and replaying a retained log into the materializers
+            # re-projects events that are already durable in noetl.event.
+            - { name: NOETL_EVENT_BUS_CURSOR_FALLBACK, value: "tail" }
+          volumeMounts:
+            - { name: cmdbus-data,   mountPath: /data/cmdbus }
+            - { name: eventbus-data, mountPath: /data/eventbus }
+      volumes:
+        - name: cmdbus-data
+          persistentVolumeClaim: { claimName: noetl-cmdbus-writer-0-data }
+        - name: eventbus-data
+          persistentVolumeClaim: { claimName: noetl-eventbus-writer-0-data }
+---
+# The events-feed ports on the writer's Service, so the server and the
+# materializers can address them by DNS name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: noetl-cmdbus-writer-0
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer-0, component: cmdbus-writer, shard: "0", command-bus: ehdb, managed-by: noetl }
+spec:
+  type: ClusterIP
+  selector: { app: noetl-cmdbus-writer-0 }
+  ports:
+    - { name: cmdbus-ingest, port: 9100, targetPort: cmdbus-ingest }
+    - { name: cmdbus-claim,  port: 9101, targetPort: cmdbus-claim }
+    - { name: cmdbus-lag,    port: 9102, targetPort: cmdbus-lag }
+    - { name: metrics,       port: 9090, targetPort: metrics }
+    - { name: events-ingest, port: 9103, targetPort: events-ingest }
+    - { name: events-claim,  port: 9104, targetPort: events-claim }
+    - { name: events-lag,    port: 9106, targetPort: events-lag }
