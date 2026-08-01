@@ -1,0 +1,37 @@
+{
+  "stream_name": "noetl_events",
+  "name": "noetl_projector",
+  "config": {
+    "ack_policy": "explicit",
+    "ack_wait": 30000000000,
+    "deliver_policy": "all",
+    "durable_name": "noetl_projector",
+    "name": "noetl_projector",
+    "filter_subject": "noetl.events.\u003e",
+    "max_ack_pending": 1000,
+    "max_deliver": -1,
+    "max_waiting": 512,
+    "replay_policy": "instant",
+    "num_replicas": 0,
+    "metadata": {
+      "_nats.level": "4",
+      "_nats.req.level": "0",
+      "_nats.ver": "2.14.0"
+    },
+    "pause_until": "0001-01-01T00:00:00Z"
+  },
+  "created": "2026-07-26T17:48:55.252945771Z",
+  "delivered": {
+    "consumer_seq": 0,
+    "stream_seq": 0
+  },
+  "ack_floor": {
+    "consumer_seq": 0,
+    "stream_seq": 0
+  },
+  "num_ack_pending": 0,
+  "num_redelivered": 0,
+  "num_waiting": 0,
+  "num_pending": 16201,
+  "ts": "2026-08-01T01:16:34.5122898Z"
+}

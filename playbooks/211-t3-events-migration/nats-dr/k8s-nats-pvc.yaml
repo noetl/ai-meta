@@ -1,0 +1,40 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-4524c1fd-l8h8
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-26T17:36:02Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app.kubernetes.io/component: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/name: nats
+    name: nats-js-nats-0
+    namespace: nats
+    resourceVersion: "1785087373749487010"
+    uid: 4aea45a8-cb61-43fe-90c6-bf6e0bddec5d
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+    storageClassName: standard-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-4aea45a8-cb61-43fe-90c6-bf6e0bddec5d
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 5Gi
+    phase: Bound
+kind: List
+metadata:
+  resourceVersion: ""

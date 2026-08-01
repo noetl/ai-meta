@@ -1,0 +1,48 @@
+{
+  "config": {
+    "name": "NOETL_COMMANDS_RUST",
+    "subjects": [
+      "noetl.commands",
+      "noetl.commands.\u003e"
+    ],
+    "retention": "limits",
+    "max_consumers": -1,
+    "max_msgs_per_subject": -1,
+    "max_msgs": -1,
+    "max_bytes": -1,
+    "max_age": 0,
+    "max_msg_size": -1,
+    "storage": "file",
+    "discard": "old",
+    "num_replicas": 1,
+    "duplicate_window": 120000000000,
+    "sealed": false,
+    "deny_delete": false,
+    "deny_purge": false,
+    "allow_rollup_hdrs": false,
+    "allow_direct": false,
+    "mirror_direct": false,
+    "metadata": {
+      "_nats.level": "4",
+      "_nats.req.level": "0",
+      "_nats.ver": "2.14.0"
+    },
+    "consumer_limits": {}
+  },
+  "created": "2026-07-26T17:37:10.720313836Z",
+  "state": {
+    "messages": 2283,
+    "bytes": 721760,
+    "first_seq": 1,
+    "first_ts": "2026-07-26T17:48:55.29346838Z",
+    "last_seq": 2283,
+    "last_ts": "2026-07-28T03:24:03.475646337Z",
+    "num_subjects": 594,
+    "consumer_count": 6
+  },
+  "cluster": {
+    "leader": "nats-0"
+  },
+  "ts": "2026-08-01T01:16:31.777045741Z"
+}
+

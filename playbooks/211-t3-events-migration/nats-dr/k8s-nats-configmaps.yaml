@@ -1,0 +1,86 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  data:
+    ca.crt: |
+      -----BEGIN CERTIFICATE-----
+      MIIELTCCApWgAwIBAgIRANGaS7n9qmS63P7Z14z6ADwwDQYJKoZIhvcNAQELBQAw
+      LzEtMCsGA1UEAxMkZTFjNzlkNDAtNDM5Mi00ZDY1LWJiZDUtYTlkMmM1ZDliMzA5
+      MCAXDTI2MDcyNTA0MjU0M1oYDzIwNTYwNzE3MDUyNTQzWjAvMS0wKwYDVQQDEyRl
+      MWM3OWQ0MC00MzkyLTRkNjUtYmJkNS1hOWQyYzVkOWIzMDkwggGiMA0GCSqGSIb3
+      DQEBAQUAA4IBjwAwggGKAoIBgQCtG9+fgtL/RTJtGMc9WzYEQP+DZCLGT34bfbV4
+      H48FZwqlAEwBnheuqV2y9Vl1vUaWAyOmZABz+fdNzBagS8xkheUWK2HmCeBvYMG1
+      eVGuFv6AFor4bmE0cT+nNejx5lQBoD6QzdxfTk4wR48+UTGJLvUX6Tkduvqe9Rdu
+      Yq5To29c+d5DNogyC3AkHDufqFM0bcs2xbRVMQMV/AZjN5K9szm/wG7jAa+bRIcO
+      FV3MLIPpCOlBsylsKvGnqZpIeI13ZOimNW3HpIiV/8VcZM1KhknEss4ATyaf2WRA
+      BK5CpBr7Nh6ZChlTPqlWtZrNwqm8dv+kpVdhyM+cveYeCl63cDqrjp32CS62Nfpx
+      3l85LW2CV7RImbdmzwXncC5yWmglN/lNg7601waP3QE+IDW6obzv2nKT/5jANe08
+      x+LALEptLRx+QoeDfQw7Hrcj+xxX1dJohjwj6qXJNC1rkSfb/o2AZYJspRq8VdVS
+      E00alheRni8UYzH02+t20XXUXrMCAwEAAaNCMEAwDgYDVR0PAQH/BAQDAgIEMA8G
+      A1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFK9bvfERMPni1aKW6e2ujS6E2sNXMA0G
+      CSqGSIb3DQEBCwUAA4IBgQAUi/0ZSmeDi3bJEXmNQg3NofL2YcEK+Rl+JEBEC7WM
+      uoNObkU/ExvgFdoB033EGPUu3HLoou2nHY7ZGJI8DmdQpN3EsI/ndz8rTRyaCRto
+      juVkiakh1c+DneveoYoYwMVeeRFoWMf461XNexpiUNEEDWVm9/0r4zifZsjNE+FD
+      kNETsRXtGspTzGohG6CJ0UT+wAeDLvpshS8tN2WfqbJNAfLUTOTb8mtBJ7oMNH/r
+      mm0wjStn3VFSdYe4rt7RumiI5qwm5cJRN2lCMwoeScQLYMePYL56aHDdhZagTlnY
+      0lEnWzsMD65E1xPz1YE/KhIe+sazQVG6Q4klIOvyVZOCt6kro7m2rHr1lzws7HPa
+      PW194yJw0Ll7mI5wmw5f7C2KbTaaxq27FLHLmR3B8WpLvF6k6hsEq6TbZkCHgPOt
+      qK38MCr5SdA4UOn6ZwNN3XXH+MuTMK+6+WDMe0/jNzgOlyJDP+KbMbu8lsKNqV4j
+      wdmvseonxZ6KpVnerSpNYzU=
+      -----END CERTIFICATE-----
+  kind: ConfigMap
+  metadata:
+    annotations:
+      kubernetes.io/description: Contains a CA bundle that can be used to verify the
+        kube-apiserver when using internal endpoints such as the internal service
+        IP or kubernetes.default.svc. No other usage is guaranteed across distributions
+        of Kubernetes clusters.
+    creationTimestamp: "2026-07-25T13:03:45Z"
+    name: kube-root-ca.crt
+    namespace: nats
+    resourceVersion: "1784984625825295001"
+    uid: 42aaa6e8-971e-4b22-8b3a-80842f6da9dc
+- apiVersion: v1
+  data:
+    nats.conf: |
+      {
+        "authorization": {
+          "users": [
+            {
+              "password": "noetl",
+              "user": "noetl"
+            }
+          ]
+        },
+        "http_port": 8222,
+        "jetstream": {
+          "max_file_store": 5Gi,
+          "max_memory_store": 1Gi,
+          "store_dir": "/data"
+        },
+        "lame_duck_duration": "30s",
+        "lame_duck_grace_period": "10s",
+        "pid_file": "/var/run/nats/nats.pid",
+        "port": 4222,
+        "server_name": $SERVER_NAME
+      }
+  kind: ConfigMap
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","data":{"nats.conf":"{\n  \"authorization\": {\n    \"users\": [\n      {\n        \"password\": \"noetl\",\n        \"user\": \"noetl\"\n      }\n    ]\n  },\n  \"http_port\": 8222,\n  \"jetstream\": {\n    \"max_file_store\": 5Gi,\n    \"max_memory_store\": 1Gi,\n    \"store_dir\": \"/data\"\n  },\n  \"lame_duck_duration\": \"30s\",\n  \"lame_duck_grace_period\": \"10s\",\n  \"pid_file\": \"/var/run/nats/nats.pid\",\n  \"port\": 4222,\n  \"server_name\": $SERVER_NAME\n}\n"},"kind":"ConfigMap","metadata":{"annotations":{},"labels":{"app.kubernetes.io/component":"nats","app.kubernetes.io/instance":"nats","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"nats","app.kubernetes.io/version":"2.14.0","helm.sh/chart":"nats-2.14.0"},"name":"nats-config","namespace":"nats"}}
+    creationTimestamp: "2026-07-26T17:36:03Z"
+    labels:
+      app.kubernetes.io/component: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/managed-by: Helm
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/version: 2.14.0
+      helm.sh/chart: nats-2.14.0
+    name: nats-config
+    namespace: nats
+    resourceVersion: "1785087363125535000"
+    uid: 1719a11f-96ff-44b2-aa68-b0561bfcfe8f
+kind: List
+metadata:
+  resourceVersion: ""

@@ -1,0 +1,2291 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2026-07-26T17:37:39Z"
+    generateName: nats-cluster-a-
+    generation: 1
+    labels:
+      app: nats-cluster-a
+      apps.kubernetes.io/pod-index: "0"
+      cluster-id: a
+      component: nats
+      controller-revision-hash: nats-cluster-a-665c757895
+      managed-by: noetl
+      region: us-east-1
+      statefulset.kubernetes.io/pod-name: nats-cluster-a-0
+      topology.kubernetes.io/region: us-central1
+      topology.kubernetes.io/zone: us-central1-a
+    name: nats-cluster-a-0
+    namespace: nats-supercluster
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: StatefulSet
+      name: nats-cluster-a
+      uid: 4e52e726-9690-46bc-80ff-6f0d0e92272e
+    resourceVersion: "1785087522155823009"
+    uid: b25b0079-fcdd-4930-bcc3-3c6f15c1283f
+  spec:
+    containers:
+    - args:
+      - -c
+      - /etc/nats/nats.conf
+      - --name
+      - $(POD_NAME)
+      env:
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      image: nats:latest
+      imagePullPolicy: Always
+      livenessProbe:
+        failureThreshold: 5
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      name: nats
+      ports:
+      - containerPort: 4222
+        name: client
+        protocol: TCP
+      - containerPort: 8222
+        name: monitoring
+        protocol: TCP
+      - containerPort: 6222
+        name: cluster
+        protocol: TCP
+      - containerPort: 7222
+        name: gateway
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /healthz?js-enabled-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      securityContext:
+        capabilities:
+          drop:
+          - NET_RAW
+      startupProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-pv9gz
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    hostname: nats-cluster-a-0
+    nodeName: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: gke.io/optimize-utilization-scheduler
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    serviceAccount: default
+    serviceAccountName: default
+    subdomain: nats-cluster-a
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoSchedule
+      key: kubernetes.io/arch
+      operator: Equal
+      value: amd64
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: nats-storage
+      persistentVolumeClaim:
+        claimName: nats-storage-nats-cluster-a-0
+    - configMap:
+        defaultMode: 420
+        name: nats-cluster-a-config
+      name: nats-config
+    - name: kube-api-access-pv9gz
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:37:55Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:37:46Z"
+      observedGeneration: 1
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:04Z"
+      observedGeneration: 1
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:04Z"
+      observedGeneration: 1
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:37:46Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodScheduled
+    - lastProbeTime: null
+      lastTransitionTime: null
+      message: Image docker.io/library/nats:latest is backed by image streaming by
+        100.0% (2/2 layers).
+      status: "True"
+      type: ImageStreaming
+    containerStatuses:
+    - allocatedResources:
+        cpu: 250m
+        ephemeral-storage: 1Gi
+        memory: 512Mi
+      containerID: containerd://b7609eb10fbc779807236c2e95125935d774a2ddc7d4cc648a9c689808e2ffb4
+      image: docker.io/library/nats:latest
+      imageID: docker.io/library/nats@sha256:67ac7866d010e8d83302dd30332eeae1a2b7a8ee051155e2eb5a5485b720cd4b
+      lastState: {}
+      name: nats
+      ready: true
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-07-26T17:37:54Z"
+      user:
+        linux:
+          gid: 0
+          supplementalGroups:
+          - 0
+          uid: 0
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-pv9gz
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 10.128.0.4
+    hostIPs:
+    - ip: 10.128.0.4
+    observedGeneration: 1
+    phase: Running
+    podIP: 10.119.0.33
+    podIPs:
+    - ip: 10.119.0.33
+    qosClass: Burstable
+    startTime: "2026-07-26T17:37:46Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2026-07-26T17:38:04Z"
+    generateName: nats-cluster-a-
+    generation: 1
+    labels:
+      app: nats-cluster-a
+      apps.kubernetes.io/pod-index: "1"
+      cluster-id: a
+      component: nats
+      controller-revision-hash: nats-cluster-a-665c757895
+      managed-by: noetl
+      region: us-east-1
+      statefulset.kubernetes.io/pod-name: nats-cluster-a-1
+      topology.kubernetes.io/region: us-central1
+      topology.kubernetes.io/zone: us-central1-f
+    name: nats-cluster-a-1
+    namespace: nats-supercluster
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: StatefulSet
+      name: nats-cluster-a
+      uid: 4e52e726-9690-46bc-80ff-6f0d0e92272e
+    resourceVersion: "1785087520944447011"
+    uid: 8d9a8a84-4c06-4085-8795-34e81d534df5
+  spec:
+    containers:
+    - args:
+      - -c
+      - /etc/nats/nats.conf
+      - --name
+      - $(POD_NAME)
+      env:
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      image: nats:latest
+      imagePullPolicy: Always
+      livenessProbe:
+        failureThreshold: 5
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      name: nats
+      ports:
+      - containerPort: 4222
+        name: client
+        protocol: TCP
+      - containerPort: 8222
+        name: monitoring
+        protocol: TCP
+      - containerPort: 6222
+        name: cluster
+        protocol: TCP
+      - containerPort: 7222
+        name: gateway
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /healthz?js-enabled-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      securityContext:
+        capabilities:
+          drop:
+          - NET_RAW
+      startupProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-f2grs
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    hostname: nats-cluster-a-1
+    nodeName: gk3-noetl-prod-autopilot-pool-3-4524c1fd-l8h8
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: gke.io/optimize-utilization-scheduler
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    serviceAccount: default
+    serviceAccountName: default
+    subdomain: nats-cluster-a
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoSchedule
+      key: kubernetes.io/arch
+      operator: Equal
+      value: amd64
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: nats-storage
+      persistentVolumeClaim:
+        claimName: nats-storage-nats-cluster-a-1
+    - configMap:
+        defaultMode: 420
+        name: nats-cluster-a-config
+      name: nats-config
+    - name: kube-api-access-f2grs
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:21Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:14Z"
+      observedGeneration: 1
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:35Z"
+      observedGeneration: 1
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:35Z"
+      observedGeneration: 1
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:14Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodScheduled
+    - lastProbeTime: null
+      lastTransitionTime: null
+      message: Image docker.io/library/nats:latest is backed by image streaming by
+        100.0% (2/2 layers).
+      status: "True"
+      type: ImageStreaming
+    containerStatuses:
+    - allocatedResources:
+        cpu: 250m
+        ephemeral-storage: 1Gi
+        memory: 512Mi
+      containerID: containerd://ee0a7124d36fa077e5acc31eb30b78fc3002207811b64b26f95590ca79313aa2
+      image: docker.io/library/nats:latest
+      imageID: docker.io/library/nats@sha256:67ac7866d010e8d83302dd30332eeae1a2b7a8ee051155e2eb5a5485b720cd4b
+      lastState: {}
+      name: nats
+      ready: true
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-07-26T17:38:21Z"
+      user:
+        linux:
+          gid: 0
+          supplementalGroups:
+          - 0
+          uid: 0
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-f2grs
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 10.128.0.36
+    hostIPs:
+    - ip: 10.128.0.36
+    observedGeneration: 1
+    phase: Running
+    podIP: 10.119.3.14
+    podIPs:
+    - ip: 10.119.3.14
+    qosClass: Burstable
+    startTime: "2026-07-26T17:38:14Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2026-07-26T17:38:35Z"
+    generateName: nats-cluster-a-
+    generation: 1
+    labels:
+      app: nats-cluster-a
+      apps.kubernetes.io/pod-index: "2"
+      cluster-id: a
+      component: nats
+      controller-revision-hash: nats-cluster-a-665c757895
+      managed-by: noetl
+      region: us-east-1
+      statefulset.kubernetes.io/pod-name: nats-cluster-a-2
+      topology.kubernetes.io/region: us-central1
+      topology.kubernetes.io/zone: us-central1-f
+    name: nats-cluster-a-2
+    namespace: nats-supercluster
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: StatefulSet
+      name: nats-cluster-a
+      uid: 4e52e726-9690-46bc-80ff-6f0d0e92272e
+    resourceVersion: "1785087541969599022"
+    uid: 1dc7065c-fa95-47cc-9c8d-12d6607464a2
+  spec:
+    containers:
+    - args:
+      - -c
+      - /etc/nats/nats.conf
+      - --name
+      - $(POD_NAME)
+      env:
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      image: nats:latest
+      imagePullPolicy: Always
+      livenessProbe:
+        failureThreshold: 5
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      name: nats
+      ports:
+      - containerPort: 4222
+        name: client
+        protocol: TCP
+      - containerPort: 8222
+        name: monitoring
+        protocol: TCP
+      - containerPort: 6222
+        name: cluster
+        protocol: TCP
+      - containerPort: 7222
+        name: gateway
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /healthz?js-enabled-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      securityContext:
+        capabilities:
+          drop:
+          - NET_RAW
+      startupProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-gbftc
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    hostname: nats-cluster-a-2
+    nodeName: gk3-noetl-prod-autopilot-pool-3-4524c1fd-l8h8
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: gke.io/optimize-utilization-scheduler
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    serviceAccount: default
+    serviceAccountName: default
+    subdomain: nats-cluster-a
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoSchedule
+      key: kubernetes.io/arch
+      operator: Equal
+      value: amd64
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: nats-storage
+      persistentVolumeClaim:
+        claimName: nats-storage-nats-cluster-a-2
+    - configMap:
+        defaultMode: 420
+        name: nats-cluster-a-config
+      name: nats-config
+    - name: kube-api-access-gbftc
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:51Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:43Z"
+      observedGeneration: 1
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:39:01Z"
+      observedGeneration: 1
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:39:01Z"
+      observedGeneration: 1
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:43Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - allocatedResources:
+        cpu: 250m
+        ephemeral-storage: 1Gi
+        memory: 512Mi
+      containerID: containerd://9e74835e42f8b48672cff2b12bdb45f506d219751e7defb7633ec960603c784a
+      image: docker.io/library/nats:latest
+      imageID: docker.io/library/nats@sha256:67ac7866d010e8d83302dd30332eeae1a2b7a8ee051155e2eb5a5485b720cd4b
+      lastState: {}
+      name: nats
+      ready: true
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-07-26T17:38:51Z"
+      user:
+        linux:
+          gid: 0
+          supplementalGroups:
+          - 0
+          uid: 0
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-gbftc
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 10.128.0.36
+    hostIPs:
+    - ip: 10.128.0.36
+    observedGeneration: 1
+    phase: Running
+    podIP: 10.119.3.15
+    podIPs:
+    - ip: 10.119.3.15
+    qosClass: Burstable
+    startTime: "2026-07-26T17:38:43Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2026-07-26T17:37:40Z"
+    generateName: nats-cluster-b-
+    generation: 1
+    labels:
+      app: nats-cluster-b
+      apps.kubernetes.io/pod-index: "0"
+      cluster-id: b
+      component: nats
+      controller-revision-hash: nats-cluster-b-56c9c4bcf9
+      managed-by: noetl
+      region: us-west-2
+      statefulset.kubernetes.io/pod-name: nats-cluster-b-0
+      topology.kubernetes.io/region: us-central1
+      topology.kubernetes.io/zone: us-central1-f
+    name: nats-cluster-b-0
+    namespace: nats-supercluster
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: StatefulSet
+      name: nats-cluster-b
+      uid: d1995266-c3cb-4c2c-a4ec-1ae31a7a5e23
+    resourceVersion: "1785087487623055023"
+    uid: 5f53ef8a-08d2-4ace-9049-fc6b34a13c95
+  spec:
+    containers:
+    - args:
+      - -c
+      - /etc/nats/nats.conf
+      - --name
+      - $(POD_NAME)
+      env:
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      image: nats:latest
+      imagePullPolicy: Always
+      livenessProbe:
+        failureThreshold: 5
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      name: nats
+      ports:
+      - containerPort: 4222
+        name: client
+        protocol: TCP
+      - containerPort: 8222
+        name: monitoring
+        protocol: TCP
+      - containerPort: 6222
+        name: cluster
+        protocol: TCP
+      - containerPort: 7222
+        name: gateway
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /healthz?js-enabled-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      securityContext:
+        capabilities:
+          drop:
+          - NET_RAW
+      startupProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-ms8dx
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    hostname: nats-cluster-b-0
+    nodeName: gk3-noetl-prod-autopilot-pool-3-4524c1fd-l8h8
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: gke.io/optimize-utilization-scheduler
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    serviceAccount: default
+    serviceAccountName: default
+    subdomain: nats-cluster-b
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoSchedule
+      key: kubernetes.io/arch
+      operator: Equal
+      value: amd64
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: nats-storage
+      persistentVolumeClaim:
+        claimName: nats-storage-nats-cluster-b-0
+    - configMap:
+        defaultMode: 420
+        name: nats-cluster-b-config
+      name: nats-config
+    - name: kube-api-access-ms8dx
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: null
+      message: Image docker.io/library/nats:latest is backed by image streaming by
+        100.0% (2/2 layers).
+      status: "True"
+      type: ImageStreaming
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:37:53Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:37:46Z"
+      observedGeneration: 1
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:07Z"
+      observedGeneration: 1
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:07Z"
+      observedGeneration: 1
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:37:46Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - allocatedResources:
+        cpu: 250m
+        ephemeral-storage: 1Gi
+        memory: 512Mi
+      containerID: containerd://8494f2a162034370b11e29ab89ab180026b852e3c0af45ce1dc2ae4c29fb708f
+      image: docker.io/library/nats:latest
+      imageID: docker.io/library/nats@sha256:67ac7866d010e8d83302dd30332eeae1a2b7a8ee051155e2eb5a5485b720cd4b
+      lastState: {}
+      name: nats
+      ready: true
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-07-26T17:37:53Z"
+      user:
+        linux:
+          gid: 0
+          supplementalGroups:
+          - 0
+          uid: 0
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-ms8dx
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 10.128.0.36
+    hostIPs:
+    - ip: 10.128.0.36
+    observedGeneration: 1
+    phase: Running
+    podIP: 10.119.3.13
+    podIPs:
+    - ip: 10.119.3.13
+    qosClass: Burstable
+    startTime: "2026-07-26T17:37:46Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2026-07-26T17:38:07Z"
+    generateName: nats-cluster-b-
+    generation: 1
+    labels:
+      app: nats-cluster-b
+      apps.kubernetes.io/pod-index: "1"
+      cluster-id: b
+      component: nats
+      controller-revision-hash: nats-cluster-b-56c9c4bcf9
+      managed-by: noetl
+      region: us-west-2
+      statefulset.kubernetes.io/pod-name: nats-cluster-b-1
+      topology.kubernetes.io/region: us-central1
+      topology.kubernetes.io/zone: us-central1-a
+    name: nats-cluster-b-1
+    namespace: nats-supercluster
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: StatefulSet
+      name: nats-cluster-b
+      uid: d1995266-c3cb-4c2c-a4ec-1ae31a7a5e23
+    resourceVersion: "1785087522203887007"
+    uid: b46ce8b0-dc15-4166-b3b7-8145457ba784
+  spec:
+    containers:
+    - args:
+      - -c
+      - /etc/nats/nats.conf
+      - --name
+      - $(POD_NAME)
+      env:
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      image: nats:latest
+      imagePullPolicy: Always
+      livenessProbe:
+        failureThreshold: 5
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      name: nats
+      ports:
+      - containerPort: 4222
+        name: client
+        protocol: TCP
+      - containerPort: 8222
+        name: monitoring
+        protocol: TCP
+      - containerPort: 6222
+        name: cluster
+        protocol: TCP
+      - containerPort: 7222
+        name: gateway
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /healthz?js-enabled-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      securityContext:
+        capabilities:
+          drop:
+          - NET_RAW
+      startupProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-wp5fm
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    hostname: nats-cluster-b-1
+    nodeName: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: gke.io/optimize-utilization-scheduler
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    serviceAccount: default
+    serviceAccountName: default
+    subdomain: nats-cluster-b
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoSchedule
+      key: kubernetes.io/arch
+      operator: Equal
+      value: amd64
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: nats-storage
+      persistentVolumeClaim:
+        claimName: nats-storage-nats-cluster-b-1
+    - configMap:
+        defaultMode: 420
+        name: nats-cluster-b-config
+      name: nats-config
+    - name: kube-api-access-wp5fm
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:23Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:11Z"
+      observedGeneration: 1
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:37Z"
+      observedGeneration: 1
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:37Z"
+      observedGeneration: 1
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:11Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodScheduled
+    - lastProbeTime: null
+      lastTransitionTime: null
+      message: Image docker.io/library/nats:latest is backed by image streaming by
+        100.0% (2/2 layers).
+      status: "True"
+      type: ImageStreaming
+    containerStatuses:
+    - allocatedResources:
+        cpu: 250m
+        ephemeral-storage: 1Gi
+        memory: 512Mi
+      containerID: containerd://0250c1ad2fd049f0223dc5ac8bb11f89508d66f96078edef15908a749d4ef2c1
+      image: docker.io/library/nats:latest
+      imageID: docker.io/library/nats@sha256:67ac7866d010e8d83302dd30332eeae1a2b7a8ee051155e2eb5a5485b720cd4b
+      lastState: {}
+      name: nats
+      ready: true
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-07-26T17:38:23Z"
+      user:
+        linux:
+          gid: 0
+          supplementalGroups:
+          - 0
+          uid: 0
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-wp5fm
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 10.128.0.4
+    hostIPs:
+    - ip: 10.128.0.4
+    observedGeneration: 1
+    phase: Running
+    podIP: 10.119.0.34
+    podIPs:
+    - ip: 10.119.0.34
+    qosClass: Burstable
+    startTime: "2026-07-26T17:38:11Z"
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    creationTimestamp: "2026-07-26T17:38:37Z"
+    generateName: nats-cluster-b-
+    generation: 1
+    labels:
+      app: nats-cluster-b
+      apps.kubernetes.io/pod-index: "2"
+      cluster-id: b
+      component: nats
+      controller-revision-hash: nats-cluster-b-56c9c4bcf9
+      managed-by: noetl
+      region: us-west-2
+      statefulset.kubernetes.io/pod-name: nats-cluster-b-2
+      topology.kubernetes.io/region: us-central1
+      topology.kubernetes.io/zone: us-central1-a
+    name: nats-cluster-b-2
+    namespace: nats-supercluster
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: StatefulSet
+      name: nats-cluster-b
+      uid: d1995266-c3cb-4c2c-a4ec-1ae31a7a5e23
+    resourceVersion: "1785087543827487016"
+    uid: 15832f5d-8bec-42a2-82a5-c2d446e2a1b8
+  spec:
+    containers:
+    - args:
+      - -c
+      - /etc/nats/nats.conf
+      - --name
+      - $(POD_NAME)
+      env:
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      image: nats:latest
+      imagePullPolicy: Always
+      livenessProbe:
+        failureThreshold: 5
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        successThreshold: 1
+        timeoutSeconds: 1
+      name: nats
+      ports:
+      - containerPort: 4222
+        name: client
+        protocol: TCP
+      - containerPort: 8222
+        name: monitoring
+        protocol: TCP
+      - containerPort: 6222
+        name: cluster
+        protocol: TCP
+      - containerPort: 7222
+        name: gateway
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /healthz?js-enabled-only=true
+          port: 8222
+          scheme: HTTP
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      securityContext:
+        capabilities:
+          drop:
+          - NET_RAW
+      startupProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /healthz?js-server-only=true
+          port: 8222
+          scheme: HTTP
+        periodSeconds: 5
+        successThreshold: 1
+        timeoutSeconds: 1
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-6vvbf
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    hostname: nats-cluster-b-2
+    nodeName: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Always
+    schedulerName: gke.io/optimize-utilization-scheduler
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    serviceAccount: default
+    serviceAccountName: default
+    subdomain: nats-cluster-b
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoSchedule
+      key: kubernetes.io/arch
+      operator: Equal
+      value: amd64
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: nats-storage
+      persistentVolumeClaim:
+        claimName: nats-storage-nats-cluster-b-2
+    - configMap:
+        defaultMode: 420
+        name: nats-cluster-b-config
+      name: nats-config
+    - name: kube-api-access-6vvbf
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:54Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:42Z"
+      observedGeneration: 1
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:39:03Z"
+      observedGeneration: 1
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:39:03Z"
+      observedGeneration: 1
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-07-26T17:38:42Z"
+      observedGeneration: 1
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - allocatedResources:
+        cpu: 250m
+        ephemeral-storage: 1Gi
+        memory: 512Mi
+      containerID: containerd://93ab86f4936aab619e07dcda8517e747600fc9c2bcee5794781a1cb670603805
+      image: docker.io/library/nats:latest
+      imageID: docker.io/library/nats@sha256:67ac7866d010e8d83302dd30332eeae1a2b7a8ee051155e2eb5a5485b720cd4b
+      lastState: {}
+      name: nats
+      ready: true
+      resources:
+        limits:
+          cpu: "1"
+          ephemeral-storage: 1Gi
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          ephemeral-storage: 1Gi
+          memory: 512Mi
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-07-26T17:38:53Z"
+      user:
+        linux:
+          gid: 0
+          supplementalGroups:
+          - 0
+          uid: 0
+      volumeMounts:
+      - mountPath: /etc/nats
+        name: nats-config
+      - mountPath: /data
+        name: nats-storage
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-6vvbf
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 10.128.0.4
+    hostIPs:
+    - ip: 10.128.0.4
+    observedGeneration: 1
+    phase: Running
+    podIP: 10.119.0.35
+    podIPs:
+    - ip: 10.119.0.35
+    qosClass: Burstable
+    startTime: "2026-07-26T17:38:42Z"
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      cloud.google.com/neg: '{"ingress":true}'
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"cloud.google.com/neg":"{\"ingress\":true}"},"labels":{"app":"nats-cluster-a","cluster-id":"a","component":"nats","managed-by":"noetl","region":"us-east-1"},"name":"nats-cluster-a","namespace":"nats-supercluster"},"spec":{"clusterIP":"None","internalTrafficPolicy":"Cluster","ports":[{"name":"client","port":4222,"protocol":"TCP","targetPort":4222},{"name":"monitoring","port":8222,"protocol":"TCP","targetPort":8222},{"name":"cluster","port":6222,"protocol":"TCP","targetPort":6222},{"name":"gateway","port":7222,"protocol":"TCP","targetPort":7222}],"publishNotReadyAddresses":true,"selector":{"app":"nats-cluster-a","cluster-id":"a","component":"nats","managed-by":"noetl","region":"us-east-1"},"sessionAffinity":"None","type":"ClusterIP"}}
+    creationTimestamp: "2026-07-26T17:37:40Z"
+    labels:
+      app: nats-cluster-a
+      cluster-id: a
+      component: nats
+      managed-by: noetl
+      region: us-east-1
+    name: nats-cluster-a
+    namespace: nats-supercluster
+    resourceVersion: "1785087460320207007"
+    uid: 675a78b0-8e51-4590-89b7-efe7540f7f39
+  spec:
+    clusterIP: None
+    clusterIPs:
+    - None
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: client
+      port: 4222
+      protocol: TCP
+      targetPort: 4222
+    - name: monitoring
+      port: 8222
+      protocol: TCP
+      targetPort: 8222
+    - name: cluster
+      port: 6222
+      protocol: TCP
+      targetPort: 6222
+    - name: gateway
+      port: 7222
+      protocol: TCP
+      targetPort: 7222
+    publishNotReadyAddresses: true
+    selector:
+      app: nats-cluster-a
+      cluster-id: a
+      component: nats
+      managed-by: noetl
+      region: us-east-1
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      cloud.google.com/neg: '{"ingress":true}'
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"cloud.google.com/neg":"{\"ingress\":true}"},"labels":{"app":"nats-cluster-b","cluster-id":"b","component":"nats","managed-by":"noetl","region":"us-west-2"},"name":"nats-cluster-b","namespace":"nats-supercluster"},"spec":{"clusterIP":"None","internalTrafficPolicy":"Cluster","ports":[{"name":"client","port":4222,"protocol":"TCP","targetPort":4222},{"name":"monitoring","port":8222,"protocol":"TCP","targetPort":8222},{"name":"cluster","port":6222,"protocol":"TCP","targetPort":6222},{"name":"gateway","port":7222,"protocol":"TCP","targetPort":7222}],"publishNotReadyAddresses":true,"selector":{"app":"nats-cluster-b","cluster-id":"b","component":"nats","managed-by":"noetl","region":"us-west-2"},"sessionAffinity":"None","type":"ClusterIP"}}
+    creationTimestamp: "2026-07-26T17:37:40Z"
+    labels:
+      app: nats-cluster-b
+      cluster-id: b
+      component: nats
+      managed-by: noetl
+      region: us-west-2
+    name: nats-cluster-b
+    namespace: nats-supercluster
+    resourceVersion: "1785087460575007004"
+    uid: 5a20e177-5a3d-482f-b4a5-dc2924bed0f4
+  spec:
+    clusterIP: None
+    clusterIPs:
+    - None
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: client
+      port: 4222
+      protocol: TCP
+      targetPort: 4222
+    - name: monitoring
+      port: 8222
+      protocol: TCP
+      targetPort: 8222
+    - name: cluster
+      port: 6222
+      protocol: TCP
+      targetPort: 6222
+    - name: gateway
+      port: 7222
+      protocol: TCP
+      targetPort: 7222
+    publishNotReadyAddresses: true
+    selector:
+      app: nats-cluster-b
+      cluster-id: b
+      component: nats
+      managed-by: noetl
+      region: us-west-2
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    annotations:
+      autopilot.gke.io/resource-adjustment: '{"input":{"containers":[{"limits":{"cpu":"1","memory":"2Gi"},"requests":{"cpu":"250m","memory":"512Mi"},"name":"nats"}]},"output":{"containers":[{"limits":{"cpu":"1","ephemeral-storage":"1Gi","memory":"2Gi"},"requests":{"cpu":"250m","ephemeral-storage":"1Gi","memory":"512Mi"},"name":"nats"}]},"computeClassAtAdmission":"Default","modified":true}'
+      autopilot.gke.io/warden-version: 35.26.0-gke.3
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"annotations":{"autopilot.gke.io/resource-adjustment":"{\"input\":{\"containers\":[{\"limits\":{\"cpu\":\"1\",\"memory\":\"2Gi\"},\"requests\":{\"cpu\":\"250m\",\"memory\":\"512Mi\"},\"name\":\"nats\"}]},\"output\":{\"containers\":[{\"limits\":{\"cpu\":\"1\",\"ephemeral-storage\":\"1Gi\",\"memory\":\"2Gi\"},\"requests\":{\"cpu\":\"250m\",\"ephemeral-storage\":\"1Gi\",\"memory\":\"512Mi\"},\"name\":\"nats\"}]},\"computeClassAtAdmission\":\"Default\",\"modified\":true}","autopilot.gke.io/warden-version":"35.26.0-gke.3"},"labels":{"app":"nats-cluster-a","cluster-id":"a","component":"nats","managed-by":"noetl","region":"us-east-1"},"name":"nats-cluster-a","namespace":"nats-supercluster"},"spec":{"persistentVolumeClaimRetentionPolicy":{"whenDeleted":"Retain","whenScaled":"Retain"},"podManagementPolicy":"OrderedReady","replicas":3,"revisionHistoryLimit":10,"selector":{"matchLabels":{"app":"nats-cluster-a","cluster-id":"a","component":"nats","managed-by":"noetl","region":"us-east-1"}},"serviceName":"nats-cluster-a","template":{"metadata":{"labels":{"app":"nats-cluster-a","cluster-id":"a","component":"nats","managed-by":"noetl","region":"us-east-1"}},"spec":{"containers":[{"args":["-c","/etc/nats/nats.conf","--name","$(POD_NAME)"],"env":[{"name":"POD_NAME","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"metadata.name"}}}],"image":"nats:latest","imagePullPolicy":"Always","livenessProbe":{"failureThreshold":5,"httpGet":{"path":"/healthz?js-server-only=true","port":8222,"scheme":"HTTP"},"initialDelaySeconds":30,"periodSeconds":10,"successThreshold":1,"timeoutSeconds":1},"name":"nats","ports":[{"containerPort":4222,"name":"client","protocol":"TCP"},{"containerPort":8222,"name":"monitoring","protocol":"TCP"},{"containerPort":6222,"name":"cluster","protocol":"TCP"},{"containerPort":7222,"name":"gateway","protocol":"TCP"}],"readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/healthz?js-enabled-only=true","port":8222,"scheme":"HTTP"},"initialDelaySeconds":10,"periodSeconds":5,"successThreshold":1,"timeoutSeconds":1},"resources":{"limits":{"cpu":"1","ephemeral-storage":"1Gi","memory":"2Gi"},"requests":{"cpu":"250m","ephemeral-storage":"1Gi","memory":"512Mi"}},"securityContext":{"capabilities":{"drop":["NET_RAW"]}},"startupProbe":{"failureThreshold":60,"httpGet":{"path":"/healthz?js-server-only=true","port":8222,"scheme":"HTTP"},"periodSeconds":5,"successThreshold":1,"timeoutSeconds":1},"terminationMessagePath":"/dev/termination-log","terminationMessagePolicy":"File","volumeMounts":[{"mountPath":"/etc/nats","name":"nats-config"},{"mountPath":"/data","name":"nats-storage"}]}],"dnsPolicy":"ClusterFirst","restartPolicy":"Always","schedulerName":"default-scheduler","securityContext":{"seccompProfile":{"type":"RuntimeDefault"}},"terminationGracePeriodSeconds":30,"tolerations":[{"effect":"NoSchedule","key":"kubernetes.io/arch","operator":"Equal","value":"amd64"}],"volumes":[{"configMap":{"defaultMode":420,"name":"nats-cluster-a-config"},"name":"nats-config"}]}},"updateStrategy":{"rollingUpdate":{"maxUnavailable":1,"partition":0},"type":"RollingUpdate"},"volumeClaimTemplates":[{"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"name":"nats-storage"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"5Gi"}},"volumeMode":"Filesystem"},"status":{"phase":"Pending"}}]}}
+    creationTimestamp: "2026-07-26T17:37:39Z"
+    generation: 1
+    labels:
+      app: nats-cluster-a
+      cluster-id: a
+      component: nats
+      managed-by: noetl
+      region: us-east-1
+    name: nats-cluster-a
+    namespace: nats-supercluster
+    resourceVersion: "1785087542052111016"
+    uid: 4e52e726-9690-46bc-80ff-6f0d0e92272e
+  spec:
+    persistentVolumeClaimRetentionPolicy:
+      whenDeleted: Retain
+      whenScaled: Retain
+    podManagementPolicy: OrderedReady
+    replicas: 3
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: nats-cluster-a
+        cluster-id: a
+        component: nats
+        managed-by: noetl
+        region: us-east-1
+    serviceName: nats-cluster-a
+    template:
+      metadata:
+        labels:
+          app: nats-cluster-a
+          cluster-id: a
+          component: nats
+          managed-by: noetl
+          region: us-east-1
+      spec:
+        containers:
+        - args:
+          - -c
+          - /etc/nats/nats.conf
+          - --name
+          - $(POD_NAME)
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          image: nats:latest
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /healthz?js-server-only=true
+              port: 8222
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: nats
+          ports:
+          - containerPort: 4222
+            name: client
+            protocol: TCP
+          - containerPort: 8222
+            name: monitoring
+            protocol: TCP
+          - containerPort: 6222
+            name: cluster
+            protocol: TCP
+          - containerPort: 7222
+            name: gateway
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz?js-enabled-only=true
+              port: 8222
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: "1"
+              ephemeral-storage: 1Gi
+              memory: 2Gi
+            requests:
+              cpu: 250m
+              ephemeral-storage: 1Gi
+              memory: 512Mi
+          securityContext:
+            capabilities:
+              drop:
+              - NET_RAW
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /healthz?js-server-only=true
+              port: 8222
+              scheme: HTTP
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/nats
+            name: nats-config
+          - mountPath: /data
+            name: nats-storage
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext:
+          seccompProfile:
+            type: RuntimeDefault
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoSchedule
+          key: kubernetes.io/arch
+          operator: Equal
+          value: amd64
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: nats-cluster-a-config
+          name: nats-config
+    updateStrategy:
+      rollingUpdate:
+        partition: 0
+      type: RollingUpdate
+    volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: nats-storage
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        volumeMode: Filesystem
+      status:
+        phase: Pending
+  status:
+    availableReplicas: 3
+    collisionCount: 0
+    currentReplicas: 3
+    currentRevision: nats-cluster-a-665c757895
+    observedGeneration: 1
+    readyReplicas: 3
+    replicas: 3
+    updateRevision: nats-cluster-a-665c757895
+    updatedReplicas: 3
+- apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    annotations:
+      autopilot.gke.io/resource-adjustment: '{"input":{"containers":[{"limits":{"cpu":"1","memory":"2Gi"},"requests":{"cpu":"250m","memory":"512Mi"},"name":"nats"}]},"output":{"containers":[{"limits":{"cpu":"1","ephemeral-storage":"1Gi","memory":"2Gi"},"requests":{"cpu":"250m","ephemeral-storage":"1Gi","memory":"512Mi"},"name":"nats"}]},"computeClassAtAdmission":"Default","modified":true}'
+      autopilot.gke.io/warden-version: 35.26.0-gke.3
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"annotations":{"autopilot.gke.io/resource-adjustment":"{\"input\":{\"containers\":[{\"limits\":{\"cpu\":\"1\",\"memory\":\"2Gi\"},\"requests\":{\"cpu\":\"250m\",\"memory\":\"512Mi\"},\"name\":\"nats\"}]},\"output\":{\"containers\":[{\"limits\":{\"cpu\":\"1\",\"ephemeral-storage\":\"1Gi\",\"memory\":\"2Gi\"},\"requests\":{\"cpu\":\"250m\",\"ephemeral-storage\":\"1Gi\",\"memory\":\"512Mi\"},\"name\":\"nats\"}]},\"computeClassAtAdmission\":\"Default\",\"modified\":true}","autopilot.gke.io/warden-version":"35.26.0-gke.3"},"labels":{"app":"nats-cluster-b","cluster-id":"b","component":"nats","managed-by":"noetl","region":"us-west-2"},"name":"nats-cluster-b","namespace":"nats-supercluster"},"spec":{"persistentVolumeClaimRetentionPolicy":{"whenDeleted":"Retain","whenScaled":"Retain"},"podManagementPolicy":"OrderedReady","replicas":3,"revisionHistoryLimit":10,"selector":{"matchLabels":{"app":"nats-cluster-b","cluster-id":"b","component":"nats","managed-by":"noetl","region":"us-west-2"}},"serviceName":"nats-cluster-b","template":{"metadata":{"labels":{"app":"nats-cluster-b","cluster-id":"b","component":"nats","managed-by":"noetl","region":"us-west-2"}},"spec":{"containers":[{"args":["-c","/etc/nats/nats.conf","--name","$(POD_NAME)"],"env":[{"name":"POD_NAME","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"metadata.name"}}}],"image":"nats:latest","imagePullPolicy":"Always","livenessProbe":{"failureThreshold":5,"httpGet":{"path":"/healthz?js-server-only=true","port":8222,"scheme":"HTTP"},"initialDelaySeconds":30,"periodSeconds":10,"successThreshold":1,"timeoutSeconds":1},"name":"nats","ports":[{"containerPort":4222,"name":"client","protocol":"TCP"},{"containerPort":8222,"name":"monitoring","protocol":"TCP"},{"containerPort":6222,"name":"cluster","protocol":"TCP"},{"containerPort":7222,"name":"gateway","protocol":"TCP"}],"readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/healthz?js-enabled-only=true","port":8222,"scheme":"HTTP"},"initialDelaySeconds":10,"periodSeconds":5,"successThreshold":1,"timeoutSeconds":1},"resources":{"limits":{"cpu":"1","ephemeral-storage":"1Gi","memory":"2Gi"},"requests":{"cpu":"250m","ephemeral-storage":"1Gi","memory":"512Mi"}},"securityContext":{"capabilities":{"drop":["NET_RAW"]}},"startupProbe":{"failureThreshold":60,"httpGet":{"path":"/healthz?js-server-only=true","port":8222,"scheme":"HTTP"},"periodSeconds":5,"successThreshold":1,"timeoutSeconds":1},"terminationMessagePath":"/dev/termination-log","terminationMessagePolicy":"File","volumeMounts":[{"mountPath":"/etc/nats","name":"nats-config"},{"mountPath":"/data","name":"nats-storage"}]}],"dnsPolicy":"ClusterFirst","restartPolicy":"Always","schedulerName":"default-scheduler","securityContext":{"seccompProfile":{"type":"RuntimeDefault"}},"terminationGracePeriodSeconds":30,"tolerations":[{"effect":"NoSchedule","key":"kubernetes.io/arch","operator":"Equal","value":"amd64"}],"volumes":[{"configMap":{"defaultMode":420,"name":"nats-cluster-b-config"},"name":"nats-config"}]}},"updateStrategy":{"rollingUpdate":{"maxUnavailable":1,"partition":0},"type":"RollingUpdate"},"volumeClaimTemplates":[{"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"name":"nats-storage"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"5Gi"}},"volumeMode":"Filesystem"},"status":{"phase":"Pending"}}]}}
+    creationTimestamp: "2026-07-26T17:37:40Z"
+    generation: 1
+    labels:
+      app: nats-cluster-b
+      cluster-id: b
+      component: nats
+      managed-by: noetl
+      region: us-west-2
+    name: nats-cluster-b
+    namespace: nats-supercluster
+    resourceVersion: "1785087543882847007"
+    uid: d1995266-c3cb-4c2c-a4ec-1ae31a7a5e23
+  spec:
+    persistentVolumeClaimRetentionPolicy:
+      whenDeleted: Retain
+      whenScaled: Retain
+    podManagementPolicy: OrderedReady
+    replicas: 3
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: nats-cluster-b
+        cluster-id: b
+        component: nats
+        managed-by: noetl
+        region: us-west-2
+    serviceName: nats-cluster-b
+    template:
+      metadata:
+        labels:
+          app: nats-cluster-b
+          cluster-id: b
+          component: nats
+          managed-by: noetl
+          region: us-west-2
+      spec:
+        containers:
+        - args:
+          - -c
+          - /etc/nats/nats.conf
+          - --name
+          - $(POD_NAME)
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          image: nats:latest
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /healthz?js-server-only=true
+              port: 8222
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: nats
+          ports:
+          - containerPort: 4222
+            name: client
+            protocol: TCP
+          - containerPort: 8222
+            name: monitoring
+            protocol: TCP
+          - containerPort: 6222
+            name: cluster
+            protocol: TCP
+          - containerPort: 7222
+            name: gateway
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz?js-enabled-only=true
+              port: 8222
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: "1"
+              ephemeral-storage: 1Gi
+              memory: 2Gi
+            requests:
+              cpu: 250m
+              ephemeral-storage: 1Gi
+              memory: 512Mi
+          securityContext:
+            capabilities:
+              drop:
+              - NET_RAW
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /healthz?js-server-only=true
+              port: 8222
+              scheme: HTTP
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/nats
+            name: nats-config
+          - mountPath: /data
+            name: nats-storage
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext:
+          seccompProfile:
+            type: RuntimeDefault
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoSchedule
+          key: kubernetes.io/arch
+          operator: Equal
+          value: amd64
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: nats-cluster-b-config
+          name: nats-config
+    updateStrategy:
+      rollingUpdate:
+        partition: 0
+      type: RollingUpdate
+    volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: nats-storage
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        volumeMode: Filesystem
+      status:
+        phase: Pending
+  status:
+    availableReplicas: 3
+    collisionCount: 0
+    currentReplicas: 3
+    currentRevision: nats-cluster-b-56c9c4bcf9
+    observedGeneration: 1
+    readyReplicas: 3
+    replicas: 3
+    updateRevision: nats-cluster-b-56c9c4bcf9
+    updatedReplicas: 3
+- apiVersion: v1
+  data:
+    ca.crt: |
+      -----BEGIN CERTIFICATE-----
+      MIIELTCCApWgAwIBAgIRANGaS7n9qmS63P7Z14z6ADwwDQYJKoZIhvcNAQELBQAw
+      LzEtMCsGA1UEAxMkZTFjNzlkNDAtNDM5Mi00ZDY1LWJiZDUtYTlkMmM1ZDliMzA5
+      MCAXDTI2MDcyNTA0MjU0M1oYDzIwNTYwNzE3MDUyNTQzWjAvMS0wKwYDVQQDEyRl
+      MWM3OWQ0MC00MzkyLTRkNjUtYmJkNS1hOWQyYzVkOWIzMDkwggGiMA0GCSqGSIb3
+      DQEBAQUAA4IBjwAwggGKAoIBgQCtG9+fgtL/RTJtGMc9WzYEQP+DZCLGT34bfbV4
+      H48FZwqlAEwBnheuqV2y9Vl1vUaWAyOmZABz+fdNzBagS8xkheUWK2HmCeBvYMG1
+      eVGuFv6AFor4bmE0cT+nNejx5lQBoD6QzdxfTk4wR48+UTGJLvUX6Tkduvqe9Rdu
+      Yq5To29c+d5DNogyC3AkHDufqFM0bcs2xbRVMQMV/AZjN5K9szm/wG7jAa+bRIcO
+      FV3MLIPpCOlBsylsKvGnqZpIeI13ZOimNW3HpIiV/8VcZM1KhknEss4ATyaf2WRA
+      BK5CpBr7Nh6ZChlTPqlWtZrNwqm8dv+kpVdhyM+cveYeCl63cDqrjp32CS62Nfpx
+      3l85LW2CV7RImbdmzwXncC5yWmglN/lNg7601waP3QE+IDW6obzv2nKT/5jANe08
+      x+LALEptLRx+QoeDfQw7Hrcj+xxX1dJohjwj6qXJNC1rkSfb/o2AZYJspRq8VdVS
+      E00alheRni8UYzH02+t20XXUXrMCAwEAAaNCMEAwDgYDVR0PAQH/BAQDAgIEMA8G
+      A1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFK9bvfERMPni1aKW6e2ujS6E2sNXMA0G
+      CSqGSIb3DQEBCwUAA4IBgQAUi/0ZSmeDi3bJEXmNQg3NofL2YcEK+Rl+JEBEC7WM
+      uoNObkU/ExvgFdoB033EGPUu3HLoou2nHY7ZGJI8DmdQpN3EsI/ndz8rTRyaCRto
+      juVkiakh1c+DneveoYoYwMVeeRFoWMf461XNexpiUNEEDWVm9/0r4zifZsjNE+FD
+      kNETsRXtGspTzGohG6CJ0UT+wAeDLvpshS8tN2WfqbJNAfLUTOTb8mtBJ7oMNH/r
+      mm0wjStn3VFSdYe4rt7RumiI5qwm5cJRN2lCMwoeScQLYMePYL56aHDdhZagTlnY
+      0lEnWzsMD65E1xPz1YE/KhIe+sazQVG6Q4klIOvyVZOCt6kro7m2rHr1lzws7HPa
+      PW194yJw0Ll7mI5wmw5f7C2KbTaaxq27FLHLmR3B8WpLvF6k6hsEq6TbZkCHgPOt
+      qK38MCr5SdA4UOn6ZwNN3XXH+MuTMK+6+WDMe0/jNzgOlyJDP+KbMbu8lsKNqV4j
+      wdmvseonxZ6KpVnerSpNYzU=
+      -----END CERTIFICATE-----
+  kind: ConfigMap
+  metadata:
+    annotations:
+      kubernetes.io/description: Contains a CA bundle that can be used to verify the
+        kube-apiserver when using internal endpoints such as the internal service
+        IP or kubernetes.default.svc. No other usage is guaranteed across distributions
+        of Kubernetes clusters.
+    creationTimestamp: "2026-07-25T13:03:45Z"
+    name: kube-root-ca.crt
+    namespace: nats-supercluster
+    resourceVersion: "1784984625406175020"
+    uid: 6b321d98-c84d-43c0-bd6c-ccac2960237a
+- apiVersion: v1
+  data:
+    nats.conf: |
+      port: 4222
+      http_port: 8222
+
+      jetstream {
+        store_dir: /data/jetstream
+        domain: "tenant_default_org_default_region_us_east_1_cluster_a"
+        max_memory_store: 1GB
+        max_file_store: 5GB
+      }
+
+      cluster {
+        name: "a"
+        port: 6222
+        routes: [
+          nats-route://nats-cluster-a-0.nats-cluster-a.nats-supercluster.svc.cluster.local:6222
+          nats-route://nats-cluster-a-1.nats-cluster-a.nats-supercluster.svc.cluster.local:6222
+          nats-route://nats-cluster-a-2.nats-cluster-a.nats-supercluster.svc.cluster.local:6222
+        ]
+      }
+
+      gateway {
+        name: "a"
+        port: 7222
+        gateways: [
+          { name: "b", urls: ["nats://nats-cluster-b.nats-supercluster.svc.cluster.local:7222"] }
+        ]
+      }
+
+      accounts {
+        $SYS {
+          users: [
+            { user: sys, password: sys }
+          ]
+        }
+        NOETL {
+          jetstream: enabled
+          users: [
+            { user: noetl, password: noetl }
+          ]
+        }
+      }
+  kind: ConfigMap
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","data":{"nats.conf":"port: 4222\nhttp_port: 8222\n\njetstream {\n  store_dir: /data/jetstream\n  domain: \"tenant_default_org_default_region_us_east_1_cluster_a\"\n  max_memory_store: 1GB\n  max_file_store: 5GB\n}\n\ncluster {\n  name: \"a\"\n  port: 6222\n  routes: [\n    nats-route://nats-cluster-a-0.nats-cluster-a.nats-supercluster.svc.cluster.local:6222\n    nats-route://nats-cluster-a-1.nats-cluster-a.nats-supercluster.svc.cluster.local:6222\n    nats-route://nats-cluster-a-2.nats-cluster-a.nats-supercluster.svc.cluster.local:6222\n  ]\n}\n\ngateway {\n  name: \"a\"\n  port: 7222\n  gateways: [\n    { name: \"b\", urls: [\"nats://nats-cluster-b.nats-supercluster.svc.cluster.local:7222\"] }\n  ]\n}\n\naccounts {\n  $SYS {\n    users: [\n      { user: sys, password: sys }\n    ]\n  }\n  NOETL {\n    jetstream: enabled\n    users: [\n      { user: noetl, password: noetl }\n    ]\n  }\n}\n"},"kind":"ConfigMap","metadata":{"annotations":{},"labels":{"app":"nats-cluster-a","cluster-id":"a","component":"nats","managed-by":"noetl","region":"us-east-1"},"name":"nats-cluster-a-config","namespace":"nats-supercluster"}}
+    creationTimestamp: "2026-07-26T17:37:40Z"
+    labels:
+      app: nats-cluster-a
+      cluster-id: a
+      component: nats
+      managed-by: noetl
+      region: us-east-1
+    name: nats-cluster-a-config
+    namespace: nats-supercluster
+    resourceVersion: "1785087460825455004"
+    uid: fc56b2ea-92bd-4799-b271-95cc53ec70cf
+- apiVersion: v1
+  data:
+    nats.conf: |
+      port: 4222
+      http_port: 8222
+
+      jetstream {
+        store_dir: /data/jetstream
+        domain: "tenant_default_org_default_region_us_west_2_cluster_b"
+        max_memory_store: 1GB
+        max_file_store: 5GB
+      }
+
+      cluster {
+        name: "b"
+        port: 6222
+        routes: [
+          nats-route://nats-cluster-b-0.nats-cluster-b.nats-supercluster.svc.cluster.local:6222
+          nats-route://nats-cluster-b-1.nats-cluster-b.nats-supercluster.svc.cluster.local:6222
+          nats-route://nats-cluster-b-2.nats-cluster-b.nats-supercluster.svc.cluster.local:6222
+        ]
+      }
+
+      gateway {
+        name: "b"
+        port: 7222
+        gateways: [
+          { name: "a", urls: ["nats://nats-cluster-a.nats-supercluster.svc.cluster.local:7222"] }
+        ]
+      }
+
+      accounts {
+        $SYS {
+          users: [
+            { user: sys, password: sys }
+          ]
+        }
+        NOETL {
+          jetstream: enabled
+          users: [
+            { user: noetl, password: noetl }
+          ]
+        }
+      }
+  kind: ConfigMap
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","data":{"nats.conf":"port: 4222\nhttp_port: 8222\n\njetstream {\n  store_dir: /data/jetstream\n  domain: \"tenant_default_org_default_region_us_west_2_cluster_b\"\n  max_memory_store: 1GB\n  max_file_store: 5GB\n}\n\ncluster {\n  name: \"b\"\n  port: 6222\n  routes: [\n    nats-route://nats-cluster-b-0.nats-cluster-b.nats-supercluster.svc.cluster.local:6222\n    nats-route://nats-cluster-b-1.nats-cluster-b.nats-supercluster.svc.cluster.local:6222\n    nats-route://nats-cluster-b-2.nats-cluster-b.nats-supercluster.svc.cluster.local:6222\n  ]\n}\n\ngateway {\n  name: \"b\"\n  port: 7222\n  gateways: [\n    { name: \"a\", urls: [\"nats://nats-cluster-a.nats-supercluster.svc.cluster.local:7222\"] }\n  ]\n}\n\naccounts {\n  $SYS {\n    users: [\n      { user: sys, password: sys }\n    ]\n  }\n  NOETL {\n    jetstream: enabled\n    users: [\n      { user: noetl, password: noetl }\n    ]\n  }\n}\n"},"kind":"ConfigMap","metadata":{"annotations":{},"labels":{"app":"nats-cluster-b","cluster-id":"b","component":"nats","managed-by":"noetl","region":"us-west-2"},"name":"nats-cluster-b-config","namespace":"nats-supercluster"}}
+    creationTimestamp: "2026-07-26T17:37:41Z"
+    labels:
+      app: nats-cluster-b
+      cluster-id: b
+      component: nats
+      managed-by: noetl
+      region: us-west-2
+    name: nats-cluster-b-config
+    namespace: nats-supercluster
+    resourceVersion: "1785087461019311022"
+    uid: 2f45dcbb-9e99-45f5-80cc-1626496d3fcb
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-26T17:37:39Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: nats-cluster-a
+      cluster-id: a
+      component: nats
+      managed-by: noetl
+      region: us-east-1
+    name: nats-storage-nats-cluster-a-0
+    namespace: nats-supercluster
+    resourceVersion: "1785087465764991002"
+    uid: 7c649489-2e22-48c3-9694-90b914ad1a19
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+    storageClassName: standard-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-7c649489-2e22-48c3-9694-90b914ad1a19
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 5Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-4524c1fd-l8h8
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-26T17:38:04Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: nats-cluster-a
+      cluster-id: a
+      component: nats
+      managed-by: noetl
+      region: us-east-1
+    name: nats-storage-nats-cluster-a-1
+    namespace: nats-supercluster
+    resourceVersion: "1785087493382607009"
+    uid: 7b545be1-8741-4d52-a43a-9572b237ae72
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+    storageClassName: standard-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-7b545be1-8741-4d52-a43a-9572b237ae72
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 5Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-4524c1fd-l8h8
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-26T17:38:35Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: nats-cluster-a
+      cluster-id: a
+      component: nats
+      managed-by: noetl
+      region: us-east-1
+    name: nats-storage-nats-cluster-a-2
+    namespace: nats-supercluster
+    resourceVersion: "1785087522944015003"
+    uid: d8976c12-b9bc-441a-afd8-ad6030ac2d45
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+    storageClassName: standard-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-d8976c12-b9bc-441a-afd8-ad6030ac2d45
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 5Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-4524c1fd-l8h8
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-26T17:37:40Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: nats-cluster-b
+      cluster-id: b
+      component: nats
+      managed-by: noetl
+      region: us-west-2
+    name: nats-storage-nats-cluster-b-0
+    namespace: nats-supercluster
+    resourceVersion: "1785087465140959012"
+    uid: 2cafe38c-6189-4fe5-9ef0-33439ec66329
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+    storageClassName: standard-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-2cafe38c-6189-4fe5-9ef0-33439ec66329
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 5Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-26T17:38:07Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: nats-cluster-b
+      cluster-id: b
+      component: nats
+      managed-by: noetl
+      region: us-west-2
+    name: nats-storage-nats-cluster-b-1
+    namespace: nats-supercluster
+    resourceVersion: "1785087490502847012"
+    uid: 20521b88-aea3-424b-8d3e-71b6c9ee08ae
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+    storageClassName: standard-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-20521b88-aea3-424b-8d3e-71b6c9ee08ae
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 5Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-26T17:38:37Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: nats-cluster-b
+      cluster-id: b
+      component: nats
+      managed-by: noetl
+      region: us-west-2
+    name: nats-storage-nats-cluster-b-2
+    namespace: nats-supercluster
+    resourceVersion: "1785087521532399002"
+    uid: efd65a58-627f-43f5-8b74-93e4704a5482
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+    storageClassName: standard-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-efd65a58-627f-43f5-8b74-93e4704a5482
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 5Gi
+    phase: Bound
+kind: List
+metadata:
+  resourceVersion: ""

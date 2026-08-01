@@ -1,0 +1,93 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      cloud.google.com/neg: '{"ingress":true}'
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"cloud.google.com/neg":"{\"ingress\":true}"},"labels":{"app.kubernetes.io/component":"nats","app.kubernetes.io/instance":"nats","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"nats","app.kubernetes.io/version":"2.14.0","helm.sh/chart":"nats-2.14.0"},"name":"nats","namespace":"nats"},"spec":{"internalTrafficPolicy":"Cluster","ports":[{"appProtocol":"tcp","name":"nats","port":4222,"protocol":"TCP","targetPort":"nats"}],"selector":{"app.kubernetes.io/component":"nats","app.kubernetes.io/instance":"nats","app.kubernetes.io/name":"nats"},"sessionAffinity":"None","type":"ClusterIP"}}
+    creationTimestamp: "2026-07-26T17:36:02Z"
+    labels:
+      app.kubernetes.io/component: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/managed-by: Helm
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/version: 2.14.0
+      helm.sh/chart: nats-2.14.0
+    name: nats
+    namespace: nats
+    resourceVersion: "1785087362633887022"
+    uid: 4bac5f3e-1598-48b4-8440-9a832b3281f4
+  spec:
+    clusterIP: 34.118.236.124
+    clusterIPs:
+    - 34.118.236.124
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - appProtocol: tcp
+      name: nats
+      port: 4222
+      protocol: TCP
+      targetPort: nats
+    selector:
+      app.kubernetes.io/component: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/name: nats
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      cloud.google.com/neg: '{"ingress":true}'
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"cloud.google.com/neg":"{\"ingress\":true}"},"labels":{"app.kubernetes.io/component":"nats","app.kubernetes.io/instance":"nats","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"nats","app.kubernetes.io/version":"2.14.0","helm.sh/chart":"nats-2.14.0"},"name":"nats-headless","namespace":"nats"},"spec":{"clusterIP":"None","internalTrafficPolicy":"Cluster","ports":[{"appProtocol":"tcp","name":"nats","port":4222,"protocol":"TCP","targetPort":"nats"},{"appProtocol":"http","name":"monitor","port":8222,"protocol":"TCP","targetPort":"monitor"}],"publishNotReadyAddresses":true,"selector":{"app.kubernetes.io/component":"nats","app.kubernetes.io/instance":"nats","app.kubernetes.io/name":"nats"},"sessionAffinity":"None","type":"ClusterIP"}}
+    creationTimestamp: "2026-07-26T17:36:02Z"
+    labels:
+      app.kubernetes.io/component: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/managed-by: Helm
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/version: 2.14.0
+      helm.sh/chart: nats-2.14.0
+    name: nats-headless
+    namespace: nats
+    resourceVersion: "1785087362884079019"
+    uid: 98881a96-244a-4c17-8339-199c28f68dbc
+  spec:
+    clusterIP: None
+    clusterIPs:
+    - None
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - appProtocol: tcp
+      name: nats
+      port: 4222
+      protocol: TCP
+      targetPort: nats
+    - appProtocol: http
+      name: monitor
+      port: 8222
+      protocol: TCP
+      targetPort: monitor
+    publishNotReadyAddresses: true
+    selector:
+      app.kubernetes.io/component: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/name: nats
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+kind: List
+metadata:
+  resourceVersion: ""

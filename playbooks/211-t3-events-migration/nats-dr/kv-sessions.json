@@ -1,0 +1,47 @@
+{
+  "config": {
+    "name": "KV_sessions",
+    "description": "Session cache for gateway authentication",
+    "subjects": [
+      "$KV.sessions.\u003e"
+    ],
+    "retention": "limits",
+    "max_consumers": -1,
+    "max_msgs_per_subject": 1,
+    "max_msgs": -1,
+    "max_bytes": -1,
+    "max_age": 300000000000,
+    "max_msg_size": 10240,
+    "storage": "file",
+    "discard": "new",
+    "num_replicas": 1,
+    "duplicate_window": 120000000000,
+    "sealed": false,
+    "deny_delete": true,
+    "deny_purge": false,
+    "allow_rollup_hdrs": true,
+    "allow_direct": true,
+    "mirror_direct": false,
+    "metadata": {
+      "_nats.level": "4",
+      "_nats.req.level": "0",
+      "_nats.ver": "2.14.0"
+    },
+    "consumer_limits": {}
+  },
+  "created": "2026-07-26T17:40:37.609696381Z",
+  "state": {
+    "messages": 0,
+    "bytes": 0,
+    "first_seq": 0,
+    "first_ts": "0001-01-01T00:00:00Z",
+    "last_seq": 0,
+    "last_ts": "0001-01-01T00:00:00Z",
+    "consumer_count": 0
+  },
+  "cluster": {
+    "leader": "nats-0"
+  },
+  "ts": "2026-08-01T01:17:00.238914578Z"
+}
+
