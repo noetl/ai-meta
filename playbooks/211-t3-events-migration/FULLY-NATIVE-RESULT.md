@@ -140,10 +140,22 @@ would fail. Landed in noetl/gateway#36.
 | noetl/worker | [#207](https://github.com/noetl/worker/pull/207) | skip `ensure_consumer` on EHDB |
 | noetl/gateway | [#36](https://github.com/noetl/gateway/pull/36) | OIDC tamper fix |
 
-## Remaining NATS-shaped code (dead, not load-bearing)
+## Remaining NATS-shaped code
 
-The `nats` tool kind is still in the tools registry and the NATS drain/source
-code paths still compile — they are simply unreachable on this cluster now that
-no workload carries a NATS URL. Removing them is a cleanup, not a migration, and
-is deliberately out of scope here: the legacy env fallback in #218 is scheduled
-to drop after one release, and that is the natural moment to take the rest.
+Two different things, and conflating them caused a wrong call in the first
+draft of this document.
+
+**The `nats` tool kind is NOT dead — it is a user-facing feature.** A playbook
+step with `kind: nats` connects to the **user's own** broker, named by the
+step's `url` or a keychain credential alias. It sits beside `postgres`,
+`duckdb`, `http` and the object-store kinds: users bring their own external
+services for business logic. It never touched the internal bus, so "no workload
+carries a NATS URL" says nothing about it — the URL comes from the playbook.
+The tool lives in the separate `noetl-tools` crate with its own `async-nats`.
+Verified working on the post-removal build; see
+[noetl/ai-meta#219](https://github.com/noetl/ai-meta/issues/219).
+
+**The internal drain/source paths are dead** — those are the migration's
+leftovers and are a genuine cleanup. But note `state_builder`'s WAL-rehydrate
+path still reads `NATS_URL` and is live under `shard_read_verify`, so the
+`async-nats` dependency itself cannot be dropped from the worker either.

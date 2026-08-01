@@ -84,13 +84,21 @@ with live code (the EHDB drain shares helpers with the NATS one; `MaterializerFe
 is the shared adapter). Rushing them at the end of a long change is exactly how
 something load-bearing goes with them. Tracked as a scoped follow-up.
 
-**The `nats` tool kind stays for now**, for the same reason plus one of its own:
-five catalog playbooks still declare it (three auth, two test). They are already
-non-functional and not executed — both auth sync fast-paths are on — but removing
-the kind while those rows exist turns a dormant step into a hard "unknown tool
-kind" if anyone flips the sync flags off. The auth playbooks should lose their
-`cache_session` steps first (the gateway populates its own cache); that is
-catalog data, not code.
+**The `nats` tool kind stays — permanently.** The reasoning first given here
+(that it survives only as a courtesy to five legacy catalog rows) was wrong.
+It is a **supported user-facing integration**: a playbook step points it at the
+**user's own** broker to store or publish business-logic data, exactly as
+`postgres`, `duckdb`, `http` and the object-store kinds reach user-supplied
+services. Its endpoint comes from the step's `url` or a keychain credential
+alias — never from platform config — so removing the internal bus does not
+affect it. It lives in `noetl-tools` with its own `async-nats` and was never
+touched by this removal.
+
+The same correction applies to the worker's `async-nats` dependency: besides the
+tool, `state_builder`'s WAL-rehydrate path still reads `NATS_URL` and is live
+under `shard_read_verify`. Dropping the dependency would have broken both.
+[noetl/ai-meta#219](https://github.com/noetl/ai-meta/issues/219), which proposed
+exactly that, is closed as **won't remove**.
 
 ## Observation worth recording
 

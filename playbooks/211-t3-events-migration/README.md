@@ -14,6 +14,39 @@ Prior audit: [`playbooks/210-t5-readiness/pre-t5-checklist.md`](../210-t5-readin
 
 ---
 
+## Scope boundary — internal bus vs. user-facing tools
+
+Everything in this runbook is about **internal** NoETL infrastructure. Read this
+before acting on any "remove NATS" instruction here.
+
+| | Internal | User-facing |
+| :-- | :-- | :-- |
+| **What** | command bus, event bus, KV, state | business-logic data and messaging |
+| **Runs on** | **EHDB** | whatever external service the **user** brings |
+| **Configured by** | platform env (`NOETL_COMMAND_BUS`, `NOETL_KV_ADDR`, …) | the playbook step (`url`) or a keychain credential alias |
+| **NATS** | **removed** ([#212](https://github.com/noetl/ai-meta/issues/212)) | **`nats` tool kind — supported, stays** |
+
+**EHDB is internal transient infrastructure and is never exposed as a user
+store.** Users do not read or write EHDB; they point tools at their own
+services.
+
+**The `nats` tool kind is a supported user-facing feature**, one of several
+(`postgres`, `duckdb`, `http`, `kafka`, object stores). Deleting the internal
+bus does not make it dead — its endpoint comes from the playbook, not from
+platform config. It lives in the separate `noetl-tools` crate with its own
+`async-nats` dependency and was untouched by this migration.
+[noetl/ai-meta#219](https://github.com/noetl/ai-meta/issues/219), which proposed
+removing it, is closed as **won't remove**; the audit and end-to-end proof are
+recorded there.
+
+Practical consequence for anyone doing cleanup work in these repos: *"nothing in
+the cluster carries a NATS URL"* is a statement about the internal bus only. It
+is not evidence that a NATS-shaped code path is dead. Check whether the endpoint
+comes from **platform config** (internal — may be dead) or from a **playbook /
+credential** (user-facing — keep) before deleting anything.
+
+---
+
 ## 0. The one thing that changes the risk calculus
 
 `noetl-server-rust` runs with:
