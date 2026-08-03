@@ -1,0 +1,7 @@
+mode=hard-kill (quiesced, SIGKILL, grace-period=0)
+burst=200
+stable_tip_before_kill=9188  (lag=1105)
+reopened_tip=9191
+resumed_from_cursor=8084  clamped=false  origin=persisted
+replay_records=1107
+UNSEALED_TAIL_LOST=-3   (bound: seal_max_records=1024 per shard)

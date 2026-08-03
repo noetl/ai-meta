@@ -1,0 +1,89 @@
+# EHDB-only topology for the LOCAL KIND cluster (noetl/ai-meta#209, #221).
+#
+# Why this file exists: **there is no EHDB-only IaC anywhere.** `repos/ops`
+# `origin/main` carries zero occurrences of `NOETL_COMMAND_BUS`; the prod
+# EHDB-only topology (server v3.60.2 / worker v5.91.2 / gateway v3.7.1 /
+# ehdb ddb7ac9) was produced imperatively with `kubectl set env` + `kubectl
+# patch` during the 2026-07-31/08-01 cutover and never written back. So the
+# kind cluster could not be "redeployed" into that shape — it had to be
+# reconstructed from the worker/server source and the cutover runbooks.
+#
+# This is the KIND shape. It is NOT prod IaC — it uses the default storage
+# class, tiny PVCs, local images, and one shard. The prod IaC gap is real and
+# tracked separately; do not apply this to a cluster that is not kind-noetl.
+#
+# ---------------------------------------------------------------------------
+# What differs from prod, deliberately
+#
+# Prod runs only TWO materializer groups: `NOETL_STATE_BUILDER=server` disabled
+# the off-server state-builder subsystem, which took the state materializer with
+# it (noetl/ai-meta#217). The soak needs all three groups plus the WAL fan-out
+# face, so this rig enables:
+#
+#   - noetl_materializer          (the sole writer of the durable noetl.event log)
+#   - noetl_result_materializer   (result tier)
+#   - noetl_state_materializer    (state shards; NOETL_STATE_SHARD_WRITE)
+#   - the state-builder WAL drain in SHADOW over :9108
+#
+# Shadow is the point for that last one: it exercises the chain-walk and the WAL
+# fan-out face with no drive impact, so :9108 is under real load without putting
+# the #217 gap on the execution path.
+#
+# ---------------------------------------------------------------------------
+# Port map (the six events faces + three command faces on one writer pod)
+#
+#   9100 cmdbus ingest   9103 events ingest    9106 events lag/metrics
+#   9101 cmdbus claim    9104 events claim     9107 KV        <-- no manifest
+#   9102 cmdbus lag      9105 events SSE       9108 WAL fanout <-- had these
+#
+# 9107 and 9108 appear in no manifest on disk anywhere — the events-writer patch
+# in playbooks/211-t3-events-migration/ predates them. They are added here.
+#
+# Naming trap: NOETL_COMMAND_SHARD_COUNT and NOETL_EVENT_SHARD_COUNT have no
+# `_BUS_`, while every bind does.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: noetl-eventbus-writer-data
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer, component: eventbus-writer, managed-by: noetl }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: noetl-eventbus-kv-data
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer, component: eventbus-kv, managed-by: noetl }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# The writer's Service, extended with all six events faces.
+apiVersion: v1
+kind: Service
+metadata:
+  name: noetl-cmdbus-writer
+  namespace: noetl
+  labels: { app: noetl-cmdbus-writer, component: cmdbus-writer, command-bus: ehdb, managed-by: noetl }
+spec:
+  type: ClusterIP
+  selector: { app: noetl-cmdbus-writer }
+  ports:
+    - { name: cmdbus-ingest, port: 9100, targetPort: cmdbus-ingest }
+    - { name: cmdbus-claim,  port: 9101, targetPort: cmdbus-claim }
+    - { name: cmdbus-lag,    port: 9102, targetPort: cmdbus-lag }
+    - { name: metrics,       port: 9090, targetPort: metrics }
+    - { name: events-ingest, port: 9103, targetPort: events-ingest }
+    - { name: events-claim,  port: 9104, targetPort: events-claim }
+    - { name: events-sse,    port: 9105, targetPort: events-sse }
+    - { name: events-lag,    port: 9106, targetPort: events-lag }
+    - { name: events-kv,     port: 9107, targetPort: events-kv }
+    - { name: events-wal,    port: 9108, targetPort: events-wal }

@@ -1,0 +1,26 @@
+fired=360 accepted=360 errors=0 dup_ids=0
+published_delta=6840 projected_delta=6840
+publish_errors=NA
+cursor_errors=0
+out_of_order_appends=0
+unreadable_lag_reads=0   (non-zero => a gate was polled blind)
+l0_appends_delta=2386
+group=noetl_materializer committed_delta=6840 final_lag=0
+group=noetl_result_materializer committed_delta=6840 final_lag=0
+group=noetl_state_materializer committed_delta=6840 final_lag=0
+sse_subscriber_1 frames=7864
+sse_subscriber_2 frames=7864
+sse_subscriber_3 frames=7864
+kv_ops_total=880
+kv_put=400
+kv_get=400
+kv_scan=20
+kv_delete=60
+kv_mismatch=0
+kv_err=0
+kv_elapsed_s=0.33
+kv_ops_per_s=2627.1
+kv_put_get_p50_ms=13.40
+kv_put_get_p99_ms=40.60
+kv_exercise=PASS
+wal_established_conns=1

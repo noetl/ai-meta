@@ -1,0 +1,8 @@
+mode=hard
+fired=120 accepted=120 publish_errors=0
+tip_at_kill=8048 (committed=7270 lag=778)
+reopened_tip=8053 resumed_from_cursor=7272
+UNSEALED_TAIL_LOST=0   (bound: seal_max_records=1024)
+out_of_order_appends=0
+resume_origin=persisted   (persisted => the cursor survived)
+resume_clamped=false   (true => stored cursor outran the log, i.e. tail was lost)
