@@ -1,7 +1,14 @@
 # EHDB prod runbook — the three gcloud-blocked workstreams, in one sequence
 
-**Status: PLANNING ONLY. Nothing here has been run. Prod was not touched and
-gcloud was not invoked while writing it.**
+**Status: P0 DONE (read-only). P1–P5 not run.**
+
+- **P0 executed 2026-08-03** against `shastaratech-noetl-prod`, read-only.
+  Results and the corrections they force: [`P0-discovery.md`](P0-discovery.md).
+- **P3/P4 hardened 2026-08-03** on the back of P0 — six IaC defaults that would
+  have broken or misconfigured prod are fixed in ops#245 @ `5e28543` and
+  validated against local kind (plan / converge / idempotent no-op). Prod was
+  **not** converged and nothing here has been applied to it.
+- Everything else below is still planning only.
 
 Three pieces of EHDB work are finished, kind-validated, and waiting on the same
 thing — a gcloud re-auth against `shastaratech-noetl-prod`:
@@ -53,16 +60,21 @@ P2  PROD SOAK (ehdb#261 Phase 2)                               [P2a-c safe; P2d 
     P2e  KV + SSE under the gateway's real traffic; cursor_errors at prod rates
     GATE: 0 dup / 0 loss / 0 out_of_order · lag returns to 0 · cursor_errors 0
 
-P3  IaC PLAN (ops#245, profile=prod)                           [safe, changes nothing]
-    action=plan, then READ THE DIFF. Four settings are mandatory. Two more
-    are not threaded through the entry point and need a workaround (see P3).
-    GATE: the plan matches the discovery table, especially PVC names.
+P3  IaC PLAN (ops#245 @ 5e28543+, profile=prod)                [safe, changes nothing]
+    action=plan, then READ THE DIFF. Six values that used to be `--set`
+    overrides are now prod-matching DEFAULTS — invisible on the command
+    line, so the plan diff is the only place they get checked (see P3).
+    GATE: the plan matches the discovery table — PVC names, state_builder=
+          offserver, ns gateway, writer 4Gi, both system pools, and the
+          Service-selector REPLACE line.
 
 P4  IaC CONVERGE — Deployment -> StatefulSet                   [*** IRREVERSIBLE-ISH ***]
     P4a  save the live writer Deployment YAML   <- the only rollback artefact
     P4b  converge writer + runtime, autoscaler DEFERRED         << writer pod drops
-    P4c  converge the autoscaler separately (unpauses user-pool scaling)
-    GATE: durable log survived (tip continuity) · verify PASS · gen unchanged on re-run
+    P4c  converge the autoscaler separately (already converged per P0 — an
+         idempotence check, not a live change; the #210 signature is absent)
+    GATE: durable log survived (tip continuity) · Service HAS endpoints ·
+          verify PASS on all three groups · gen unchanged on re-run
     ROLLBACK: scale sts to 0, re-apply the saved Deployment, PVCs are untouched
 
 P5  POST-CONVERGE RE-VERIFY + WATCH
@@ -695,6 +707,13 @@ and stop; do not proceed to P4.
 `action=plan` renders every object and server-side dry-runs it. **It changes
 nothing.** Run it, then read the diff — that is the entire point of this phase.
 
+> **Run this from the ops#245 branch at `5e28543` or later.** Everything below
+> assumes the P0 hardening commit. On `9dcc5dd` or earlier the defaults for
+> `state_builder`, the three `claim_*` names, `user_pool_container`, the gateway
+> location and `writer_memory_limit` are all wrong for prod, and the writer
+> Service's stale selector is not repaired — see
+> [What changed after P0](#what-changed-after-p0) below.
+
 ```bash
 cd repos/ops    # on branch feat/ehdb-only-iac (ops#245) until it merges
 
@@ -706,9 +725,67 @@ noetl run automation/ehdb/ehdb_platform.yaml -r local \
   --set writer_storage_class=premium-rwo \
   --set writer_image="$WORKER_IMG" \
   --set writer_image_pull_policy=IfNotPresent \
-  --set state_builder_shadow=false \
   --set gateway_reconcile=true \
   --set autoscaler_enabled=false
+```
+
+### What changed after P0
+
+P0 found the IaC would have broken or misconfigured prod on six counts. All six
+are fixed in ops@`5e28543` by making the **default** prod's measured value, so
+the command line above is shorter than the one this section used to carry — the
+overrides moved into the playbook. That is safer to run and more dangerous to
+trust: a default is invisible at the call site, so the plan diff is now the only
+place these values get checked.
+
+| Default | Now | Was | **Confirm against prod in the plan diff** |
+| :-- | :-- | :-- | :-- |
+| `state_builder` | `offserver` | `server` | `NOETL_STATE_BUILDER=offserver` appears in the server patch **and both** system-pool patches. Prod runs the off-server builder; `server` would switch it off. |
+| `writer_claim_cmdbus` | `noetl-cmdbus-writer-0-data` | `noetl-cmdbus-writer-data` | `claimName:` in the rendered StatefulSet, against `K get pvc`. |
+| `writer_claim_eventbus` | `noetl-eventbus-writer-0-data` | `noetl-eventbus-writer-data` | same |
+| `writer_claim_kv` | `noetl-eventbus-kv-0-data` | `noetl-eventbus-kv-data` | same |
+| `user_pool_container` | `noetl-worker` | `worker` | the user-pool patch's `"name"` field reads `noetl-worker`, with no `NOTE … resolved to` line. A `NOTE` means the name did not match and the playbook fell back — read it, do not skim past it. |
+| `gateway_namespace` / `gateway_deployment` | `gateway` / `gateway` | `noetl` / `noetl-gateway` | a `PLAN gateway` block appears at all. Its absence with `gateway_reconcile=true` is a hard error, which is the point. |
+| `writer_memory_limit` | `4Gi` | `2Gi` | `limits: { cpu: "2", memory: "4Gi" }`; requests `250m` / `512Mi`. |
+| `system_pool_deployment` | both pools | one pool | a `── system pool:` block for `noetl-worker-system-pool` **and** `-shard1`. |
+
+**These are readings from 2026-08-03, not invariants.** Re-run the P0 discovery
+commands and diff them against the table above before the plan; if any row has
+moved, the `--set` goes back on the command line rather than the plan being
+waved through.
+
+Two things P0 inverted, and the correct answer is to change **nothing**:
+
+- `state_shard_write` stays `true`. Prod runs all three materializer groups.
+- `verify_groups` stays at all three. The earlier instruction to narrow it to
+  two would have made verify read a live group as absent — and by this rig's own
+  rule, unreadable is a failure, not a zero.
+
+### The writer Service selector — found in kind, would have hit prod
+
+`kubectl apply` is a **three-way merge**: a key on the live object that appears
+in neither the applied config nor its `last-applied-configuration` annotation is
+preserved by design. Prod's per-shard writer Services were created imperatively
+during the cutover, so they carry no such annotation — and their existing
+`app: noetl-cmdbus-writer-0` selector would have **survived** the converge,
+ANDed with the pod-name selector the StatefulSet renders. The StatefulSet's pod
+is labelled `app: noetl-cmdbus-writer` (no ordinal) and satisfies neither
+conjunct.
+
+Result: `Service/noetl-cmdbus-writer-0` resolves to **zero endpoints** while the
+writer pod sits 1/1 Running with all nine faces listening. Everything addresses
+the writer through that Service — the server's ingest, both pools' claim, the
+gateway's KV and SSE, the KEDA scaler — so it is a total, silent outage behind a
+green rollout. Reproduced exactly that way in kind on 2026-08-03.
+
+ops@`5e28543` forces `/spec/selector` with a JSON patch (the only shape that can
+drop a key — strategic and merge patches both merge maps), prints what it
+removed, and fails the writer's status step if any per-shard Service has no
+endpoints. **In the P3 plan, look for `PLAN selector on Service/… will be
+REPLACED` and read the before/after.** In P4, confirm the endpoint after:
+
+```bash
+K get endpoints noetl-cmdbus-writer-0     # must list the writer pod IP
 ```
 
 > Run these on `noetl` **2.17.0**. A 4.19.0 build executes the playbooks
@@ -722,8 +799,8 @@ noetl run automation/ehdb/ehdb_platform.yaml -r local \
 | :-- | :-- |
 | `writer_storage_mode=claim` | The existing PVCs hold the **live command and event logs**. `template` provisions fresh volumes and strands them. This is the single most dangerous default in the whole run. |
 | `writer_storage_class=premium-rwo` | The writer's durability posture is fsync-per-append — disk sync latency *is* the append-latency budget. On PD-standard a synced append is tens of ms and the bus falls outside the envelope NATS set. |
-| `state_builder_shadow=false` | Prod runs `NOETL_STATE_BUILDER=server`; the off-server subsystem is off there (#217). Enabling the shadow drain puts a **new client on :9108** in production. |
-| `gateway_reconcile=true` | `auto` skips the gateway, because the kind rig has no gateway. Prod does. |
+| `gateway_reconcile=true` | `auto` skips the gateway, because the kind rig has no gateway. Prod does. `true` makes an absent gateway a hard error instead of a silent skip — which is exactly what caught the wrong namespace. |
+| `autoscaler_enabled=false` | P4c converges the ScaledObject separately, so a scaling anomaly and a topology anomaly cannot be confused. |
 | `writer_image` digest-pinned | The P1b digest. Never a tag. |
 | `profile=prod` | It is a **guard**: `prod` refuses a `kind-*` context and `kind` refuses anything else. Belt and braces on top of the explicit `context`. |
 
@@ -731,62 +808,62 @@ noetl run automation/ehdb/ehdb_platform.yaml -r local \
 example in `ehdb_platform.yaml` passes every one of them explicitly for exactly
 that reason. Do not assume `profile=prod` implies them.
 
-### ⚠ Two parameters the entry point does not thread — found while writing this
+### The two un-threaded parameters — CLOSED
 
-These are real gaps in ops#245 as it stands, and both need a decision **before**
-P4:
+Both gaps found while writing this document are fixed and no longer need a
+decision:
 
-**1. `claim_cmdbus` / `claim_eventbus` / `claim_kv` are not passed from
-`ehdb_platform.yaml` to `ehdb_writer.yaml`.** The child defaults them to
-`noetl-cmdbus-writer-data`, `noetl-eventbus-writer-data`,
-`noetl-eventbus-kv-data` — names taken from the *soak reconstruction*, not from
-prod. If P0 shows prod's PVC names differ, `--set claim_cmdbus=...` **on the
-platform playbook has no effect**: the value is never forwarded. The converge
-would then mount the wrong (or non-existent) claims.
+**1. `claim_cmdbus` / `claim_eventbus` / `claim_kv` were not forwarded** from
+`ehdb_platform.yaml` to `ehdb_writer.yaml`, so `--set claim_cmdbus=...` on the
+entry point silently did nothing. Threaded in ops@`9dcc5dd` as
+`writer_claim_cmdbus` / `writer_claim_eventbus` / `writer_claim_kv`, and their
+defaults are now prod's shard-indexed names. Verified end to end in kind: the
+converged StatefulSet mounts the three pre-existing PVCs by name, with **no**
+`volumeClaimTemplates` and no newly provisioned volume.
 
-  - If P0's names match the defaults: nothing to do, but say so explicitly in
-    the run log.
-  - If they differ: either patch `ehdb_platform.yaml` to thread the three
-    parameters (preferred, one commit on ops#245), or invoke
-    `automation/ehdb/ehdb_writer.yaml` directly with the right `--set`s and run
-    the other children separately. **Do not rename prod's PVCs to match the
-    playbook.**
+**2. `state_shard_write` was not forwarded either.** Also threaded in
+ops@`9dcc5dd`. The premise behind the worry was wrong in the other direction:
+prod **does** run the third materializer group, so the `"true"` default is
+correct and there is no silent topology change to prevent. `verify_groups`
+correspondingly stays at all three — narrowing it would make verify read a live
+group as `NA`, which this rig counts as a failure.
 
-**2. `state_shard_write` is not passed either**, and `ehdb_runtime.yaml`
-defaults it to `"true"`. A prod converge would therefore set
-`NOETL_STATE_SHARD_WRITE=true` on the system pool and **start a third
-materializer group** (`noetl_state_materializer`) that prod deliberately does
-not run (#217). It would not crashloop — `NOETL_STATE_MATERIALIZER_SOURCE=ehdb`
-is rendered unconditionally — so this is a **silent topology change smuggled in
-by the IaC**, which is exactly the failure class this whole workstream exists to
-eliminate. Same fix shape: thread the parameter, or run `ehdb_runtime.yaml`
-directly with `--set state_shard_write=false`.
-
-**Consequence for verify:** `verify_groups` defaults to all three groups. If
-the state materializer stays off (the correct prod shape), verify must run with
-
-```
---set verify_groups="noetl_materializer noetl_result_materializer"
-```
-
-or it will read a non-existent group's cursor as `NA` — and by this rig's own
-rule an unreadable metric is a **failure**.
+**Do not rename prod's PVCs to match the playbook.** That direction of fix is
+still forbidden.
 
 ### Reading the plan — the checklist
 
-- [ ] PVC names in the rendered StatefulSet match P0 **verbatim**.
-- [ ] `storageClassName: premium-rwo`.
+- [ ] PVC names in the rendered StatefulSet match P0 **verbatim** —
+      `noetl-cmdbus-writer-0-data`, `noetl-eventbus-writer-0-data`,
+      `noetl-eventbus-kv-0-data`. And `volumes:` not `volumeClaimTemplates:`.
+- [ ] `storageClassName: premium-rwo` — n/a under `storage_mode=claim` (the
+      class comes from the existing PVCs); confirm the PVCs themselves are
+      `premium-rwo` in P0 instead.
 - [ ] Writer image is the P1b **digest**.
-- [ ] `NOETL_STATE_SHARD_WRITE` matches prod's current value (see gap 2).
-- [ ] `NOETL_STATE_BUILDER=server`, `NOETL_STATE_BUILDER_SHADOW=false`.
-- [ ] All four `*_SOURCE` vars render as `ehdb`.
+- [ ] Writer `limits: { cpu: "2", memory: "4Gi" }`, requests `250m` / `512Mi` —
+      **not** 2Gi. A shrink here is a live workload losing headroom.
+- [ ] `NOETL_STATE_SHARD_WRITE=true` on **both** system pools.
+- [ ] `NOETL_STATE_BUILDER=offserver` on the server **and both** system pools.
+      `server` here turns a running subsystem off.
+- [ ] `NOETL_STATE_BUILDER_SHADOW=false` — prod carries no such variable, so
+      this is an expected first-converge diff that rolls the system pools once.
+- [ ] All four `*_SOURCE` vars render as `ehdb`, on both system pools.
 - [ ] Per-pool `NOETL_FEED_FILTER_SUBJECT` matches P0 (`shared` vs `system`) —
       a wrong value silently collapses a pool onto the wrong subject and it
       stops claiming its own commands (#218).
-- [ ] Probes point at **:9101** and no probe points at any events face.
-- [ ] `terminationGracePeriodSeconds: 60` > the 15 s shutdown budget.
+- [ ] The user-pool patch names container `noetl-worker`, with **no**
+      `NOTE … resolved to` line. A NOTE means the configured name missed.
+- [ ] A `── system pool:` block appears for `noetl-worker-system-pool` **and**
+      `noetl-worker-system-pool-shard1`.
+- [ ] A `PLAN gateway` block appears, in namespace `gateway`, container
+      `gateway`, carrying `NOETL_EVENT_FEED_ADDR` and `NOETL_KV_ADDR`.
+- [ ] `PLAN selector on Service/noetl-cmdbus-writer-0 will be REPLACED` — read
+      the before/after. Its absence means the selector is already exact.
+- [ ] Probes point at **:9101** (`tcpSocket: { port: cmdbus-claim }`) and no
+      probe points at any events face.
+- [ ] `terminationGracePeriodSeconds: 60` > the 15 s shutdown budget. (Prod runs
+      90 today; 60 is a reduction, still ≫ the budget.)
 - [ ] Per-shard ClusterIP + headless only; **no aggregate ClusterIP**.
-- [ ] Gateway patch carries `NOETL_EVENT_FEED_ADDR` and `NOETL_KV_ADDR`.
 - [ ] The scrape object matches the CRD P0 found (`PodMonitoring` for GMP).
 
 ### Gate
@@ -829,6 +906,10 @@ that does not work.
 
 Quiet window. The writer pod drops once.
 
+**The exact command. It is the P3 line with `plan` → `converge` and nothing
+else changed** — deliberately, so that what you read in the plan is what runs.
+Run it from `repos/ops` on ops#245 at `5e28543` or later, on `noetl` **2.17.0**.
+
 ```bash
 noetl run automation/ehdb/ehdb_platform.yaml -r local \
   --set action=converge \
@@ -838,14 +919,31 @@ noetl run automation/ehdb/ehdb_platform.yaml -r local \
   --set writer_storage_class=premium-rwo \
   --set writer_image="$WORKER_IMG" \
   --set writer_image_pull_policy=IfNotPresent \
-  --set state_builder_shadow=false \
   --set gateway_reconcile=true \
-  --set autoscaler_enabled=false \
-  --set verify_groups="noetl_materializer noetl_result_materializer"
+  --set autoscaler_enabled=false
 ```
 
-(plus whatever the P3 gap-2 decision requires for `state_shard_write`, and
-gap-1 for the claim names.)
+No `--set state_builder=…`, no `--set verify_groups=…`, no
+`--set user_pool_container=…`, no `--set gateway_namespace=…`, no
+`--set writer_claim_*=…`, no `--set writer_memory_limit=…`. Every one of those
+is now the **default**, carrying prod's value measured on 2026-08-03.
+
+**Values that MUST be re-confirmed against prod before this runs**, because they
+are defaults and therefore invisible on the command line — all of them read out
+of the P3 plan diff, cross-checked against a fresh P0 sweep:
+
+| Value | Default | Confirm with |
+| :-- | :-- | :-- |
+| `NOETL_STATE_BUILDER` | `offserver` | `K get deploy noetl-server-rust noetl-worker-system-pool noetl-worker-system-pool-shard1 -o json \| jq -r '..\|objects\|select(.name=="NOETL_STATE_BUILDER").value'` |
+| the three PVC names | shard-indexed | `K get pvc` |
+| user-pool container | `noetl-worker` | `K get deploy noetl-worker-rust -o jsonpath='{.spec.template.spec.containers[*].name}'` |
+| gateway location | ns `gateway`, Deployment `gateway` | `kubectl --context "$CTX" get deploy -A \| grep -i gateway` |
+| writer memory limit | `4Gi` | `K get deploy noetl-cmdbus-writer-0 -o jsonpath='{.spec.template.spec.containers[0].resources}'` |
+| both system pools present | list of two | `K get deploy \| grep system-pool` |
+| `NOETL_STATE_SHARD_WRITE` | `true` | same jq shape as the first row |
+
+If any of them has moved since P0, put the correct value back on the command
+line as an explicit `--set` — do **not** edit prod to match the playbook.
 
 **What the drop costs.** Commands issued in the window are re-issued by the
 orphaned-command guardrail ~30 s later, so it is survivable — but it is a real
@@ -870,11 +968,13 @@ K exec sts/noetl-cmdbus-writer -c noetl-worker -- \
 | Gate | Pass |
 | :-- | :-- |
 | Pod names | `noetl-cmdbus-writer-0` — the names prod already resolves |
-| PVCs | **the same PVC objects as P0**, not newly provisioned. `K get pvc` shows no new `creationTimestamp`. |
+| PVCs | **the same PVC objects as P0**, not newly provisioned. `K get pvc` shows no new `creationTimestamp`, and the StatefulSet has `volumes:` with the three claim names, **no** `volumeClaimTemplates`. |
+| **Service endpoints** | `K get endpoints noetl-cmdbus-writer-0` lists the writer pod IP. Empty here is a total silent outage behind a green rollout — see [the selector section](#the-writer-service-selector--found-in-kind-would-have-hit-prod). The playbook's own writer-status step fails on this now. |
 | Resume | `origin="persisted"`, `clamped=false` |
 | Log continuity | reopened tip ≥ the last pre-drop sample |
 | Faces | all nine listening, read from inside the pod |
-| Verify verdict | `VERDICT: PASS` on the paired evidence |
+| State builder | `NOETL_STATE_BUILDER=offserver` still on the server and both system pools; `:9108` still has a client |
+| Verify verdict | `VERDICT: PASS` on the paired evidence, with **all three** group cursors advancing by the published delta |
 | Idempotence | a second `converge` bumps **no** `.metadata.generation` and restarts no pod |
 
 Idempotence check:
@@ -969,6 +1069,7 @@ way to stage a change — it removes autoscaling entirely.
 | **P2d** hard SIGKILL | **Destroys the unsealed tail by design.** Lost *events* never reach `noetl.event` — the server writes zero rows under `PUBLISH_ONLY`, so the materializer is the sole writer. This can permanently lose source-of-truth records from an append-only log. | **Do not run.** P2c measures the exposure without triggering it; the unit tests give the bound (300/300 with the seal, 0/300 without). Human go-ahead required; no rollback exists. |
 | **P4b** `drain_legacy` deletes the writer Deployment | The Deployment spec is gone. Recovery depends entirely on the P4a saved YAML. | P4a is mandatory and must be verified non-truncated before the converge. |
 | **P4b** writer pod drop | Same as P1d, plus it is the first drop on a novel workload shape. | Requires worker#211 already deployed (P1) — that is what makes the seal happen at all. |
+| **P4b** the writer Service selector | `kubectl apply`'s three-way merge KEEPS the pre-existing `app:` selector key, ANDing it with the new pod-name selector. The Service then resolves to **zero endpoints** while the pod is 1/1 Running — a total silent outage behind a green rollout, cutting off server, both pools, gateway and KEDA at once. | ops@`5e28543` forces `/spec/selector` with a JSON patch and reports what it removed; the writer status step fails when a per-shard Service has no endpoints. Confirm `K get endpoints noetl-cmdbus-writer-0` after the converge. |
 | **P4b** with `storage_mode=template` (a mistake, not a step) | Provisions fresh volumes and **strands the live command and event logs**. | `claim` is mandatory and is on the P3 checklist twice. `shard_count=1` is enforced by the playbook when `claim` is set. |
 | **P4c** unpausing the ScaledObject | Live change to replica counts on a pool that has not autoscaled since 2026-07-26. | Separate phase, separate gate, saved ScaledObject YAML for rollback. |
 | Any `tcpSocket` probe or `nc -z` against :9104 / :9107 / :9108 | **Permanently kills that face**, silently, for the life of the process (ehdb#311). A k8s probe does it every period, forever. | Never connect to those ports. Read liveness from the pod's listening sockets. Writer probes point at :9101 and must not be repointed. |
@@ -981,18 +1082,21 @@ way to stage a change — it removes autoscaling entirely.
 Findings from reading the actual PRs, playbooks and branch source while writing
 this, in descending order of impact:
 
-1. **`state_shard_write` and the `claim_*` PVC names are not threaded from
-   `ehdb_platform.yaml` to its children.** `--set` on the entry point silently
-   has no effect on either. The PVC one risks mounting the wrong claims; the
-   `state_shard_write` one would start a third materializer group on prod that
-   prod deliberately does not run. Both need a decision (and probably a small
-   ops#245 commit) before P4. → commented on ops#245.
+1. ~~**`state_shard_write` and the `claim_*` PVC names are not threaded.**~~
+   **CLOSED** — threaded in ops@`9dcc5dd`, and the P0 sweep then found six more
+   defaults that disagreed with prod, all fixed in ops@`5e28543` and
+   kind-validated. The `state_shard_write` worry was inverted: prod **does** run
+   the third materializer group, so the `true` default is right and
+   `verify_groups` stays at all three. See
+   [What changed after P0](#what-changed-after-p0).
 2. **worker#211's `Cargo.toml` still reads `5.91.2`, an already-published
    tag.** `verify-version` hard-fails on a tag/Cargo mismatch. Bump to 5.92.0
    before merging, or the release job will not run.
-3. **`verify_groups` defaults to all three materializer groups**, one of which
-   prod does not run. Left alone, the IaC's own verify step fails on prod by
-   its own "unreadable is a failure" rule.
+3. ~~**`verify_groups` defaults to all three materializer groups**, one of which
+   prod does not run.~~ **WRONG PREMISE, corrected by P0** — prod runs all
+   three (`:9106` shows `noetl_state_materializer` live at lag 0). The default
+   is correct; *narrowing* it is what would have failed, by reading a live group
+   as absent.
 4. **The hard-kill measurement is more dangerous on prod than the kind write-up
    implies.** In kind it only ever risked test data. On prod, under
    `NOETL_EVENT_INGEST_PUBLISH_ONLY=true`, a lost events tail is a permanent

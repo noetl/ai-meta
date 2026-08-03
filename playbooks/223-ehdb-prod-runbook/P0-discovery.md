@@ -219,11 +219,16 @@ to compare against for prod's earlier 26 `cursor_errors` (ai-meta#216).
 
 ---
 
-## Corrected P3/P4 command line
+## Corrected P3/P4 command line — superseded by the defaults
 
-Everything above folded in. Additions to the runbook's version are marked `←`.
+The version below is what P0 concluded on the day: every correction expressed as
+a `--set`. It was **superseded the same day** by ops@`5e28543`, which moved all
+six into the playbook defaults, because a correction that lives only on a
+command line is one copy-paste away from being lost — and the P4 command is
+copied by hand under time pressure.
 
 ```bash
+# HISTORICAL — do not run.  See the runbook's P3/P4 for the current line.
 noetl run automation/ehdb/ehdb_platform.yaml -r local \
   --set action=plan \
   --set profile=prod \
@@ -247,6 +252,66 @@ noetl run automation/ehdb/ehdb_platform.yaml -r local \
 correct for prod. The three `claim_*` names now default to prod's real ones
 and are forwarded, so they need no override either; verify them in the plan
 diff regardless.
+
+---
+
+## The hardening pass, and what kind then found — 2026-08-03
+
+Every finding above is now a **default** in ops#245 @ `5e28543`. The trade is
+deliberate: the command line gets shorter and un-losable, and in exchange the
+values become invisible at the call site, so the **P3 plan diff is the only
+place they are checked**. The runbook's P3 checklist and its
+"[What changed after P0](README.md#what-changed-after-p0)" table exist for that.
+
+The IaC was then exercised against local kind — with the rig first rebuilt into
+prod's shape, since kind's own topology could not have caught any of this:
+
+| kind rig, rebuilt to match prod | Why |
+| :-- | :-- |
+| writer as a legacy **Deployment** `noetl-cmdbus-writer-0` over three shard-indexed PVCs (`noetl-cmdbus-writer-0-data`, …) | the adoption path P4 actually takes; kind ran a StatefulSet over `volumeClaimTemplates` |
+| namespace `gateway`, Deployment `gateway`, container `gateway`, carrying `NATS_URL` | kind has no gateway at all |
+| both system pools present | kind's `-shard1` was at 0 replicas and unreconciled |
+| writer memory limit 4Gi, requests 250m/512Mi | to prove the converge does not shrink it |
+
+Results: `plan` rendered the intended diff; `converge` reconciled and the
+StatefulSet adopted the three pre-existing PVCs verbatim (no
+`volumeClaimTemplates`, no new volume, same PV UIDs); verify returned
+`VERDICT: PASS` with `published == projected == 380` and **all three** group
+cursors advancing +380 to lag 0; a second `converge` moved no
+`.metadata.generation` on any of the five workloads or the gateway, with the
+writer pod UID unchanged and 0 restarts.
+
+### A seventh defect, which only running it could find
+
+`kubectl apply` is a **three-way merge**. A key on the live object present in
+neither the applied config nor its `last-applied-configuration` annotation is
+preserved *by design*. Prod's per-shard writer Services were created
+imperatively during the cutover and carry no such annotation — so their existing
+`app: noetl-cmdbus-writer-0` selector would have **survived** the converge and
+been ANDed with the pod-name selector the StatefulSet renders. The StatefulSet's
+pod is labelled `app: noetl-cmdbus-writer` (no ordinal) and matches neither.
+
+In kind this produced, after a clean converge with everything else green:
+
+```
+$ kubectl -n noetl get endpoints noetl-cmdbus-writer-0
+NAME                    ENDPOINTS   AGE
+noetl-cmdbus-writer-0   <none>      12h
+```
+
+Writer pod 1/1 Running, all nine faces listening, and nothing reachable —
+because the server's ingest, both pools' claim, the gateway's KV and SSE, and
+the KEDA scaler all address the writer through exactly that Service. A total,
+silent outage behind a green rollout.
+
+`ehdb_writer.yaml` now forces `/spec/selector` with a JSON patch (the only patch
+shape that can drop a map key), prints the before/after, and fails its status
+step when a per-shard Service has no endpoints. `plan` reports the impending
+replacement rather than performing it.
+
+**This is the one finding on this page that was not visible from reading**, and
+it is the argument for rebuilding the kind rig into the target's shape rather
+than validating against whatever kind happened to be running.
 
 ## Rollback targets recorded for P1
 
