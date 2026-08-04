@@ -104,6 +104,28 @@ throughout; the safety margin was not.
 
 ---
 
+## 2a. The `execution.cancelled` fix carries no risk to live work
+
+The same image makes `ExecutionService` recognise `execution.cancelled` as a
+cancellation terminal — which also makes `is_cancelled()` return true for those
+executions, and workers poll that to decide whether to abort. Worth checking
+before it ships, since "a read-path fix" that aborts running work would not be
+one.
+
+Measured on prod:
+
+| | |
+| :-- | --: |
+| executions carrying `execution.cancelled` | **234** |
+| active in the last 24h | **0** |
+| active in the last 30 days | **0** |
+| newest one, last event | **59 days ago** |
+
+Every one is long dead and was deliberately cancelled. The fix flips them
+`RUNNING` → `CANCELLED` in the projection and writes no events.
+
+---
+
 ## 3. The backlog is historical debt, not an active leak
 
 Measured on the same rig: of the load executions older than 10 minutes,
