@@ -1,0 +1,157 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"labels":{"app":"noetl-cmdbus-writer-0","component":"cmdbus-writer","managed-by":"noetl","shard":"0"},"name":"noetl-cmdbus-writer-0-data","namespace":"noetl"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"20Gi"}},"storageClassName":"premium-rwo"}}
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-27T03:53:18Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: noetl-cmdbus-writer-0
+      component: cmdbus-writer
+      managed-by: noetl
+      shard: "0"
+    name: noetl-cmdbus-writer-0-data
+    namespace: noetl
+    resourceVersion: "1785124400038783001"
+    uid: c3c16b05-501f-4e9f-beb2-c84f5ee81457
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi
+    storageClassName: premium-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-c3c16b05-501f-4e9f-beb2-c84f5ee81457
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 20Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"labels":{"app":"noetl-cmdbus-writer-1","component":"cmdbus-writer","managed-by":"noetl","shard":"1"},"name":"noetl-cmdbus-writer-1-data","namespace":"noetl"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"20Gi"}},"storageClassName":"premium-rwo"}}
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-27T03:53:19Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: noetl-cmdbus-writer-1
+      component: cmdbus-writer
+      managed-by: noetl
+      shard: "1"
+    name: noetl-cmdbus-writer-1-data
+    namespace: noetl
+    resourceVersion: "1785124401171631017"
+    uid: 13397592-7df2-480e-8d10-84f56e6cb7eb
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi
+    storageClassName: premium-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-13397592-7df2-480e-8d10-84f56e6cb7eb
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 20Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"labels":{"app":"noetl-cmdbus-writer-0","component":"eventbus-kv","managed-by":"noetl","shard":"0"},"name":"noetl-eventbus-kv-0-data","namespace":"noetl"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"20Gi"}},"storageClassName":"premium-rwo"}}
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-08-01T01:40:34Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: noetl-cmdbus-writer-0
+      component: eventbus-kv
+      managed-by: noetl
+      shard: "0"
+    name: noetl-eventbus-kv-0-data
+    namespace: noetl
+    resourceVersion: "1785548438047551008"
+    uid: 0701ecfb-8841-4b54-aa42-667a2100fce8
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi
+    storageClassName: premium-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-0701ecfb-8841-4b54-aa42-667a2100fce8
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 20Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"labels":{"app":"noetl-cmdbus-writer-0","component":"eventbus-writer","managed-by":"noetl","shard":"0"},"name":"noetl-eventbus-writer-0-data","namespace":"noetl"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"50Gi"}},"storageClassName":"premium-rwo"}}
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+      volume.kubernetes.io/selected-node: gk3-noetl-prod-autopilot-pool-3-0e057c22-489h
+      volume.kubernetes.io/storage-provisioner: pd.csi.storage.gke.io
+    creationTimestamp: "2026-07-31T13:36:03Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    labels:
+      app: noetl-cmdbus-writer-0
+      component: eventbus-writer
+      managed-by: noetl
+      shard: "0"
+    name: noetl-eventbus-writer-0-data
+    namespace: noetl
+    resourceVersion: "1785505274667983002"
+    uid: 109cc4b9-dc0d-4c60-a8e7-e6c40dfa4a19
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 50Gi
+    storageClassName: premium-rwo
+    volumeMode: Filesystem
+    volumeName: pvc-109cc4b9-dc0d-4c60-a8e7-e6c40dfa4a19
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 50Gi
+    phase: Bound
+kind: List
+metadata:
+  resourceVersion: ""

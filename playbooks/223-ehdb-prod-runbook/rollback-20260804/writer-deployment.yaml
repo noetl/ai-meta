@@ -1,0 +1,261 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    autopilot.gke.io/resource-adjustment: '{"input":{"initContainers":[{"name":"wait-for-api"}],"containers":[{"limits":{"cpu":"2","memory":"4Gi"},"requests":{"cpu":"250m","memory":"512Mi"},"name":"noetl-worker"}]},"output":{"initContainers":[{"limits":{"ephemeral-storage":"1Gi"},"requests":{"cpu":"250m","ephemeral-storage":"1Gi","memory":"512Mi"},"name":"wait-for-api"}],"containers":[{"limits":{"cpu":"2","ephemeral-storage":"1Gi","memory":"4Gi"},"requests":{"cpu":"250m","ephemeral-storage":"1Gi","memory":"512Mi"},"name":"noetl-worker"}]},"computeClassAtAdmission":"Default","modified":true}'
+    autopilot.gke.io/warden-version: 35.26.5-gke.0
+    deployment.kubernetes.io/revision: "31"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"noetl-cmdbus-writer-0","command-bus":"ehdb","component":"cmdbus-writer","managed-by":"noetl","runtime":"rust","shard":"0"},"name":"noetl-cmdbus-writer-0","namespace":"noetl"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"noetl-cmdbus-writer-0"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"annotations":{"prometheus.io/path":"/metrics","prometheus.io/port":"9102","prometheus.io/scrape":"true"},"labels":{"app":"noetl-cmdbus-writer-0","command-bus":"ehdb","component":"cmdbus-writer","runtime":"rust","shard":"0"}},"spec":{"containers":[{"env":[{"name":"WORKER_POOL_NAME","value":"cmdbus-writer"},{"name":"WORKER_ID","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"NATS_URL","valueFrom":{"configMapKeyRef":{"key":"NATS_URL","name":"noetl-worker-config"}}},{"name":"NATS_STREAM","value":"NOETL_COMMANDS_RUST"},{"name":"NATS_CONSUMER","value":"noetl_cmdbus_writer_0"},{"name":"NATS_FILTER_SUBJECT","value":"noetl.commands.cmdbus.\u003e"},{"name":"NOETL_SERVER_URL","value":"http://noetl-server-rust.noetl.svc.cluster.local:8082"},{"name":"WORKER_HEARTBEAT_INTERVAL","value":"15"},{"name":"WORKER_MAX_CONCURRENT","value":"1"},{"name":"WORKER_METRICS_BIND","value":"0.0.0.0:9090"},{"name":"RUST_LOG","value":"info,noetl_worker=info,ehdb_feed=info"},{"name":"NOETL_COMMAND_BUS","value":"nats"},{"name":"NOETL_COMMAND_BUS_HOST","value":"true"},{"name":"NOETL_COMMAND_BUS_SHARD","value":"0"},{"name":"NOETL_COMMAND_SHARD_COUNT","value":"2"},{"name":"NOETL_COMMAND_BUS_WRITER_DIR","value":"/data/cmdbus"},{"name":"NOETL_COMMAND_BUS_INGEST_BIND","value":"0.0.0.0:9100"},{"name":"NOETL_COMMAND_BUS_CLAIM_BIND","value":"0.0.0.0:9101"},{"name":"NOETL_COMMAND_BUS_METRICS_BIND","value":"0.0.0.0:9102"},{"name":"NOETL_COMMAND_BUS_ACK_WAIT_SECS","value":"30"}],"image":"ghcr.io/noetl/worker@sha256:27807d74c2cc356883b057a814a9d4300323763b0f11fcd0eb34844f5a82fbe1","imagePullPolicy":"IfNotPresent","livenessProbe":{"failureThreshold":6,"initialDelaySeconds":20,"periodSeconds":15,"tcpSocket":{"port":9090}},"name":"noetl-worker","ports":[{"containerPort":9100,"name":"cmdbus-ingest"},{"containerPort":9101,"name":"cmdbus-claim"},{"containerPort":9102,"name":"cmdbus-lag"},{"containerPort":9090,"name":"metrics"}],"resources":{"limits":{"cpu":"2","memory":"4Gi"},"requests":{"cpu":"250m","memory":"512Mi"}},"volumeMounts":[{"mountPath":"/data/cmdbus","name":"cmdbus-data"}]}],"initContainers":[{"command":["sh","-c","until curl -sf http://noetl-server-rust.noetl.svc.cluster.local:8082/api/health; do echo waiting-for-api; sleep 3; done"],"image":"curlimages/curl:8.7.1","imagePullPolicy":"IfNotPresent","name":"wait-for-api"}],"serviceAccountName":"noetl-worker","volumes":[{"name":"cmdbus-data","persistentVolumeClaim":{"claimName":"noetl-cmdbus-writer-0-data"}}]}}}}
+  creationTimestamp: "2026-07-27T03:53:18Z"
+  generation: 34
+  labels:
+    app: noetl-cmdbus-writer-0
+    command-bus: ehdb
+    component: cmdbus-writer
+    managed-by: noetl
+    runtime: rust
+    shard: "0"
+  name: noetl-cmdbus-writer-0
+  namespace: noetl
+  resourceVersion: "1785827367772559019"
+  uid: 5f27d0a8-751b-43eb-b2de-a647d19fef41
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: noetl-cmdbus-writer-0
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2026-07-30T20:26:03-07:00"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9102"
+        prometheus.io/scrape: "true"
+      labels:
+        app: noetl-cmdbus-writer-0
+        command-bus: ehdb
+        component: cmdbus-writer
+        runtime: rust
+        shard: "0"
+    spec:
+      containers:
+      - env:
+        - name: NOETL_EVENT_BUS_HOST
+          value: "true"
+        - name: NOETL_EVENT_BUS_SHARD
+          value: "0"
+        - name: NOETL_EVENT_SHARD_COUNT
+          value: "1"
+        - name: NOETL_EVENT_BUS_WRITER_DIR
+          value: /data/eventbus
+        - name: NOETL_EVENT_BUS_INGEST_BIND
+          value: 0.0.0.0:9103
+        - name: NOETL_EVENT_BUS_CLAIM_BIND
+          value: 0.0.0.0:9104
+        - name: NOETL_EVENT_BUS_METRICS_BIND
+          value: 0.0.0.0:9106
+        - name: NOETL_EVENT_BUS_ACK_WAIT_SECS
+          value: "30"
+        - name: NOETL_EVENT_BUS_CURSOR_FALLBACK
+          value: tail
+        - name: WORKER_POOL_NAME
+          value: cmdbus-writer
+        - name: WORKER_ID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: NOETL_SERVER_URL
+          value: http://noetl-server-rust.noetl.svc.cluster.local:8082
+        - name: WORKER_HEARTBEAT_INTERVAL
+          value: "15"
+        - name: WORKER_MAX_CONCURRENT
+          value: "1"
+        - name: WORKER_METRICS_BIND
+          value: 0.0.0.0:9090
+        - name: RUST_LOG
+          value: info,noetl_worker=info,ehdb_feed=info
+        - name: NOETL_COMMAND_BUS
+          value: ehdb
+        - name: NOETL_COMMAND_BUS_HOST
+          value: "true"
+        - name: NOETL_COMMAND_BUS_SHARD
+          value: "0"
+        - name: NOETL_COMMAND_SHARD_COUNT
+          value: "1"
+        - name: NOETL_COMMAND_BUS_WRITER_DIR
+          value: /data/cmdbus
+        - name: NOETL_COMMAND_BUS_INGEST_BIND
+          value: 0.0.0.0:9100
+        - name: NOETL_COMMAND_BUS_CLAIM_BIND
+          value: 0.0.0.0:9101
+        - name: NOETL_COMMAND_BUS_METRICS_BIND
+          value: 0.0.0.0:9102
+        - name: NOETL_COMMAND_BUS_ACK_WAIT_SECS
+          value: "30"
+        - name: NOETL_COMMAND_BUS_CLAIM_ADDR
+          value: 127.0.0.1:9101
+        - name: NOETL_EVENT_BUS_SSE_BIND
+          value: 0.0.0.0:9105
+        - name: NOETL_EVENT_BUS_KV_BIND
+          value: 0.0.0.0:9107
+        - name: NOETL_EVENT_BUS_KV_DIR
+          value: /data/eventbus-kv
+        - name: NOETL_EVENT_BUS_WAL_BIND
+          value: 0.0.0.0:9108
+        - name: NOETL_FEED_FILTER_SUBJECT
+          value: noetl.commands.cmdbus.>
+        image: us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:aee71e87e061ee81f3848a295f3e68dcbe77fda9369e50f32a06074bf21310f6
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 6
+          initialDelaySeconds: 20
+          periodSeconds: 15
+          successThreshold: 1
+          tcpSocket:
+            port: 9090
+          timeoutSeconds: 1
+        name: noetl-worker
+        ports:
+        - containerPort: 9100
+          name: cmdbus-ingest
+          protocol: TCP
+        - containerPort: 9101
+          name: cmdbus-claim
+          protocol: TCP
+        - containerPort: 9102
+          name: cmdbus-lag
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        - containerPort: 9103
+          name: events-ingest
+          protocol: TCP
+        - containerPort: 9104
+          name: events-claim
+          protocol: TCP
+        - containerPort: 9105
+          name: events-sse
+          protocol: TCP
+        - containerPort: 9106
+          name: events-lag
+          protocol: TCP
+        - containerPort: 9107
+          name: events-kv
+          protocol: TCP
+        - containerPort: 9108
+          name: events-wal
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "2"
+            ephemeral-storage: 1Gi
+            memory: 4Gi
+          requests:
+            cpu: 250m
+            ephemeral-storage: 1Gi
+            memory: 512Mi
+        securityContext:
+          capabilities:
+            drop:
+            - NET_RAW
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data/cmdbus
+          name: cmdbus-data
+        - mountPath: /data/eventbus
+          name: eventbus-data
+        - mountPath: /data/eventbus-kv
+          name: eventbus-kv
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - until curl -sf http://noetl-server-rust.noetl.svc.cluster.local:8082/api/health;
+          do echo waiting-for-api; sleep 3; done
+        env:
+        - name: NOETL_COMMAND_BUS
+          value: ehdb
+        - name: NOETL_COMMAND_SHARD_COUNT
+          value: "1"
+        - name: NOETL_COMMAND_BUS_CLAIM_ADDR
+          value: 127.0.0.1:9101
+        - name: NOETL_EVENT_BUS_HOST
+          value: "true"
+        - name: NOETL_EVENT_BUS_SSE_BIND
+          value: 0.0.0.0:9105
+        - name: NOETL_EVENT_BUS_KV_BIND
+          value: 0.0.0.0:9107
+        - name: NOETL_EVENT_BUS_KV_DIR
+          value: /data/eventbus-kv
+        - name: NOETL_EVENT_BUS_WAL_BIND
+          value: 0.0.0.0:9108
+        - name: NOETL_FEED_FILTER_SUBJECT
+          value: noetl.commands.cmdbus.>
+        image: curlimages/curl:8.7.1
+        imagePullPolicy: IfNotPresent
+        name: wait-for-api
+        resources:
+          limits:
+            ephemeral-storage: 1Gi
+          requests:
+            cpu: 250m
+            ephemeral-storage: 1Gi
+            memory: 512Mi
+        securityContext:
+          capabilities:
+            drop:
+            - NET_RAW
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: noetl-worker
+      serviceAccountName: noetl-worker
+      terminationGracePeriodSeconds: 90
+      tolerations:
+      - effect: NoSchedule
+        key: kubernetes.io/arch
+        operator: Equal
+        value: amd64
+      volumes:
+      - name: cmdbus-data
+        persistentVolumeClaim:
+          claimName: noetl-cmdbus-writer-0-data
+      - name: eventbus-data
+        persistentVolumeClaim:
+          claimName: noetl-eventbus-writer-0-data
+      - name: eventbus-kv
+        persistentVolumeClaim:
+          claimName: noetl-eventbus-kv-0-data
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2026-07-27T03:53:18Z"
+    lastUpdateTime: "2026-08-04T07:04:12Z"
+    message: ReplicaSet "noetl-cmdbus-writer-0-7db7fbc6b8" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  - lastTransitionTime: "2026-08-04T07:09:27Z"
+    lastUpdateTime: "2026-08-04T07:09:27Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  observedGeneration: 34
+  readyReplicas: 1
+  replicas: 1
+  terminatingReplicas: 0
+  updatedReplicas: 1

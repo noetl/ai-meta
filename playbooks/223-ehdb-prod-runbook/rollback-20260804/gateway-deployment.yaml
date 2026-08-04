@@ -1,0 +1,147 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    autopilot.gke.io/resource-adjustment: '{"input":{"containers":[{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"100m","memory":"128Mi"},"name":"gateway"}]},"output":{"containers":[{"limits":{"cpu":"500m","ephemeral-storage":"1Gi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"1Gi","memory":"128Mi"},"name":"gateway"}]},"computeClassAtAdmission":"Default","modified":true}'
+    autopilot.gke.io/warden-version: 34.45.0-gke.0
+    deployment.kubernetes.io/revision: "6"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{"autopilot.gke.io/resource-adjustment":"{\"input\":{\"containers\":[{\"limits\":{\"cpu\":\"500m\",\"memory\":\"512Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"128Mi\"},\"name\":\"gateway\"}]},\"output\":{\"containers\":[{\"limits\":{\"cpu\":\"500m\",\"ephemeral-storage\":\"1Gi\",\"memory\":\"512Mi\"},\"requests\":{\"cpu\":\"100m\",\"ephemeral-storage\":\"1Gi\",\"memory\":\"128Mi\"},\"name\":\"gateway\"}]},\"computeClassAtAdmission\":\"Default\",\"modified\":true}","autopilot.gke.io/warden-version":"34.45.0-gke.0"},"labels":{"app":"gateway","app.kubernetes.io/managed-by":"Helm"},"name":"gateway","namespace":"gateway"},"spec":{"replicas":1,"revisionHistoryLimit":10,"selector":{"matchLabels":{"app":"gateway"}},"strategy":{"rollingUpdate":{"maxSurge":"25%","maxUnavailable":"25%"},"type":"RollingUpdate"},"template":{"metadata":{"labels":{"app":"gateway"}},"spec":{"containers":[{"env":[{"name":"ROUTER_PORT","value":"8090"},{"name":"NOETL_BASE_URL","value":"http://noetl.noetl.svc.cluster.local:8082"},{"name":"RUST_LOG","value":"info,gateway=debug"},{"name":"CORS_ALLOWED_ORIGINS","value":"http://localhost:3001,http://localhost:5173,http://127.0.0.1:5173,https://mestumre.dev,https://gateway.mestumre.dev,http://mestumre.dev,http://gateway.mestumre.dev,https://travel.mestumre.dev,http://travel.mestumre.dev"},{"name":"NATS_URL","value":"nats://noetl:noetl@nats.nats.svc.cluster.local:4222"},{"name":"NATS_UPDATES_SUBJECT_PREFIX","value":"noetl.events."},{"name":"NOETL_TIMEOUT_SECS","value":"120"},{"name":"TRANSPORT_HEARTBEAT_INTERVAL_SECS","value":"15"},{"name":"NATS_REQUEST_TTL_SECS","value":"300"},{"name":"AUTH_PLAYBOOK_TIMEOUT_SECS","value":"40"},{"name":"GATEWAY_HEARTBEAT_INTERVAL_SECS","value":"15"},{"name":"GATEWAY_CONNECTION_TIMEOUT_SECS","value":"300"},{"name":"GATEWAY_PUBLIC_URL","value":"http://gateway.gateway.svc.cluster.local"},{"name":"GATEWAY_AUTH0_DOMAIN","value":"mestumre-development.us.auth0.com"},{"name":"GATEWAY_AUTH0_CLIENT_ID","value":"Jqop7YoaiZalLHdBRo5ScNQ1RJhbhbDN"},{"name":"GATEWAY_AUTH0_REDIRECT_URI","value":"https://travel.mestumre.dev/login"},{"name":"NOETL_AUTH_SYNC","value":"true"},{"name":"NOETL_AUTHZ_SYNC","value":"true"}],"image":"us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-gateway@sha256:eef3a7c4370741f76ea1ab670d187b878e8e10a4897e5764a80621b26b3e7bf3","imagePullPolicy":"Always","livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8090,"scheme":"HTTP"},"initialDelaySeconds":10,"periodSeconds":30,"successThreshold":1,"timeoutSeconds":1},"name":"gateway","ports":[{"containerPort":8090,"name":"http","protocol":"TCP"}],"readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8090,"scheme":"HTTP"},"initialDelaySeconds":5,"periodSeconds":10,"successThreshold":1,"timeoutSeconds":1},"resources":{"limits":{"cpu":"500m","ephemeral-storage":"1Gi","memory":"512Mi"},"requests":{"cpu":"100m","ephemeral-storage":"1Gi","memory":"128Mi"}},"securityContext":{"capabilities":{"drop":["NET_RAW"]}},"terminationMessagePath":"/dev/termination-log","terminationMessagePolicy":"File"}],"dnsPolicy":"ClusterFirst","restartPolicy":"Always","schedulerName":"default-scheduler","securityContext":{"seccompProfile":{"type":"RuntimeDefault"}},"terminationGracePeriodSeconds":30,"tolerations":[{"effect":"NoSchedule","key":"kubernetes.io/arch","operator":"Equal","value":"amd64"}]}}}}
+  creationTimestamp: "2026-07-26T17:37:36Z"
+  generation: 6
+  labels:
+    app: gateway
+    app.kubernetes.io/managed-by: Helm
+  name: gateway
+  namespace: gateway
+  resourceVersion: "1785781149372911022"
+  uid: c1bca0ef-8aa0-4b00-b95c-9aff65e48b9c
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: gateway
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+      - env:
+        - name: ROUTER_PORT
+          value: "8090"
+        - name: NOETL_BASE_URL
+          value: http://noetl.noetl.svc.cluster.local:8082
+        - name: RUST_LOG
+          value: info,gateway=debug
+        - name: CORS_ALLOWED_ORIGINS
+          value: http://localhost:3001,http://localhost:5173,http://127.0.0.1:5173,https://mestumre.dev,https://gateway.mestumre.dev,http://mestumre.dev,http://gateway.mestumre.dev,https://travel.mestumre.dev,http://travel.mestumre.dev
+        - name: NOETL_TIMEOUT_SECS
+          value: "120"
+        - name: TRANSPORT_HEARTBEAT_INTERVAL_SECS
+          value: "15"
+        - name: AUTH_PLAYBOOK_TIMEOUT_SECS
+          value: "40"
+        - name: GATEWAY_HEARTBEAT_INTERVAL_SECS
+          value: "15"
+        - name: GATEWAY_CONNECTION_TIMEOUT_SECS
+          value: "300"
+        - name: GATEWAY_PUBLIC_URL
+          value: http://gateway.gateway.svc.cluster.local
+        - name: GATEWAY_AUTH0_DOMAIN
+          value: mestumre-development.us.auth0.com
+        - name: GATEWAY_AUTH0_CLIENT_ID
+          value: Jqop7YoaiZalLHdBRo5ScNQ1RJhbhbDN
+        - name: GATEWAY_AUTH0_REDIRECT_URI
+          value: https://travel.mestumre.dev/login
+        - name: NOETL_AUTH_SYNC
+          value: "true"
+        - name: NOETL_AUTHZ_SYNC
+          value: "true"
+        - name: NOETL_EVENT_SOURCE
+          value: ehdb
+        - name: NOETL_EVENT_FEED_ADDR
+          value: noetl-cmdbus-writer-0.noetl.svc.cluster.local:9105
+        - name: NOETL_KV_ADDR
+          value: noetl-cmdbus-writer-0.noetl.svc.cluster.local:9107
+        image: us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-gateway:v3.7.1
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8090
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: gateway
+        ports:
+        - containerPort: 8090
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8090
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 500m
+            ephemeral-storage: 1Gi
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            ephemeral-storage: 1Gi
+            memory: 128Mi
+        securityContext:
+          capabilities:
+            drop:
+            - NET_RAW
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: kubernetes.io/arch
+        operator: Equal
+        value: amd64
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2026-08-01T03:15:32Z"
+    lastUpdateTime: "2026-08-01T15:58:43Z"
+    message: ReplicaSet "gateway-77465f4764" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  - lastTransitionTime: "2026-08-03T18:18:59Z"
+    lastUpdateTime: "2026-08-03T18:18:59Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  observedGeneration: 6
+  readyReplicas: 1
+  replicas: 1
+  terminatingReplicas: 0
+  updatedReplicas: 1
