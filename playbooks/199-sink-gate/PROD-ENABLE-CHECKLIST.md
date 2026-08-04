@@ -77,13 +77,25 @@ The trap, which cost a test run: **`mark` and `confirm` are a pair.** A
 `noetl.sink_pending` after the execution finishes shows an empty table whether
 the gate works perfectly or is completely unwired.
 
-Sample **during** a run with a slow sink step, or watch both counters:
+Sample **during** a run with a slow sink step, and prefer the **server-side**
+counter:
 
 ```
-noetl_worker_sink_state_post_total{action="mark",outcome="ok"}      must move
-noetl_worker_sink_state_post_total{action="confirm",outcome="ok"}   must move
+# SERVER — one endpoint, pool-independent. Watch this first.
+noetl_sink_state_total{op="mark"}                                   must move
+noetl_sink_state_total{op="confirm"}                                must move
+
+# WORKER — corroborating only. Per-pod and in-memory, and the user pool
+# autoscales, so the pod that ran the step may be gone before you scrape it.
+noetl_worker_sink_state_post_total{action="mark",outcome="ok"}      should move
 noetl_worker_sink_state_post_total{outcome="http_error"}            must stay 0
 ```
+
+The two together localise a failure without guesswork: worker `ok` rising while
+server `mark` stays flat means the posts are not arriving; worker `http_error`
+rising means prerequisite 2 has not taken effect; both flat means no sink step
+ran at all. Reading only the worker side is what cost a run — those counters die
+with the pod.
 
 A non-sink step must leave the feed untouched — if everything marks, the
 retention the gate produces means nothing.
