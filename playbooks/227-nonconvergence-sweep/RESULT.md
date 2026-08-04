@@ -1,6 +1,6 @@
 # #227 part B — the non-convergence sweep, and what validating it found
 
-**2026-08-04. Built, kind-validated, PRs open, NOT merged, NOT in prod.**
+**2026-08-04. Built, kind-validated at the production grace with both controls green, PRs open, NOT merged, NOT in prod.**
 
 The headline is not the sweep. It is that the negative control **failed on the
 first run**, for a reason worth more than the feature: at a 120-second grace it
@@ -123,6 +123,34 @@ Measured on prod:
 
 Every one is long dead and was deliberately cancelled. The fix flips them
 `RUNNING` → `CANCELLED` in the projection and writes no events.
+
+---
+
+## 2b. Re-validated at the production grace — both controls green
+
+Run 2, sweep enabled with `NOETL_NONCONVERGENCE_GRACE_SECS=120`, which the floor
+**raised at startup** (`configured=120 effective=3600`), under continuous load
+for the whole window.
+
+| control | expected | result |
+| :-- | :-- | :-- |
+| **PC** — 12 planted non-convergent executions | all FAILED | **12/12**, each with a real `playbook.failed` ✓ |
+| **NC-load** — healthy traffic throughout | zero touched | **0 of 550** ✓ |
+
+`noetl_nonconvergence_sweep_total{outcome="terminated"} = 18`, and the set
+closes exactly: **12 planted + 6 genuinely stranded**, nothing else.
+
+Those 6 are worth naming. They were executions from run 1's load, stranded
+in-flight by my own server rollouts an hour earlier, `stalled_secs` 3603–3659,
+all `last_event_type=command.completed` — none finalized in the 3600s since,
+against a measured finalization maximum of 393s. That is #227's own stranding
+shape, reproduced accidentally and then cleaned up correctly. None is in the
+negative-control set; none is a planted control.
+
+Termination ordering is longest-stalled-first as designed (tick 2 took
+3659 → 3658 → 3653 → 3652).
+
+The sweep was set back to `false` after the run; kind's default is restored.
 
 ---
 
