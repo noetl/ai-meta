@@ -11,6 +11,7 @@
 #   all three group cursors advanced by that same delta, ending at lag 0
 #   ehdb_events_cursor_errors == 0
 #   ehdb_l0_out_of_order_appends == 0
+#   ehdb_events_feed_tip ADVANCED  (noetl/ai-meta#230 — see below)
 #   0 dup execution ids, 0 publish errors
 #   every SSE subscriber saw every frame
 #
@@ -75,6 +76,15 @@ snapshot() { # snapshot <label>
     echo "published $(metric_sum "$(srv)" 'noetl_ehdb_events_published_total')"
     echo "publish_errors $(metric_sum "$(srv)" 'noetl_ehdb_events_publish_errors_total')"
     echo "projected $(metric "$(srv)" 'noetl_events_projected_total')"
+    # noetl/ai-meta#230 — the feed's own progress, independent of consumption.
+    # "all lags 0" is the same reading whether the consumers drained a real
+    # burst or NOTHING WAS EVER PUBLISHED, and the second case is normal here:
+    # `should_publish` excludes system-pool playbooks by design, so a window with
+    # only system traffic produces zero feed movement, entirely correctly. A
+    # soak sampled in one of those windows would report a clean pass having
+    # verified nothing. The tip advances on publish even at lag 0, so
+    # "tip advanced AND lag 0" is a claim an idle run cannot satisfy.
+    echo "feed_tip $(metric "$(evt)" 'ehdb_events_feed_tip')"
     echo "cursor_errors $(metric "$(evt)" 'ehdb_events_cursor_errors')"
     echo "out_of_order $(metric "$(cmd)" 'ehdb_l0_out_of_order_appends')"
     echo "l0_appends $(metric "$(cmd)" 'ehdb_l0_appends')"
@@ -191,6 +201,7 @@ D_PUB=$(delta published); D_PROJ=$(delta projected)
   echo "fired=$TOTAL accepted=$ACC errors=$ERRS dup_ids=$DUPS"
   echo "published_delta=$D_PUB projected_delta=$D_PROJ"
   echo "publish_errors=$(g publish_errors after)"
+  echo "feed_tip_delta=$(delta feed_tip)   (0 or NA => the feed never moved; every lag-0 below is vacuous)"
   echo "cursor_errors=$(g cursor_errors after)"
   echo "out_of_order_appends=$(g out_of_order after)"
   echo "unreadable_lag_reads=$NA_READS   (non-zero => a gate was polled blind)"
@@ -202,6 +213,24 @@ D_PUB=$(delta published); D_PROJ=$(delta projected)
     echo "sse_subscriber_$i frames=$(grep -c '^data:' "$RUN/sse-$i.raw" 2>/dev/null || echo 0)"
   done
   cat "$RUN/faces.txt" 2>/dev/null
+
+  # --- the vacuity check (noetl/ai-meta#230) ---------------------------------
+  # Fail LOUDLY when the run produced no feed movement. Without this the soak
+  # reports "lag 0, cursor_errors 0, out_of_order 0" — a perfect scoreboard — for
+  # a run in which nothing was published at all.
+  TIP_DELTA=$(delta feed_tip)
+  echo
+  if [ "$TIP_DELTA" = "NA" ]; then
+    echo "VERDICT: INCONCLUSIVE — ehdb_events_feed_tip unreadable, so the lag-0"
+    echo "         readings above cannot be distinguished from an empty feed."
+    echo "         (Is the writer on a build with noetl/ai-meta#230?)"
+  elif [ "${TIP_DELTA%.*}" -le 0 ] 2>/dev/null; then
+    echo "VERDICT: FAIL — the events feed did not advance (tip_delta=$TIP_DELTA)."
+    echo "         Every lag-0 above is vacuous: nothing was published, so the"
+    echo "         consumers had nothing to drain. This is NOT a pass."
+  else
+    echo "VERDICT: feed advanced by $TIP_DELTA — the lag-0 readings above are meaningful."
+  fi
 } | tee "$RUN/verdict.txt"
 
 echo
