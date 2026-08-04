@@ -177,6 +177,32 @@ it. Cost: **418ms vs 408ms** warm, a 2.5% overhead every 300s.
 
 ---
 
+## 6a. Running alongside #171, which is already ON in prod
+
+`NOETL_ORPHAN_SWEEP_ENABLED=true` on prod today, so both sweeps will run
+together. Their candidate sets **can** overlap: my predicate terminates a
+dead-worker-held claim too, and #171 exists for exactly that shape.
+
+Two things make that safe:
+
+- **The overlap is empty on today's data.** #171's candidate scan is bounded to
+  a 48h lookback and my grace is 24h, so the only executions both can see are
+  those stale between 24h and 48h with a dead-worker claim. The youngest eligible
+  execution on prod is **3.57 days** old, so #171 cannot see a single one of
+  them.
+- **A collision is handled anyway.** Both terminate through
+  `handlers::event_write::emit_event`, where the `FinalizedGuard`
+  (`state.rs:594`, ai-meta#118) enforces exactly one terminal per execution —
+  `mark()` returns true for the first and false for every later one, which is
+  dropped *before* the chain linker so it cannot fork the chain. A suppressed
+  duplicate increments `terminal_dedup{suppressed}` rather than failing silently.
+
+The guard is in-memory and process-local (bounded FIFO, 8192), so it is a
+single-replica net; prod runs one server replica and execution affinity
+serialises finalize to the owner regardless.
+
+---
+
 ## 7. What it deliberately does not do
 
 The brief asked to distinguish "held by a live worker but provably stuck" from
