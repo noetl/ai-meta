@@ -178,3 +178,91 @@ Order of operations from here:
 3. Re-run P2 from the top on a healthy platform — none of its five objectives
    have usable results.
 4. Only then reconsider P4.
+
+---
+
+# ADDENDUM — 2026-08-04 04:24–04:40 UTC: wedge cleared, root cause found, burst run, **new worse defect**
+
+## 1. The wedge: root cause = half-open consumer connections (noetl/ai-meta#225)
+
+Socket forensics captured **before** the restart, comparing client vs writer:
+
+| | client conns on `:9104` | writer sees | |
+| :-- | --: | --: | :-- |
+| wedged pool `10.119.1.93` | **6** | **3** | ❌ 3 half-open |
+| healthy pool `10.119.1.44` | 6 | 6 | ✅ |
+
+Healthy is six per pool (three groups × two). The wedged pool re-established
+only half after the 23:00:45 writer restart and kept three corpses —
+ESTABLISHED client-side, absent writer-side, all queues `0/0`, so nothing ever
+discovered the break.
+
+**Why the command bus survived and the events feed did not:** #208 added TCP
+keepalive + a negotiated coordinator heartbeat to the *command* claim path
+(worker#196). The events claim path (`:9104`) and WAL fan-out (`:9108`) have no
+equivalent.
+
+**Confirmed, zero loss.** Restarting one pool drained it instantly (committed
+3137 → 3231, lag 24 → 0); the control pool stayed frozen at `36/35`. All four
+previously-stuck executions completed with **31 durable events each** — the
+records were durable throughout. Consumer-side park, not writer-side loss.
+
+**It is a race, not deterministic** — a later writer restart reattached cleanly
+(6 = 6 both pools).
+
+## 2. NEW DEFECT — the graceful seal does not reach the events log under load (noetl/ai-meta#226)
+
+A mid-burst SIGTERM (backlog `shard_lag 61`, `subject_lag 24`) sealed **only the
+first host**:
+
+```
+04:28:31.607917  sealing EHDB writer hosts before exit   hosts=2
+04:28:31.608335  command-bus ingest face stopped — listener closed
+04:28:31.867175  command-bus cursor persisted on shutdown
+04:28:31.930239  command-bus log sealed on shutdown
+<end of stream — pod gone>
+```
+
+No events-feed lines. No `Worker stopped`. Next boot:
+
+```
+group resumed  stored_cursor=3493  tip=3103  from_cursor=3103  clamped=true
+```
+
+**The reopened events log came back 390 records below the persisted cursor.**
+The command-bus host sealed in 323 ms against a 15 s budget with 90 s of grace
+remaining, so this is not budget exhaustion. Idle, the same code sealed both
+hosts in 568 ms (P1). This is the #209 exposure realised on the **graceful**
+path — what v5.92.0 shipped to fix.
+
+## 3. Burst results (30 executions, concurrency 30 vs an 8-slot pool)
+
+| Measure | Result | |
+| :-- | :-- | :-- |
+| Submission | 30 in **1.06 s** | |
+| Outcome | **19 COMPLETED, 2 FAILED, 9 stuck RUNNING** | ❌ |
+| Durable events | 876 vs 930 expected | ❌ |
+| Duplicate event ids | **0** | ✅ |
+| `ehdb_l0_out_of_order_appends` | **0** | ✅ |
+| `ehdb_events_cursor_errors` | **0** across 631 s | ✅ |
+| Dispatch latency | p50 **6511 ms**, p95 18072, p99 18388, min 230, max 20094 (n=94) | ⚠ **saturated — measures the pool, not the bus** |
+| Sustained append rate | 945 command records / 631 s ≈ 1.5 rec/s (window includes idle) | ⚠ |
+| **Exposure `min(1024, lag)` at peak** | commands **234**, events **292** | ✅ first real prod number |
+
+The latency figures are a **burst/pool measurement** and must not be compared
+against the 138.5 ms unsaturated reference. `min = 230 ms` is the only
+bus-adjacent datapoint. **The unsaturated regime was never run**, so there is
+still no valid prod bus-latency number.
+
+The run is additionally invalidated as a clean measurement because the writer
+was restarted mid-flight and that restart lost the events tail.
+
+For comparison, #208's prod gate for a writer restart under load was
+**38/38 COMPLETED, 0 dup / 0 loss, ~2.7 s redial**. This run was 19/30 with 2
+hard failures.
+
+## Gate
+
+**P2 still has no clean pass, and P4 is NOT clear** — now for a stronger reason
+than before. P4b's handover deliberately drops the writer pod, and #226 shows
+that with load in flight that drop does not seal the events log.
