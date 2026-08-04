@@ -19,6 +19,16 @@
 #     exactly how #229 was mis-filed.
 #   * `noetl.sink_pending` is read directly, not inferred from a metric. The
 #     table being non-empty is the thing Slice B could never achieve before.
+#     BUT it must be sampled *while the step is running*, not after: mark and
+#     confirm are a pair, so a SUCCESSFUL sink step adds the row and then
+#     removes it, leaving an empty table that looks identical to "nothing ever
+#     marked". The first version of this rig sampled after completion and could
+#     not have detected a working gate. Hence the deliberately slow sink step.
+#
+#   * Worker counters are per-pod and in-memory. The user pool autoscales, so
+#     the pod that ran the step can be GONE before the scrape — which is what
+#     happened on the first run, and is why the durable table is the primary
+#     signal and the metric only corroborates.
 #   * The negative control is a NON-sink step: it must leave the table untouched,
 #     or the gate is marking everything and the retention it produces is
 #     meaningless.
@@ -105,6 +115,11 @@ workflow:
       input:
         message: "{{ message }}"
       code: |
+        import time
+        # Deliberately slow: the mark must be observable in noetl.sink_pending
+        # WHILE the step runs. On success the confirm removes it again, so a
+        # post-hoc sample cannot tell a working gate from an unwired one.
+        time.sleep(45)
         result = {"status": "ok"}
 """
 req=urllib.request.Request(f"http://127.0.0.1:{port}/api/catalog/register",
@@ -116,10 +131,22 @@ echo "== 2. baseline =="
 POST_OK0=$(wmetric 'noetl_worker_sink_state_post_total{action="mark",outcome="ok"}')
 PENDING0=$(psql_q "select count(*) from noetl.sink_pending;")
 echo "  sink_state_post{mark,ok}=$POST_OK0   sink_pending rows=$PENDING0"
+echo "  (worker counters are per-pod + in-memory; the pool autoscales, so the DURABLE table is the primary signal)"
 
-echo "== 3. fire the sink-declaring playbook =="
+echo "== 3. fire the sink-declaring playbook, sampling the feed WHILE it runs =="
 EID=$(fire tests/199/sink_step); echo "  execution=$EID"
-ST=$(await_terminal "$EID"); echo "  status=$ST"
+PENDING_PEAK=0
+for _ in $(seq 1 40); do
+  n=$(psql_q "select count(*) from noetl.sink_pending;"); n=${n:-0}
+  [ "$n" -gt "$PENDING_PEAK" ] && PENDING_PEAK=$n
+  s=$(curl -s --max-time 15 "http://127.0.0.1:${PORT}/api/executions/$EID" 2>/dev/null \
+      | python3 -c 'import json,sys
+try: print(json.load(sys.stdin)["status"])
+except Exception: print("X")')
+  case "$s" in COMPLETED|FAILED|CANCELLED) break;; esac
+  sleep 5
+done
+ST="$s"; echo "  status=$ST  peak sink_pending during the run=$PENDING_PEAK"
 
 POST_OK1=$(wmetric 'noetl_worker_sink_state_post_total{action="mark",outcome="ok"}')
 CONF_OK1=$(wmetric 'noetl_worker_sink_state_post_total{action="confirm",outcome="ok"}')
@@ -148,12 +175,12 @@ k set env deploy/noetl-server-rust NOETL_RESULT_TIER_GC_SINK_GATE- >/dev/null 2>
     echo "                      every assertion below this line would be vacuous."
   else
     echo "  PASS(reachability): $((POST_OK1-POST_OK0)) mark post(s) reached the server."
-    if [ "${PENDING1:-0}" -gt "${PENDING0:-0}" ] || [ "$CONF_OK1" -gt 0 ]; then
-      echo "  PASS(behaviour):    the server feed observed the execution"
-      echo "                      (rows $PENDING0 -> $PENDING1, confirms=$CONF_OK1)."
+    if [ "${PENDING_PEAK:-0}" -gt 0 ]; then
+      echo "  PASS(behaviour):    noetl.sink_pending peaked at $PENDING_PEAK DURING the run"
+      echo "                      and settled to $PENDING1 after — mark then confirm."
     else
-      echo "  FAIL(behaviour):    posts reached the server but noetl.sink_pending"
-      echo "                      never moved — the endpoint is not persisting."
+      echo "  FAIL(behaviour):    the feed never held a row at any point during the"
+      echo "                      run — the endpoint is not persisting the mark."
     fi
   fi
   if [ "${NPEND1:-0}" -gt "${NPEND0:-0}" ]; then
