@@ -44,7 +44,7 @@ P0  RE-AUTH + READ-ONLY DISCOVERY                              [safe, reversible
     GATE: every row of the discovery table filled in. No blanks, no guesses.
 
 P1  RELEASE + ROLL worker#211                                  [reversible: prior digest]
-    P1a  bump Cargo.toml 5.91.2 -> 5.92.0, merge PR, tag v5.92.0
+    P1a  merge PR with a conventional subject; semantic-release versions + tags
     P1b  GHCR -> AR by digest with `crane` (publish-ar is broken, ai-meta#211)
     P1c  ENV PRECONDITION CHECK — the fail-loud vars, or the roll crashloops
     P1d  roll: writer(s) first, then server, then the pools    << writer pod drops
@@ -279,32 +279,50 @@ Ships three fixes, all closing **silent** failures:
    the branch pins ehdb `ddb7ac9`, which does **not** contain an ehdb-side fix
    for #311 — this is mitigation, not cure.
 
-### P1a — version bump, merge, tag
+### P1a — merge, and let semantic-release version it
 
-**Finding that blocks a naive release:** the branch's `Cargo.toml` still reads
-`version = "5.91.2"`, which is an **already-published tag**. `release.yml`'s
-`verify-version` job hard-fails on a tag/Cargo mismatch, and re-tagging 5.91.2
-would collide. Bump before merging.
+> **Corrected 2026-08-04 (noetl/ai-meta#224).** This step used to say "bump
+> `Cargo.toml` manually, then tag". Doing that is what caused the version
+> regression on 2026-08-03: the manual bump to 5.92.0 merged at 22:28:24, and
+> 24 seconds later semantic-release — which knows nothing about manual bumps —
+> computed a patch bump from 5.91.2, pushed `Cargo.toml = 5.91.3` and tagged
+> v5.91.3. `main` then claimed a version *lower* than the newest published tag,
+> and every subsequent automatic release inherited it.
+>
+> **semantic-release owns versioning in this repo. Never hand-edit
+> `Cargo.toml`** — it gets rewritten on the next push to `main` regardless.
+
+The release is driven entirely by the merge commit's message:
 
 ```bash
 cd repos/worker
-# on the PR branch hardening/h5-209
-#   Cargo.toml: version = "5.92.0"   (minor: fail-loud is a behaviour change)
-#   Cargo.lock: cargo update -p noetl-worker
 cargo test && cargo clippy --all-targets
 ```
 
 > ⚠ Do **not** run bare `cargo fmt --all` in this repo — rustfmt 1.9.0 reflows
 > unrelated files across the ehdb-adjacent crates. Format only what you edited.
 
-Then merge #211 and tag:
+Merge with a **merge commit** (this repo forbids squash) and a conventional
+subject, because that subject is what semantic-release reads to pick the bump —
+`fix:` → patch, `feat:` → minor, `!`/`BREAKING CHANGE:` → major:
 
 ```bash
-gh pr merge 211 --repo noetl/worker --squash
-git checkout main && git pull
-git tag v5.92.0 && git push origin v5.92.0
-gh run watch --repo noetl/worker
+gh pr merge 211 --repo noetl/worker --merge
 ```
+
+Then **wait for semantic-release to do the rest.** It bumps `Cargo.toml`,
+commits, tags, and dispatches `release.yml` — whose `verify-version` job then
+passes by construction, because the commit it tagged is the one carrying the
+matching version. Do not push a tag by hand; a hand-pushed tag races the bot and
+recreates the regression.
+
+```bash
+gh run watch --repo noetl/worker            # semantic-release, then release.yml
+git fetch origin --tags
+git tag --sort=-v:refname | head -1         # the version it actually chose
+```
+
+Take the resulting tag as the version for P1b — do not assume it in advance.
 
 **Expect `publish-ar` to fail red.** That is
 [ai-meta#211](https://github.com/noetl/ai-meta/issues/211): the build SA cannot
