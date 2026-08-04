@@ -1,3 +1,11 @@
+> **SUPERSEDED 2026-08-04 — T5 IS DONE.** Everything below is the audit as it
+> stood on 2026-07-31 and is kept for the record. All four blockers were
+> subsequently cleared (T3 via noetl/ai-meta#212, T3c via #214, T3d via #215)
+> and NATS was deleted. Re-verified against prod on 2026-08-04: no `nats`
+> namespace, nothing named nats cluster-wide, no NATS PVC, and no `NATS_*`
+> variable on any workload in ns `noetl` or ns `gateway`. Do not read the
+> blocker list below as current state.
+
 # Pre-T5 checklist — what still references NATS on shastaratech prod
 
 Audited 2026-07-31 on
