@@ -272,6 +272,27 @@ positive control in kind, where the cluster is disposable.
 
 ---
 
+## 6c. One known limit: the `catalog_id` fallback would fail the insert
+
+The candidate query resolves `catalog_id` from the execution's first event
+carrying a non-zero one, with `COALESCE(..., 0)` as a fallback — inherited
+verbatim from #171's orphan sweep.
+
+`noetl.event` carries `event_catalog_id_fkey FOREIGN KEY (catalog_id) REFERENCES
+catalog(catalog_id)`, so if that fallback ever fired the `playbook.failed` insert
+would violate the FK. The failure is contained — `emit_nonconvergent_failed`
+returns `Err`, the tick logs it and increments
+`noetl_nonconvergence_sweep_total{outcome="error"}`, and the loop continues — but
+that execution would be retried and fail every tick, never terminating.
+
+Checked rather than assumed: **0 of the 3258 eligible prod executions** resolve
+to `catalog_id = 0`. Every one has a resolvable catalog. The fallback is
+unreachable on today's data, and this is pre-existing shared behaviour with
+#171 rather than something this change introduces — recorded so a rising
+`outcome="error"` has a first place to look.
+
+---
+
 ## 7. What it deliberately does not do
 
 The brief asked to distinguish "held by a live worker but provably stuck" from
