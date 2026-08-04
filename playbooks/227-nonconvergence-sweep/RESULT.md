@@ -225,6 +225,53 @@ serialises finalize to the owner regardless.
 
 ---
 
+## 6b. Paired evidence — including one number that looks alarming and is not
+
+Collected from the writer's metrics faces via `127.0.0.1` (never `localhost` —
+`::1` resolves and refuses, giving empty output that reads as zero), and never
+by bare-connecting `:9104`/`:9107`/`:9108` (ehdb#311: one bare connect
+permanently kills that face).
+
+| signal | value |
+| :-- | --: |
+| `ehdb_events_group_committed` — all three groups | **15240, identical** |
+| `ehdb_events_group_lag` — all three groups | **0** |
+| `ehdb_events_cursor_errors` | **0** |
+| `ehdb_l0_out_of_order_appends` | **0** |
+| `noetl_ehdb_events_publish_errors_total` | **0** (absent) |
+| healthy load executions wrongly failed | **0 of 308** |
+
+**The one that needed chasing:** `ehdb_feed_shard_lag{shard="0"}` read **5680
+and rising**, with `ehdb_feed_shard_committed` **frozen at 3265** across three
+20s samples — while executions were completing normally.
+
+That is not a defect, and the per-subject breakdown says why:
+
+```
+ehdb_feed_subject_lag{subject="commands.shared.shard.0"}       0    <- the user pool
+ehdb_feed_subject_lag{subject="commands.system.shard.0"}       44
+ehdb_feed_subject_lag{subject="commands.nc227-void.shard.0"}    7    <- my positive controls
+ehdb_feed_subject_lag{subject="commands.nc227-void2.shard.0"}  12    <- my positive controls
+```
+
+The positive controls are, by construction, commands no consumer will ever
+claim. A consumer group's committed cursor is the **acked prefix**, so 19
+never-acked records pin the whole-shard cursor and its aggregate lag grows
+forever. The real pool's own subject is at **lag 0**.
+
+This is exactly the isolation [ehdb#303](https://github.com/noetl/ehdb/pull/303)
+added for #194 — the autoscaler triggers on `ehdb_feed_subject_lag`, not the
+shard aggregate, precisely so one stuck command cannot pin a pool at max
+replicas. The test reproduced the condition by accident and confirms the
+isolation holds.
+
+⚠ **Operational consequence: do not use the `execution_pool`-void technique on
+prod.** It creates permanently unacked records that pin the shard's committed
+cursor and inflate its aggregate lag for the life of the log. It is a fine
+positive control in kind, where the cluster is disposable.
+
+---
+
 ## 7. What it deliberately does not do
 
 The brief asked to distinguish "held by a live worker but provably stuck" from
