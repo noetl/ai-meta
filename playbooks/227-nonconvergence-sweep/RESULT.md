@@ -1,40 +1,41 @@
 # #227 part B — the non-convergence sweep, and what validating it found
 
-**2026-08-04. Built, kind-validated, NOT in prod.**
+**2026-08-04. Built, kind-validated, PRs open, NOT merged, NOT in prod.**
 
 The headline is not the sweep. It is that the negative control **failed on the
-first run**, for a reason worth more than the feature: at a 120-second grace the
-sweep terminated 30 executions that had run every single step successfully and
-were still inside the orchestrator's finalization tail. That is now measured,
-and the measurement is baked into the code as a hard floor.
+first run**, for a reason worth more than the feature: at a 120-second grace it
+terminated 30 executions that had run every single step successfully and were
+still inside the orchestrator's finalization tail. That tail is now measured in
+two load regimes, and the measurement is baked into the code as a hard floor.
 
 ---
 
 ## 1. What was built
 
-| Piece | Where | Default |
-| :-- | :-- | :-- |
-| Non-convergence sweep | `noetl-server` `src/handlers/nonconvergence_sweep.rs` | **OFF** (`NOETL_NONCONVERGENCE_SWEEP_ENABLED`) |
-| `pending_callback` marker on `command.completed` | `noetl-worker` `src/executor/command.rs` | always on, additive |
-| `execution.cancelled` recognised as a cancellation terminal | `noetl-server` `src/services/execution.rs` | always on, bug fix |
-| Grace floor `MIN_NONCONVERGENCE_GRACE_SECS = 3600` | `noetl-server` `src/config/app.rs` | enforced at startup |
+| Piece | Where | Default | PR |
+| :-- | :-- | :-- | :-- |
+| Non-convergence sweep | `noetl-server` `handlers/nonconvergence_sweep.rs` | **OFF** (`NOETL_NONCONVERGENCE_SWEEP_ENABLED`) | [server#298](https://github.com/noetl/server/pull/298) |
+| Grace floor `MIN_NONCONVERGENCE_GRACE_SECS = 3600` | `noetl-server` `config/app.rs` | enforced at startup | server#298 |
+| `execution.cancelled` recognised as a cancellation terminal | `noetl-server` `services/execution.rs` | always on, bug fix | server#298 |
+| `pending_callback` marker on `command.completed` | `noetl-worker` `executor/command.rs` | always on, additive | [worker#214](https://github.com/noetl/worker/pull/214) |
 
-### The predicate
+### The predicate — progress, not shape
 
-Progress, not shape. Eligible only when **all** hold:
+Eligible only when **all** hold. Separate `AND`s; no scoring, no "two of three":
 
 1. started, and no terminal event (`playbook.completed|failed|cancelled`, both spellings);
-2. the newest event of *any* type is older than the grace period — the watermark has stopped;
+2. **watermark stale** — the newest event of *any* type is older than the grace period;
 3. no **live** worker holds an outstanding `command.claimed` (#171's guard, reused, not relaxed);
-4. not parked awaiting an external callback (positive marker, §4);
+4. not parked awaiting an external callback (positive marker, §5);
 5. not already carrying `execution.cancelled`;
-6. no event carries `status='FAILED'` — the list projection already reports those as FAILED (78 on prod), so terminating one would make the two views disagree.
+6. no event carries `status='FAILED'` — the list projection already reports those as FAILED (78 on prod), so terminating one would make the two views disagree;
+7. **not a child whose parent is still progressing** (§6).
 
-Terminal transition is the real one: `emit_event` → `playbook.failed`, append-only,
-through the #103 chokepoint, so #118 idempotent-terminal dedup holds and two
-replicas racing one execution collapse to a single terminal. `meta.reason =
-watermark_stalled_beyond_grace`. Nothing is fabricated, nothing is re-queued, no
-row is updated or deleted.
+Terminal is the real one: `emit_event` → `playbook.failed` through the #103
+chokepoint, so #118 idempotent-terminal dedup holds and two replicas racing one
+execution collapse to a single terminal. `meta.reason =
+watermark_stalled_beyond_grace`. Nothing fabricated, nothing re-queued, no row
+updated or deleted.
 
 ---
 
@@ -48,7 +49,7 @@ row is updated or deleted.
 | NC-terminal — 5 completed before the sweep | **5/5 untouched** ✓ |
 | NC-load — healthy traffic during the sweep | **30 of 344 terminated** ✗ |
 
-The 30 were not orphans. Their event chains are complete:
+The 30 were not orphans. Their chains are complete:
 
 ```
 16:57:45.881  playbook_started
@@ -58,55 +59,72 @@ The 30 were not orphans. Their event chains are complete:
 17:05:20.968  playbook.failed    playbook   FAILED      <-- the sweep, 126s later
 ```
 
-Every step succeeded. The execution was waiting for the orchestrator to emit
-`playbook.completed`, and the sweep did not wait long enough.
+### How long it should have waited — and why one number is not enough
 
-### How long *should* it have waited — measured, not guessed
+Time from the final step's `command.completed` to `playbook.completed`, sweep
+OFF, no restarts:
 
-Sweep OFF, no restarts, 40 `hello_world` executions. Time from the final step's
-`command.completed` to `playbook.completed`:
+| load regime | samples | finalized | p50 | p90 | max |
+| :-- | --: | --: | --: | --: | --: |
+| light sustained (1 execution / 6s) | 212 | 212 | **49s** | 75s | **138s** |
+| behind a draining burst | 40 | 40 | **206s** | 210s | **393s** |
 
-| | |
-| :-- | --: |
-| finalized | **40 / 40** |
-| never finalized | **0** |
-| p50 | **206s** |
-| p90 | **210s** |
-| max | **393s** |
+Two things matter here:
 
-So finalization is completely reliable — it just takes about three and a half
-minutes. A 120-second grace sits *inside* that tail, which is exactly why it ate
-healthy work. (An intermediate reading taken at t+300s showed "40/40 still
-RUNNING" and briefly looked like a finalization bug; polling to t+600s showed it
-is a slow tail, not a loss. Worth recording because the wrong version of that
-observation would have sent this in the wrong direction.)
+- **Nothing is lost in either regime.** Every execution finalized. The tail is
+  minutes long, not infinite.
+- **The tail is ~8× longer under load**, because it scales with drive-queue
+  depth (kind runs a single system-pool replica under
+  `NOETL_STATE_BUILDER=offserver`, so every hop of every execution serialises
+  through one worker).
+
+That spread is the real argument. A grace picked on a quiet cluster is wrong on
+a busy one, and busy is exactly when the sweep would fire.
 
 ### The fix
 
-`MIN_NONCONVERGENCE_GRACE_SECS = 3600`, enforced in
-`effective_grace_secs()` at both the startup-log site and the query site, so the
-number an operator reads is the number the predicate uses. A lower configured
-value is **raised**, loudly, not honoured.
+`MIN_NONCONVERGENCE_GRACE_SECS = 3600`, applied in `effective_grace_secs()` at
+**both** the startup-log site and the query site, so the number an operator
+reads is the number the predicate uses. A lower configured value is **raised**,
+loudly, not honoured. Verified live in kind:
 
-- 3600s is a **9× margin** over the observed maximum (393s).
-- The 86400s default is a **220× margin**.
-- It costs the actual use case nothing: the prod backlog is 3.5–159 **days** stale.
+```
+non-convergence sweep: NOETL_NONCONVERGENCE_GRACE_SECS is below the safe floor
+and has been RAISED …  configured=120 effective=3600
+non-convergence sweep: ENABLED …  grace_secs=3600
+```
 
-Three unit tests pin it (`grace_below_the_floor_is_raised`,
-`grace_at_or_above_the_floor_is_honoured`, `default_grace_clears_the_floor`).
+- 3600s is **9×** the worst observed tail, **26×** the light-load one.
+- The 86400s default is **220×**.
+- Costs the real use case nothing: the prod backlog is 3.5–159 **days** stale.
 
-**This is the value of running the negative control under load rather than
-reasoning about it.** The predicate was correct throughout; the safety margin was
-not, and only a live run at an aggressive setting exposed the difference.
+Three unit tests pin it. **This is the value of running the negative control
+under load rather than reasoning about it** — the predicate was correct
+throughout; the safety margin was not.
 
 ---
 
-## 3. Positive control: how it was produced
+## 3. The backlog is historical debt, not an active leak
 
-Not by writing rows. `POST /api/execute` accepts `execution_pool`, which routes
-the execution's commands to `noetl.commands.<pool>.<eid>`; workers subscribe to
-`noetl.commands.shared.>`. Firing with `execution_pool: "nc227-void"` produces a
-genuinely issued, genuinely never-claimed command through the real API:
+Measured on the same rig: of the load executions older than 10 minutes,
+
+```
+finalized = 148 / 148     permanent-stall rate = 0.0%
+```
+
+Nothing in kind stalls permanently. So the sweep is not papering over an ongoing
+bug — prod's 3359 came from historical conditions (the migration, NATS-era
+breakage, the #227 rehydrate defect that worker#213 fixed), and a drain is a
+one-time cleanup rather than a recurring chore.
+
+---
+
+## 4. Positive control: produced through the real API
+
+Not by writing rows. `POST /api/execute` accepts `execution_pool`, routing
+commands to `noetl.commands.<pool>.<eid>` while workers subscribe to
+`noetl.commands.shared.>`. Firing with `execution_pool: "nc227-void"` yields a
+genuinely issued, genuinely never-claimed command:
 
 ```
 16:50:24.730 playbook_started  fixtures/playbooks/hello_world  STARTED
@@ -119,109 +137,129 @@ without touching the database.
 
 ---
 
-## 4. The sharpest edge: callbacks
+## 5. The sharpest edge: callbacks
 
 On the `pending_callback` path the worker skips its own `call.done` and returns,
-freeing the slot while an external system works. From the event log a healthy
-execution parked on a six-hour callback is **indistinguishable** from one whose
-DAG ran out of successors — both have a `command.completed`, no outstanding
-claim, and an arbitrarily old watermark. The live-claim guard does not help,
-because there is no claim.
+freeing the slot. From the event log a healthy execution parked on a six-hour
+callback is **indistinguishable** from one whose DAG ran out of successors —
+both have a `command.completed`, no outstanding claim, and an arbitrarily old
+watermark. Condition 3 does not save it, because there is no claim.
 
-So the worker now stamps `pending_callback: true` onto that `command.completed`,
-and the sweep excludes on that **positive signal** — never on an inference; a
-missing or malformed marker reads as "not parked", never as "parked", and the
-comparison is textual so a bad value cannot take a sweep tick down with a cast
-error.
+So the worker stamps `pending_callback: true` onto that `command.completed`, and
+the sweep excludes on that **positive signal**. A missing or malformed marker
+reads as "not parked", never as "parked", and the comparison is textual so a bad
+value cannot take a tick down with a cast error.
 
-Verified against prod rows rather than assumed: the worker's payload lands in
-**`result.context`**, not the `context` column (which is NULL on every
-`command.completed` on prod). The predicate checks all three plausible
-locations.
+Verified against prod rows rather than assumed: the payload lands in
+**`result.context`**, not the `context` column (NULL on every `command.completed`
+on prod). The predicate checks all three plausible locations.
 
-Coverage limit, stated plainly: the end-to-end container-callback path was **not**
-exercised in kind. `Tool::Container` is its only producer and it is effectively
-unused — prod contains **zero** events mentioning `pending_callback` and one
-mentioning a container job handle (see #186). The exclusion is covered by unit
-tests (`callback_parked_execution_is_never_terminated`,
-`callback_check_outranks_dead_worker`) and by the SQL being read straight from
-the marker. That is the honest level of assurance today.
+**Coverage limit, stated plainly:** the end-to-end container-callback path was
+**not** exercised. `Tool::Container` is its only producer and is effectively
+unused — prod has **zero** events mentioning `pending_callback` and one
+mentioning a container job handle (#186). Assurance here is unit tests plus the
+SQL reading the marker directly.
 
 ---
 
-## 5. What it deliberately does not do
+## 6. Children of live parents
 
-The ask included distinguishing "held by a live worker but provably stuck" from
+**2919 of the 3258 eligible executions on prod are children**, and 165 have a
+parent that is itself non-terminal. A parent mid-flight may still drive the
+child it is waiting on — terminating it would be failing work another live
+execution owns, the same mistake the live-claim guard prevents one level up.
+
+Zero eligible executions have a parent that emitted anything in the last 24h, so
+the guard is **inert against today's backlog**: it terminates exactly the same
+set. It is also **strictly narrowing** — it can only move a candidate from
+Terminate to Skipped — so it cannot invalidate a negative control taken without
+it. Cost: **418ms vs 408ms** warm, a 2.5% overhead every 300s.
+
+---
+
+## 7. What it deliberately does not do
+
+The brief asked to distinguish "held by a live worker but provably stuck" from
 "held by a live worker and progressing". **That is not provable today.** The only
 per-command progress signal that ever existed is `command.heartbeat`, emitted by
-the retired Python worker — the newest one on prod is dated **2026-05-23**, and
-the Rust worker emits none. `noetl.runtime` liveness is pool-level, not
-command-level, so it cannot answer the question either.
+the retired Python worker — the newest on prod is dated **2026-05-23**, and the
+Rust worker emits none. `noetl.runtime` liveness is pool-level, not
+command-level.
 
 Rather than dress a timeout up as a proof, the timeout is exposed as
 `NOETL_NONCONVERGENCE_STUCK_CLAIM_SECS`, **default 0 = off**, and documented as a
 timeout. Reinstating a per-command progress signal is the honest prerequisite,
-and is the one place this design is knowingly weaker than the brief asked for.
+and this is the one place the design is knowingly weaker than the brief asked.
+
+### Idempotent re-issue (brief part 4) — not built, and why
+
+The sweep **terminates rather than re-queues**, so it re-executes nothing and
+creates none of the risk part 4 addresses.
+
+Investigating what exists produced a sharper finding, now
+[#228](https://github.com/noetl/ai-meta/issues/228): today's protection is
+`orchestrate-core` folding `command.issued` into `StepState::CommandIssued`
+(`state.rs:611`) — **state-derived, not key-derived**. `noetl.command`'s PK is
+`(execution_id, command_id)` and `command_id` embeds the issuing event id, so a
+re-issue mints a different id and collides with nothing. The guard therefore
+provides no protection in exactly the situation where state cannot be rebuilt —
+which is the situation that causes re-issue, and precisely what #227 was. The
+two failure modes are perfectly correlated.
+
+That belongs on the re-issue path, not in this sweep.
 
 ---
 
-## 6. Performance
+## 8. Performance
 
-Nothing was added to publish, append, claim, ack or dispatch. Detection is a
-background task on its own interval (default 300s).
+Nothing added to publish, append, claim, ack or dispatch. Background task,
+default 300s interval.
 
-The candidate query is candidate-first in the #62 shape — `starts` selects from
-the `event_type` index (~11k start events, not the 966k-row table), the
-terminal-existence check rides `idx_event_exec_type`, and the watermark / claim /
-callback lookups are `LATERAL` probes on an already-bounded set.
+Candidate-first in the #62 shape: `starts` selects from the `event_type` index
+(~11k start events, not the 966k-row table), the terminal check rides
+`idx_event_exec_type`, and watermark / claim / callback / parent are `LATERAL`
+probes on an already-bounded set.
 
 Measured against the **real prod table** (966,493 rows, partitioned), read-only:
 
 ```
-Planning Time:   29.9 ms
-Execution Time: 408.8 ms   (warm; 395.5 ms on repeat)
+Planning Time:   30-76 ms
+Execution Time:  408 ms  (without the parent guard)
+                 418 ms  (with it)
 ```
 
-No sequential scan on any large partition. At the 300s default interval that is a
-**0.13% duty cycle** on one connection.
+No sequential scan on any large partition. At 300s that is a **0.14% duty
+cycle** on one connection.
 
 ---
 
-## 7. Predicate dry-run against real prod data (read-only)
-
-The exact SQL, run against prod without writing anything:
+## 9. Predicate dry-run against real prod data (read-only)
 
 | check | result |
 | :-- | --: |
 | eligible at grace 24h, unbounded scan | **3258** |
 | the 3 `execution.cancelled` muno runs (must be excluded) | **0** ✓ |
 | already-`status='FAILED'` executions excluded | **78** ✓ |
+| children of an *active* parent (would be skipped) | **0** |
 | `awaiting_callback` | 0 (no markers exist yet) |
-| youngest eligible execution | **3.57 days** stale |
-| oldest eligible execution | **158.9 days** stale |
+| youngest eligible | **3.57 days** stale |
+| oldest eligible | **158.9 days** stale |
 
 The youngest eligible row being 3.57 days old against a 24h grace is a **3.6×
-margin at the tightest point** — the prod backlog is nowhere near the boundary.
+margin at the tightest point**.
 
 ---
 
-## 8. Status
+## 10. Status and what is owed
 
-- Server: `feat/227-nonconvergence-sweep`, 701/701 lib tests green, clippy clean.
-- Worker: `feat/227-pending-callback-marker`, 556/556 lib tests green.
-- **Not in prod. Not merged.** Default-off in both.
-- The prod drain has **not** been run.
+- Server: `feat/227-nonconvergence-sweep`, **705/705** lib tests, clippy clean.
+- Worker: `feat/227-pending-callback-marker`, 556/556 lib tests.
+- Both **default-off**; rollback is the flag, no state carried between ticks.
 
-### Re-validation still owed before any prod drain
+**The prod drain has NOT been run**, and cannot be from this session: it needs
+server#298 merged, released, built and rolled to prod, and **PR merges are gated
+to a human here**. The drain procedure is otherwise mechanical — see
+`PROD-DRAIN.md`.
 
-Run 1 is superseded by the floor. What must be re-run at a production-realistic
-grace (≥3600s, ideally the 86400s default) before prod is touched:
-
-1. sweep enabled at the default grace against kind's genuinely days-stale backlog;
-2. continuous load throughout, asserting **zero** healthy executions terminated;
-3. paired evidence via `playbooks/220-ehdb-only-kind-soak/soak.sh` —
-   published == projected == all group cursors, lag 0, 0 dup / gap /
-   out-of-order / cursor_errors;
-4. `nc-perf.sh` before/after arms for the hot-path numbers.
-
-Scripts: `nc-validate.sh`, `nc-perf.sh` in this directory.
+Scripts: `nc-validate.sh` (positive control via `execution_pool` routing to a
+segment no worker serves), `nc-perf.sh` (flag off/on arms).
