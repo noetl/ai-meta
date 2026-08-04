@@ -20,6 +20,23 @@ messages, rewrites `Cargo.toml`, commits, tags, and dispatches
 | `feat: …` | minor |
 | `feat!: …` / `BREAKING CHANGE:` in the body | major |
 | `chore:` / `docs:` / `test:` | no release |
+| **anything else** (`diag:`, `wip:`, `refactor:`, a bare subject) | **no release, silently** |
+
+That last row is a trap worth naming, because it costs a build cycle to
+discover. `diag(209): …` was merged expecting an image; semantic-release ran,
+chose no version, and produced nothing. The merge was green, CI was green, and
+the tag simply never appeared — so the change sat on `main`, correct and
+undeployable, with nothing anywhere saying why.
+
+**If a change needs to reach a cluster, it needs a release-triggering type.**
+When the work is genuinely diagnostic, `fix:` is the honest one — a missing
+signal *is* a defect in the thing being diagnosed. Do not invent a type; check
+the tag after the merge:
+
+```bash
+gh run watch --repo noetl/<repo>
+git fetch origin --tags && git tag --sort=-v:refname | head -1   # did it move?
+```
 
 Read the tag back after the run rather than assuming it:
 
