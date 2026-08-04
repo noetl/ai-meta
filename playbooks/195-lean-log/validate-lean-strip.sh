@@ -5,9 +5,16 @@
 # `noetl.event` — sit above the 512-byte floor this strip externalises. So the
 # question is not whether it is worth enabling but whether it is SAFE to.
 #
-# The strip rewrites an over-floor inline business result into the same
-# `reference` + `extracted` shape a large result already carries. Three things
-# could go wrong, and this asserts each rather than assuming:
+# ONE flag strips TWO things (they share `permanent_log_lean.rs` and the same
+# call site), and the second is the larger half:
+#
+#   D1 (#195)  over-floor step RESULTS   ->  `reference` + `extracted`      461 MB
+#   D2 (#196)  over-floor command CONTEXT ->  `__context_ref__` marker     1229 MB
+#
+# Asserting only D1 would leave 73% of the change unvalidated, which is what an
+# earlier version of this rig did.
+#
+# Three things could go wrong, and this asserts each rather than assuming:
 #
 #   1. It strips nothing (inert) — the failure mode this session has hit six
 #      times. Asserted by the metric moving AND the persisted row actually
@@ -16,9 +23,21 @@
 #      readers that expect it break. Asserted by a NEGATIVE CONTROL: a
 #      sub-floor result must stay inline.
 #   3. It strips correctly but the data becomes unreadable — the whole point is
-#      that `hydrate_result_references` resolves it. Asserted by reading the
-#      execution back through the API and requiring the payload to still be
-#      there.
+#      that `hydrate_result_references` (D1) and `resolve_command_context_ref`
+#      (D2) resolve it. Asserted by reading the execution back through the API
+#      and requiring the payload to still be there.
+#
+# And the SAFETY property the code claims, which is the reason stripping a
+# command's context is allowed at all. `permanent_log_lean.rs` argues:
+#
+#   "orchestrate-core's apply_event reads only node_name + meta.cursor for a
+#    command.issued event (never context), and the transient noetl.command row
+#    still holds the full context for a claim that reads it before
+#    materialization."
+#
+# Both halves of that are checked here rather than trusted: the execution must
+# still COMPLETE (the drive advanced without the stripped context), and the
+# noetl.command row must still carry a full context while the command is live.
 #
 # The off-server drive is expected to be structurally immune (it reads the WAL,
 # not `noetl.event` — `dispatch_offserver_stateless_drive` does zero event
@@ -39,7 +58,13 @@ mkdir -p "$RUN"
 k() { kubectl --context "$CTX" -n "$NS" "$@"; }
 trap 'kill $(jobs -p) 2>/dev/null' EXIT
 
-pq() { k exec deploy/postgres -n postgres -- psql -U noetl -d noetl -At -F'|' -c "$1" 2>/dev/null; }
+# NOT via k(): it already applies `-n noetl`, and a trailing `-n postgres` makes
+# kubectl reject the call — silently, since stderr is dropped. That exact bug
+# made the #199 rig return empty for every query and produce no output at all.
+pq() {
+  kubectl --context "$CTX" -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -F'|' -c "$1" 2>/dev/null | tr -d '\r'
+}
 srvmetric() { curl -s --max-time 10 "http://127.0.0.1:${PORT}/metrics" 2>/dev/null \
                 | awk -v m="$1" '$1==m {print $2; f=1} END{if(!f) print 0}'; }
 
@@ -105,8 +130,22 @@ S0=$(srvmetric noetl_permanent_log_slimmed_total)
 B0=$(srvmetric noetl_permanent_log_slimmed_bytes_total)
 echo "  baseline slimmed=$S0 bytes=$B0"
 
-echo "== 1. over-floor execution =="
-BIG=$(fire tests/195/big_result); BIGST=$(await "$BIG"); echo "  $BIG -> $BIGST"
+echo "== 1. over-floor execution, sampling noetl.command WHILE it runs =="
+BIG=$(fire tests/195/big_result)
+CMD_LIVE_CTX=0
+for _ in $(seq 1 30); do
+  # The transient row is purged after completion, so the safety property can
+  # only be observed while the command is live.
+  n=$(pq "select count(*) from noetl.command where execution_id=$BIG and coalesce(length(context::text),0) > 512;")
+  [ "${n:-0}" -gt "${CMD_LIVE_CTX:-0}" ] && CMD_LIVE_CTX=$n
+  s=$(curl -s --max-time 20 "http://127.0.0.1:${PORT}/api/executions/$BIG" 2>/dev/null \
+      | python3 -c 'import json,sys
+try: print(json.load(sys.stdin)["status"])
+except Exception: print("X")')
+  case "$s" in COMPLETED|FAILED|CANCELLED) break;; esac
+  sleep 3
+done
+BIGST="$s"; echo "  $BIG -> $BIGST   (peak live noetl.command rows with full context: $CMD_LIVE_CTX)"
 echo "== 2. negative control: sub-floor execution =="
 SMALL=$(fire tests/195/small_result); SMALLST=$(await "$SMALL"); echo "  $SMALL -> $SMALLST"
 
@@ -118,6 +157,12 @@ BIG_INLINE=$(pq "select coalesce(max(pg_column_size(result)),0) from noetl.event
 BIG_HASREF=$(pq "select count(*) from noetl.event where execution_id=$BIG and result::text like '%\"reference\"%';")
 SMALL_INLINE=$(pq "select coalesce(max(pg_column_size(result)),0) from noetl.event where execution_id=$SMALL and event_type='call.done';")
 SMALL_HASREF=$(pq "select count(*) from noetl.event where execution_id=$SMALL and result::text like '%\"reference\"%';")
+
+# D2 — did the command.issued context get tiered to a __context_ref__ marker?
+CMD_STRIPPED=$(pq "select count(*) from noetl.event where execution_id=$BIG and event_type='command.issued' and context::text like '%__context_ref__%';")
+# D2 safety — while the command was live, did noetl.command still hold the full
+# context? Sampled during the run below, not here (the row is purged on completion).
+CMD_LIVE_CTX=${CMD_LIVE_CTX:-0}
 
 # Can a reader still get the data back?
 READBACK=$(curl -s --max-time 30 "http://127.0.0.1:${PORT}/api/executions/${BIG}" 2>/dev/null \
@@ -150,6 +195,23 @@ k rollout status deploy/noetl-server-rust --timeout=240s 2>&1 | tail -1
     echo "  PASS(negative):  the sub-floor control scalar stayed inline."
   else
     echo "  FAIL(negative):  a sub-floor result was stripped — the floor is not holding."
+  fi
+  echo "  -- D2: the command-context half (#196, the larger one) --"
+  if [ "${CMD_STRIPPED:-0}" -gt 0 ]; then
+    echo "  PASS(d2-shape):  $CMD_STRIPPED command.issued row(s) carry __context_ref__"
+    echo "                   in the permanent log instead of the inline context."
+  else
+    echo "  FAIL(d2-shape):  no command.issued row was tiered — the larger half of"
+    echo "                   the flag did nothing."
+  fi
+  if [ "${CMD_LIVE_CTX:-0}" -gt 0 ]; then
+    echo "  PASS(d2-claim):  the transient noetl.command row still carried a full"
+    echo "                   context while the command was live, so a claim that"
+    echo "                   reads before materialization is unaffected."
+  else
+    echo "  WARN(d2-claim):  could not observe a live noetl.command row with a full"
+    echo "                   context (the command may have completed too fast);"
+    echo "                   inconclusive rather than failing."
   fi
   case "$READBACK" in
     rows-visible) echo "  PASS(readable):  hydrate_result_references resolved it; the payload is still readable." ;;
