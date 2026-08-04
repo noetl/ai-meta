@@ -83,6 +83,39 @@ So the audit question is not "is this reachable?" but **"does the claim match th
 reachability?"** A doc comment saying "observe-only, writes nothing" is a pass. A
 PR description saying a gate is now "real" over a feed with no producer is not.
 
+## The sibling failure: three measurement errors, each producing a confident null
+
+Finding an inert gate requires a measurement that can tell inert from working.
+Three times today the *measurement* was broken and produced a clean-looking
+zero, and each time I was one step from reading it as a verdict:
+
+| # | the reading | why it was wrong |
+| :-- | :-- | :-- |
+| 1 | `sink_signal_total` absent on every pod | the scrape ran `wget`/`curl` **inside the container** — neither exists in the image, so it returned nothing for *every* pod, including other metrics |
+| 2 | `sink_signal_total` = 0 via the metrics Service | worker counters are **per-pod and in-memory**; the pool had 20 replicas and the Service forwards to one. The signal lived on whichever pod ran the step |
+| 3 | `noetl.sink_pending` empty after the run | `mark` and `confirm` are a **pair** — a *successful* sink step adds the row and then removes it, so a post-hoc sample cannot distinguish a working gate from an unwired one |
+
+Number 3 is the sharpest: **the test could not have detected success.** It would
+have reported the same empty table whether the feed worked perfectly or did not
+exist.
+
+A fourth, from #209: `recovered_active_records = 0` could not distinguish "the
+path did not run" from "it ran and found nothing", because the counter was the
+only signal and counters cannot express *did not execute*. Settled only by adding
+a log line that always prints.
+
+### The rules that fall out
+
+- **Sample during, not after**, whenever the mechanism is a paired
+  add/remove. Ask: *would this measurement look different if the feature worked?*
+  If not, it is not a test.
+- **Per-pod in-memory counters are not a cluster signal** under an autoscaler.
+  Prefer durable state; let the metric corroborate.
+- **Probe from outside the container** unless you have verified the tool exists
+  inside it. A blank scrape is not a zero.
+- **A counter cannot report its own absence.** If "did not run" and "ran, found
+  nothing" need distinguishing, that needs a line that always prints.
+
 ## What to do with this
 
 - When reviewing a gate PR, ask for the step-3 call site in the diff. If the
