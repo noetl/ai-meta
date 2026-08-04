@@ -65,6 +65,25 @@ pq() {
   kubectl --context "$CTX" -n postgres exec deploy/postgres -- \
     psql -U noetl -d noetl -At -F'|' -c "$1" 2>/dev/null | tr -d '\r'
 }
+# The forward MUST be re-established AFTER the rollout, and the new pod must be
+# serving before anything is fired at it. The first version killed the forward,
+# slept 1s and re-forwarded against a pod that was still rolling: every fire
+# returned empty and the run reported six FAILs that were purely a measurement
+# artefact. Same class of failure as the #199 rig.
+pf() {
+  pkill -f "port-forward svc/noetl-server-rust ${PORT}:" 2>/dev/null
+  sleep 2
+  k wait --for=condition=Available deploy/noetl-server-rust --timeout=180s >/dev/null 2>&1
+  ( k port-forward svc/noetl-server-rust "${PORT}":8082 >/dev/null 2>&1 & )
+  for _ in $(seq 1 20); do
+    curl -sf --max-time 5 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  echo "REFUSING: the server never became reachable on :${PORT} — this would be a" >&2
+  echo "          measurement failure, not a verdict about the strip." >&2
+  exit 3
+}
+
 srvmetric() { curl -s --max-time 10 "http://127.0.0.1:${PORT}/metrics" 2>/dev/null \
                 | awk -v m="$1" '$1==m {print $2; f=1} END{if(!f) print 0}'; }
 
@@ -84,24 +103,23 @@ except Exception: print("X")')
   done; echo TIMEOUT; }
 
 echo "== register two playbooks: one OVER the 512B floor, one UNDER =="
-k port-forward svc/noetl-server-rust "${PORT}":8082 >/dev/null 2>&1 &
-sleep 6
+pf
 python3 - "$PORT" <<'PY'
 import json,sys,urllib.request
 port=sys.argv[1]
-def reg(path,code,desc):
+def reg(path,code,desc,workload=None,tool_input=None):
     c=f"""apiVersion: noetl.io/v2
 kind: Playbook
 metadata:
   name: {path.split('/')[-1]}
   path: {path}
   description: "{desc}"
-workload: {{}}
+workload: {json.dumps(workload or {})}
 workflow:
   - step: start
     tool:
       kind: python
-      input: {{}}
+      input: {json.dumps(tool_input or {})}
       code: |
 {code}
 """
@@ -113,6 +131,16 @@ reg("tests/195/big_result",
     '        rows = [{"id": i, "name": "row-%04d" % i, "note": "x"*60} for i in range(80)]\n'
     '        result = {"status": "ok", "rows": rows}',
     "noetl/ai-meta#195 - an over-floor business rowset, must be externalised to a reference")
+# D2 needs a large INPUT, not a large output. `big_result` has an ~8 KB result
+# but an empty `workload`, so its command.issued context is ~150 bytes — under
+# the floor, so D2 correctly strips nothing. Asserting D2 against that fixture
+# reports FAIL for a playbook that was never eligible. This one carries the
+# payload on the way IN.
+rows = [{"id": i, "name": "customer-%04d" % i, "note": "y"*60} for i in range(60)]
+reg("tests/195/big_input",
+    '        result = {"status": "ok", "n": len(payload_rows)}',
+    "noetl/ai-meta#196 - a large INPUT so command.issued's context is over the floor",
+    workload={"payload_rows": rows}, tool_input={"payload_rows": "{{ payload_rows }}"})
 # a control scalar -> under the floor, must stay inline
 reg("tests/195/small_result",
     '        result = {"status": "ok", "n": 1}',
@@ -121,10 +149,8 @@ PY
 
 echo "== enable the strip (default-off; this is the opt-in) =="
 k set env deploy/noetl-server-rust NOETL_PERMANENT_LOG_LEAN=true >/dev/null
-k rollout status deploy/noetl-server-rust --timeout=240s 2>&1 | tail -1
-kill $(jobs -p) 2>/dev/null; sleep 1
-k port-forward svc/noetl-server-rust "${PORT}":8082 >/dev/null 2>&1 &
-sleep 6
+k rollout status deploy/noetl-server-rust --timeout=300s 2>&1 | tail -1
+pf
 
 S0=$(srvmetric noetl_permanent_log_slimmed_total)
 B0=$(srvmetric noetl_permanent_log_slimmed_bytes_total)
@@ -146,7 +172,25 @@ except Exception: print("X")')
   sleep 3
 done
 BIGST="$s"; echo "  $BIG -> $BIGST   (peak live noetl.command rows with full context: $CMD_LIVE_CTX)"
-echo "== 2. negative control: sub-floor execution =="
+echo "== 2. over-floor COMMAND CONTEXT (the D2 half), sampled while live =="
+BIN=$(fire tests/195/big_input)
+CMD_LIVE_CTX=0
+for _ in $(seq 1 30); do
+  # The transient row is purged on completion, so the safety property the code
+  # relies on ("a claim reading before materialization still sees the full
+  # context") is only observable while the command is live.
+  n=$(pq "select count(*) from noetl.command where execution_id=$BIN and coalesce(length(context::text),0) > 512;")
+  [ "${n:-0}" -gt "${CMD_LIVE_CTX:-0}" ] && CMD_LIVE_CTX=$n
+  s=$(curl -s --max-time 20 "http://127.0.0.1:${PORT}/api/executions/$BIN" 2>/dev/null \
+      | python3 -c 'import json,sys
+try: print(json.load(sys.stdin)["status"])
+except Exception: print("X")')
+  case "$s" in COMPLETED|FAILED|CANCELLED) break;; esac
+  sleep 3
+done
+BINST="$s"; echo "  $BIN -> $BINST   (peak live noetl.command rows with full context: $CMD_LIVE_CTX)"
+
+echo "== 3. negative control: sub-floor execution =="
 SMALL=$(fire tests/195/small_result); SMALLST=$(await "$SMALL"); echo "  $SMALL -> $SMALLST"
 
 S1=$(srvmetric noetl_permanent_log_slimmed_total)
@@ -159,7 +203,9 @@ SMALL_INLINE=$(pq "select coalesce(max(pg_column_size(result)),0) from noetl.eve
 SMALL_HASREF=$(pq "select count(*) from noetl.event where execution_id=$SMALL and result::text like '%\"reference\"%';")
 
 # D2 — did the command.issued context get tiered to a __context_ref__ marker?
-CMD_STRIPPED=$(pq "select count(*) from noetl.event where execution_id=$BIG and event_type='command.issued' and context::text like '%__context_ref__%';")
+CMD_STRIPPED=$(pq "select count(*) from noetl.event where execution_id=$BIN and event_type='command.issued' and context::text like '%__context_ref__%';")
+CMD_CTX_BYTES=$(pq "select coalesce(max(pg_column_size(context)),0) from noetl.event where execution_id=$BIN and event_type='command.issued';")
+SMALL_CTXREF=$(pq "select count(*) from noetl.event where execution_id=$SMALL and context::text like '%__context_ref__%';")
 # D2 safety — while the command was live, did noetl.command still hold the full
 # context? Sampled during the run below, not here (the row is purged on completion).
 CMD_LIVE_CTX=${CMD_LIVE_CTX:-0}
@@ -191,15 +237,17 @@ k rollout status deploy/noetl-server-rust --timeout=240s 2>&1 | tail -1
   else
     echo "  FAIL(shape):     the over-floor row has no reference — nothing was externalised."
   fi
-  if [ "${SMALL_HASREF:-0}" -eq 0 ]; then
-    echo "  PASS(negative):  the sub-floor control scalar stayed inline."
+  if [ "${SMALL_HASREF:-0}" -eq 0 ] && [ "${SMALL_CTXREF:-0}" -eq 0 ]; then
+    echo "  PASS(negative):  the sub-floor control scalar stayed inline, in BOTH"
+    echo "                   its result and its command context."
   else
     echo "  FAIL(negative):  a sub-floor result was stripped — the floor is not holding."
   fi
   echo "  -- D2: the command-context half (#196, the larger one) --"
   if [ "${CMD_STRIPPED:-0}" -gt 0 ]; then
     echo "  PASS(d2-shape):  $CMD_STRIPPED command.issued row(s) carry __context_ref__"
-    echo "                   in the permanent log instead of the inline context."
+    echo "                   in the permanent log instead of the inline context"
+    echo "                   (persisted context now $CMD_CTX_BYTES bytes)."
   else
     echo "  FAIL(d2-shape):  no command.issued row was tiered — the larger half of"
     echo "                   the flag did nothing."
@@ -217,7 +265,11 @@ k rollout status deploy/noetl-server-rust --timeout=240s 2>&1 | tail -1
     rows-visible) echo "  PASS(readable):  hydrate_result_references resolved it; the payload is still readable." ;;
     *)            echo "  FAIL(readable):  the payload did not come back ($READBACK) — externalised but unreadable." ;;
   esac
-  [ "$BIGST" = "COMPLETED" ] && echo "  PASS(drive):     the execution completed — the off-server drive is unaffected." \
-                             || echo "  FAIL(drive):     the execution did not complete ($BIGST)."
+  if [ "$BIGST" = "COMPLETED" ] && [ "$BINST" = "COMPLETED" ]; then
+    echo "  PASS(drive):     both executions completed — the drive advanced without"
+    echo "                   the stripped result AND without the stripped context."
+  else
+    echo "  FAIL(drive):     an execution did not complete (result=$BIGST context=$BINST)."
+  fi
 } | tee "$RUN/verdict.txt"
 echo "artifacts: $RUN"
