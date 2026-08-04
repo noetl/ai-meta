@@ -84,7 +84,8 @@ read as "the crash exposure is closed". Two independent reasons:
 
 2. **The exposure is masked by consumption lag.** Under this backlog the
    committed cursor trails the tip by ~1100 records — *more* than
-   `seal_max_records` (1024). Anything lost from an unsealed active part had
+   `seal_max_records` (1024, the ceiling; observed cadence 20-140 records).
+   Anything lost from an unsealed active part had
    therefore not been consumed yet, so the resumed cursor simply redelivers it
    and no loss is observable.
 
@@ -99,7 +100,9 @@ The precise bound therefore comes from the deterministic unit test in
 - `sigterm_seals_the_active_part_with_no_acked_record_lost` — **300/300** survive.
 - `without_the_seal_the_unsealed_tail_is_lost_the_hard_kill_exposure` —
   **0/300** survive. The entire unsealed active part is lost, bounded by
-  `seal_max_records` = 1024 per shard.
+  `seal_max_records` = 1024 per shard. **That is the ceiling, not the typical
+  case** — measured 2026-08-04, this writer's recent sealed parts hold 20-140
+  records, so real exposure is tens, not ~1000 (noetl/ai-meta#209).
 
 ### Why the cluster would not quiesce
 

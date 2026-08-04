@@ -499,7 +499,8 @@ It explicitly could not produce four numbers, and those four are this phase:
    reproduced there.
 2. **The hard-kill unsealed-tail loss**, which is *masked* in kind: under that
    backlog the committed cursor trailed the tip by ~1100 records — more than
-   `seal_max_records` (1024) — so anything lost from an unsealed part had not
+   `seal_max_records` (1024, the ceiling; observed cadence is 20-140 records)
+   — so anything lost from an unsealed part had not
    been consumed yet and was simply redelivered. The corollary is uncomfortable
    and is the whole reason this measurement belongs on prod: **a healthy,
    low-backlog system is MORE exposed, not less.**
@@ -601,7 +602,9 @@ count alongside it so the number is interpretable.
 This is the honest measurement of the exposure, and it costs nothing:
 
 **The exposure at any instant is `tip − committed` per shard, capped at
-`seal_max_records` (1024).** Sample it continuously through P2b's load and
+`seal_max_records` (1024) — a ceiling; the writer was measured sealing at
+20-140 records on 2026-08-04, so typical exposure is tens (noetl/ai-meta#209).**
+Sample it continuously through P2b's load and
 report the distribution — max, p99, and the fraction of time it exceeds 0.
 
 ```
@@ -643,7 +646,9 @@ standing constraint. **P2d can violate it.** The deterministic bound is already
 known from the unit tests in `noetl/worker`
 `tests/cmdbus_writer_graceful_shutdown.rs`: with the seal, **300/300** acked
 records survive; without it, **0/300** — the entire unsealed active part, up to
-1024 records per shard. P2c gives the live prod value of that window at no
+1024 records per shard — the **ceiling**; measured 2026-08-04 the writer seals
+at 20-140 records, so typical exposure is tens (noetl/ai-meta#209). P2c gives
+the live prod value of that window at no
 cost.
 
 **Recommendation: do not run P2d.** P2c plus the unit-test bound answers the

@@ -37,8 +37,13 @@ mkdir -p "$RUN"
 k() { kubectl --context "$CTX" -n "$NS" "$@"; }
 trap 'kill $(jobs -p) 2>/dev/null' EXIT
 
+# NOT via k(): that already applies `-n noetl`, and a second `-n postgres`
+# after it makes kubectl reject the call — which is silent here because stderr
+# is dropped, so every query returned empty and the run produced no output at
+# all. Postgres lives in its own namespace, so it needs its own invocation.
 psql_q() { # psql_q <sql>
-  k exec deploy/postgres -n postgres -- psql -U noetl -d noetl -At -F'|' -c "$1" 2>/dev/null
+  kubectl --context "$CTX" -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -F'|' -c "$1" 2>/dev/null | tr -d '\r'
 }
 
 pf() {
