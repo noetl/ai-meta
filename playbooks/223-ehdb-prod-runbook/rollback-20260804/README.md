@@ -16,8 +16,8 @@ Saved before the ops#245 Deployment→StatefulSet converge.
 
 `all-deployments.yaml` and `gateway-deployment.yaml` were captured but are
 **excluded from this repo**: their `kubectl.kubernetes.io/last-applied-configuration`
-annotations embed a plaintext `NATS_URL=nats://noetl:noetl@…` credential
-(noetl/ai-meta#188) and the gateway's Auth0 client id. This repo is public and
+annotations embed a plaintext `NATS_URL` credential (the one tracked as
+noetl/ai-meta#188) and the gateway's Auth0 client id. This repo is public and
 `agents/rules/safety.md` forbids storing credentials, so they are kept only in
 the operator's local scratch.
 
