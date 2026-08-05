@@ -30,6 +30,12 @@ ok()   { printf "  \033[32mOK\033[0m     %s\n" "$1"; }
 skip() { printf "  SKIP   %s\n" "$1"; }
 run()  { [ "$ONLY" = "all" ] || [ "$ONLY" = "$1" ]; }
 
+# Top-level, not inside a check: every check must be runnable standalone, and
+# under `set -u` a variable scoped to another block makes the check ABORT while
+# the script still prints "No drift found".  That happened — the catalog check
+# died on an unbound OLD_PROJECT and reported clean.
+OLD_PROJECT="noetl-demo-19700101"
+
 # ---------------------------------------------------------------------------
 # 1. Manifests naming a project/registry the cluster does not use.
 #    Found noetl/ai-meta#234: 8 files still pinning `noetl-demo-19700101`
@@ -38,17 +44,50 @@ run()  { [ "$ONLY" = "all" ] || [ "$ONLY" = "$1" ]; }
 # ---------------------------------------------------------------------------
 if run manifests; then
   hdr "manifests: stale project / registry references"
-  OLD_PROJECT="noetl-demo-19700101"
-  if [ -d "$ROOT/repos/ops" ]; then
-    n=$(cd "$ROOT/repos/ops" && git grep -l "$OLD_PROJECT" origin/main -- 'ci/' 'automation/' 2>/dev/null | wc -l | tr -d ' ')
+  # Scoped per repo because the SEVERITY differs and a single count hides that.
+  # In ops it is mostly description; in travel it reaches the deploy workflow
+  # and the planner that runs in prod (noetl/ai-meta#234, third widening).
+  for repo in ops travel; do
+    d="$ROOT/repos/$repo"
+    [ -d "$d" ] || { skip "repos/$repo not checked out"; continue; }
+    n=$(cd "$d" && git grep -l "$OLD_PROJECT" origin/main 2>/dev/null | wc -l | tr -d ' ')
     if [ "${n:-0}" -gt 0 ]; then
-      drift "$n file(s) in repos/ops reference the pre-migration project '$OLD_PROJECT' (noetl/ai-meta#234)"
-      (cd "$ROOT/repos/ops" && git grep -l "$OLD_PROJECT" origin/main -- 'ci/' 'automation/' 2>/dev/null | sed 's#origin/main:#         #')
+      drift "$n file(s) in repos/$repo reference the pre-migration project '$OLD_PROJECT' (noetl/ai-meta#234)"
+      (cd "$d" && git grep -l "$OLD_PROJECT" origin/main 2>/dev/null | sed 's#origin/main:#         #' | head -8)
+      # The live paths, called out separately — these are not documentation.
+      (cd "$d" && git grep -l "$OLD_PROJECT" origin/main -- '.github/workflows/' 'playbooks/' 2>/dev/null \
+        | sed 's#origin/main:#         !! LIVE PATH: #')
     else
-      ok "no references to '$OLD_PROJECT'"
+      ok "repos/$repo: no references to '$OLD_PROJECT'"
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# 1b. The stale project inside the CATALOG — i.e. inside a playbook that is
+#     registered and executing in prod, not merely committed to a repo.
+#     Found 2026-08-05: the live muno planner (v67) carries
+#     `gcp_project: noetl-demo-19700101` in 7 places.  Correcting it means
+#     registering a new playbook version, which is a release rather than a
+#     sweep — so this reports and never edits.
+# ---------------------------------------------------------------------------
+if run catalog; then
+  hdr "catalog: registered playbooks naming the pre-migration project"
+  if command -v psql >/dev/null 2>&1 && [ -n "${PGPASSWORD:-}" ]; then
+    # NOT `psql | while` — that runs the loop in a subshell, so drift()
+    # increments a discarded copy of DRIFT and the exit summary under-reports.
+    rows=$(psql -h 127.0.0.1 -p "${PGPORT_FWD:-15432}" -U noetl -d noetl -At -F'|' -c \
+      "select path, max(version) from noetl.catalog
+       where content like '%${OLD_PROJECT}%' group by 1 order by 1;" 2>/dev/null)
+    if [ -z "$rows" ]; then
+      ok "no registered playbook names '$OLD_PROJECT'"
+    else
+      while IFS='|' read -r path ver; do
+        [ -n "$path" ] && drift "catalog $path (latest v$ver) names '$OLD_PROJECT' — a playbook REGISTERED and executing in prod (noetl/ai-meta#234)"
+      done <<< "$rows"
     fi
   else
-    skip "repos/ops not checked out"
+    skip "no psql / PGPASSWORD+port-forward — run with a pgbouncer forward on :15432 to include this"
   fi
 fi
 
