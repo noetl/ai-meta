@@ -71,6 +71,55 @@ off it, and say so where it lives.
   disposition decision (drop / annotate / replace), say so in the artifact
   and open the issue — do not leave a confident wrong value unremarked.
 
+## The sibling question: is it *reached*?
+
+Drift asks whether a description still matches the system. The neighbouring
+failure is a thing that exists, is registered, is documented — and never runs.
+Both produce confident clean readings, and the second is caught by asking
+**reachability** rather than **existence**.
+
+On 2026-08-05 that one substitution found, in a few hours:
+
+| artefact | existence said | reachability said |
+| :-- | :-- | :-- |
+| two `#[test]`-less test fns | the test exists | never ran; one guarded the marker that stops the sweep terminating healthy work, while that sweep ran on prod |
+| `record_nats_consumer_lag` | the recorder exists | no caller since T5 → three materializer alerts permanently inert |
+| `NOETL_STATE_AFFINITY_ROUTE` | set `true` in prod | its only reader has no caller — the one inert flag of 77 |
+| `EnvGuard`'s SAFETY note | claims `cargo test` serialises tests | it does not; the tests raced |
+
+The reason it works is that **existence is what a naive grep measures**, and
+every one of these passes that grep.
+
+### The zeros to distrust
+
+A clean result from a pattern-based scan is a claim about the pattern as much
+as about the code. Each of these produced a confident, wrong zero:
+
+- **A narrow read idiom.** Matching `env::var("X")` alone missed 55 of the
+  worker's 107 variables, because it wraps typed reads in `env_bool` /
+  `env_u32` / `env_addr` / `env_millis`. Server and gateway read directly, so
+  two of three components looked consistent and the gap survived three passes.
+- **Existence standing in for use.** "Does a recorder exist for each metric"
+  reported *zero* orphans across 136 metrics. Every dead one had a recorder.
+- **Comments counting as callers.** A doc comment naming a function, or prose
+  naming a test, cleared two separate checks.
+- **A stale local checkout.** Comparing code against an unfetched wiki made
+  already-documented variables read as missing — and produced a duplicate
+  section on a page that already had the row. Fetch before comparing.
+- **Name ambiguity in both directions.** A bare `from_env` matches every type's
+  `from_env`; a qualified `Type::method` misses `value.method()`.
+
+And one substantive rule, not a tooling one: **a thing is unused only if
+*every* use is unreachable.** `NOETL_SHARD_INDEX` is read by the dead affinity
+path *and* reachably by the durable-eventlog backend. Finding the first reader
+is not finding all of them.
+
+### What to do with a clean result
+
+Ask what a *positive* result would have looked like, and run something that
+produces one. A check that has never once fired is indistinguishable from a
+check that cannot fire — which is the same defect, one level up.
+
 ## When this rule does not fire
 
 - Deliberately-frozen snapshots (rollback digests, incident captures, a
@@ -85,7 +134,9 @@ off it, and say so where it lives.
 pins, a caret range that dropped a capability, published image architectures
 vs where they must run, a release job reported working that is not, a table
 the live control plane never touches, declared workloads that are not running,
-and **running pods no applied scrape selects**. Read-only; one command.
+**running pods no applied scrape selects**, **tests that carry no `#[test]`**,
+**env vars the binary reads that its deployment-spec page omits**, and **metric
+recorders nothing calls**. Eleven checks; read-only; one command.
 
 That last check (`scrape`) generalises a subtlety worth stating on its own: an
 **enumerated selector is itself a representation** — a copy of the workload set.
