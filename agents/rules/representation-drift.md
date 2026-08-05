@@ -164,7 +164,7 @@ vs where they must run, a release job reported working that is not, a table
 the live control plane never touches, declared workloads that are not running,
 **running pods no applied scrape selects**, **tests that carry no `#[test]`**,
 **env vars the binary reads that its deployment-spec page omits**, and **metric
-recorders nothing calls**. Eleven checks; read-only; one command.
+recorders nothing calls**. Twelve checks; read-only; one command.  The twelfth compares each **pinned metric label set against the literals its recorder is actually called with** — a pinned set that omits one value reintroduces the absent-series bug on that value alone, while the rest read 0 and look complete.  It exists as a script rather than only as a Rust test because [ai-meta#232](https://github.com/noetl/ai-meta/issues/232) records that no `cargo test` runs in CI on any Rust repo, so the in-repo guards have no runner.
 
 That last check (`scrape`) generalises a subtlety worth stating on its own: an
 **enumerated selector is itself a representation** — a copy of the workload set.

@@ -654,6 +654,40 @@ if run dead-recorders; then
   done
 fi
 
+if run pinned-sets; then
+  hdr "metrics: pinned label sets vs the literals actually recorded"
+  # A labelled metric is ABSENT from /metrics until incremented, so known label
+  # values are pinned at 0 to make "healthy" distinguishable from "this binary
+  # does not have the metric".  A pinned set that OMITS one value reintroduces
+  # exactly the bug it was meant to fix, on the omitted value only, while the
+  # rest read 0 and look complete.
+  #
+  # That happened: `record_result_tier_gc` has 8 outcomes; a same-line grep saw
+  # 6 (one literal wraps to the next line) and reading the file saw 7 (there are
+  # two call blocks).  The Rust guards catch it — but noetl/ai-meta#232 records
+  # that NO cargo test runs in CI on any Rust repo, so nothing executes them
+  # unless a human does.  This is their runner.
+  if command -v python3 >/dev/null 2>&1; then
+    out=$(python3 "$ROOT/playbooks/lib/pinned_sets.py" "$ROOT" 2>/dev/null)
+    res=$(printf '%s\n' "$out" | tail -1)
+    n_short=$(printf '%s' "$res" | awk '{print $2+0}')
+    n_noguard=$(printf '%s' "$res" | awk '{print $3+0}')
+    if [ "${n_short:-0}" -gt 0 ]; then
+      drift "$n_short pinned label set(s) omit a value the code records — the omitted series stays ABSENT while the rest read 0"
+      printf '%s\n' "$out" | grep '^SHORT' | sed 's/^/         /'
+    fi
+    if [ "${n_noguard:-0}" -gt 0 ]; then
+      drift "$n_noguard pinned set(s) are unverifiable — a const with no registry entry, or a recorder that was renamed"
+      printf '%s\n' "$out" | grep '^NO-GUARD' | sed 's/^/         /'
+    fi
+    if [ "${n_short:-0}" -eq 0 ] && [ "${n_noguard:-0}" -eq 0 ]; then
+      ok "every pinned set matches its call-site literals ($(printf '%s\n' "$out" | grep -c '^OK') set(s) checked)"
+    fi
+  else
+    skip "no python3 — cannot compare pinned sets against call sites"
+  fi
+fi
+
 if run worktrees; then
   hdr "git: submodule worktrees that resolve to the git dir"
   # A worktree whose `core.worktree` resolves to the module directory reports
