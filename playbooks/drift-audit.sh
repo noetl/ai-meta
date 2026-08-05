@@ -538,6 +538,10 @@ if run env-docs; then
       drift "$repo: $n env var(s) read by the binary are absent from $wiki/deployment-specification.md (Rule 2a)"
       printf '%s\n' "$miss" | head -12 | sed 's/^/         /'
       echo "         Cross-check which are LIVE:  kubectl -n noetl get deploy -o json | grep -o '\"NOETL_[A-Z_]*\"'"
+      echo "         NOTE: reads inside a #[cfg(test)] module are NOT filtered here."
+      echo "         The gateway's NOETL_LIVE_OIDC_* trio is read only by an #[ignore]d"
+      echo "         live-validation test and does not belong on a config page — confirm"
+      echo "         a var is runtime before writing it up."
     fi
   done
 fi
