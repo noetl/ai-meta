@@ -1,0 +1,7 @@
+noetl-cmdbus-writer-1	us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:6d3f9c36ad51f0ab1667c2cfdba5be9cf432ec2cdadad6e4012eae6dd76ef9bd
+noetl-server-rust	us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/server-rust@sha256:11c7c5a873d933d982017a787de590d798463e8a210edcc2e5c8111eea271617
+noetl-worker-rust	us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:70105f21977f6c2997d268bd1ac8d9c2bb68d987389b3f4a9682a7c5347148bc
+noetl-worker-system-pool	us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:70105f21977f6c2997d268bd1ac8d9c2bb68d987389b3f4a9682a7c5347148bc
+noetl-worker-system-pool-shard1	us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:70105f21977f6c2997d268bd1ac8d9c2bb68d987389b3f4a9682a7c5347148bc
+noetl-cmdbus-writer	us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:70105f21977f6c2997d268bd1ac8d9c2bb68d987389b3f4a9682a7c5347148bc
+gateway	us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-gateway:v3.7.1
