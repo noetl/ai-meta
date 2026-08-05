@@ -84,9 +84,39 @@ top-level correct. This is per-worktree and reversible; it does not
 touch the shared config. A fresh clone is still the more reliable path
 when the work is going to be committed.
 
-Tracked as [noetl/ai-meta#239](https://github.com/noetl/ai-meta/issues/239),
-which also records that 16 `.codex` worktrees of `repos/noetl` are
-currently in this state.
+**Structural repair — fixes every worktree at once, including future
+ones.** The per-worktree repair above treats one symptom. The cause is
+that `core.worktree` is in the **shared** config while
+`extensions.worktreeConfig` is on; git requires it to live in the
+per-worktree `config.worktree` in that configuration, so the current
+state is the misconfiguration. Two commands, run from the **primary**:
+
+```bash
+git -C repos/<name> config --worktree core.worktree "$(pwd)/repos/<name>"
+git -C repos/<name> config --local  --unset core.worktree
+```
+
+Verified on `repos/noetl` 2026-08-05, first in a scratch reproduction of
+the submodule layout and then on the real tree:
+
+| | before | after |
+| :-- | :-- | :-- |
+| worktrees resolving correctly | **1 of 18** | **17 of 18** |
+| a `.codex` secondary's dirty paths | 62 | 0 |
+| a worktree created *after* the fix | — | born correct |
+
+The remaining entry is the primary's registration showing the gitdir path
+(`.git/modules/repos/<name>`), which is cosmetic — the primary checkout
+itself resolves correctly. Exactly reversible: re-adding the shared key
+reproduces the breakage, removing it fixes it again.
+
+**This does not travel.** `.git/modules/<path>/config` is not
+version-controlled, so the repair is per-clone. A fresh clone of `ai-meta`
+on another machine starts broken again, which is why the pre-flight check
+above — and `playbooks/drift-audit.sh worktrees` — are the durable part,
+not the fix.
+
+Tracked as [noetl/ai-meta#239](https://github.com/noetl/ai-meta/issues/239).
 
 **The safe pattern for isolated work on a submodule:**
 

@@ -633,6 +633,52 @@ if run dead-recorders; then
   done
 fi
 
+if run worktrees; then
+  hdr "git: submodule worktrees that resolve to the git dir"
+  # A worktree whose `core.worktree` resolves to the module directory reports
+  # `--is-inside-work-tree=false`, and every `status` / `diff` / `add` in it
+  # then describes the GIT DIRECTORY instead of the checkout.  Nothing errors:
+  # the diff simply looks plausible and is of the wrong thing, and a commit
+  # there writes the wrong tree.
+  #
+  # Cause: `core.worktree` sits in the SHARED config while
+  # `extensions.worktreeConfig` is on, so its relative path — correct from the
+  # primary's gitdir — lands back on the module directory from a secondary's
+  # gitdir, two levels deeper.  It does not fire uniformly: repos/ops,
+  # repos/e2e and repos/cli were all fine on the day repos/noetl was not,
+  # which is exactly what makes the broken one read as a repo problem.
+  #
+  # This is per-clone, not per-repo: `.git/modules/<path>/config` is not
+  # version-controlled, so a fresh clone starts broken again.  That is why
+  # this check exists rather than only the fix (noetl/ai-meta#239).
+  found=0
+  for sm in $(cd "$ROOT" && git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{print $2}'); do
+    d="$ROOT/$sm"
+    [ -d "$d" ] || continue
+    (cd "$d" && git rev-parse --git-dir >/dev/null 2>&1) || continue
+    shared=$(cd "$d" && git config --local --get core.worktree 2>/dev/null || true)
+    [ -z "$shared" ] && continue
+    wtcfg=$(cd "$d" && git config --get extensions.worktreeConfig 2>/dev/null || true)
+    [ "$wtcfg" = "true" ] || continue
+    bad=0; total=0
+    while IFS= read -r wt; do
+      [ -z "$wt" ] && continue
+      total=$((total+1))
+      r=$(git -C "$wt" rev-parse --is-inside-work-tree 2>/dev/null || true)
+      [ "$r" = "true" ] || bad=$((bad+1))
+    done <<< "$(cd "$d" && git worktree list 2>/dev/null | awk '{print $1}')"
+    if [ "$bad" -gt 1 ]; then
+      found=1
+      drift "$sm: $bad of $total worktrees resolve to the git dir, not their checkout — status/diff/add there describe the wrong tree"
+      echo "         core.worktree is in the SHARED config with extensions.worktreeConfig=true."
+      echo "         Fix, from the primary (reversible, and repairs existing worktrees):"
+      echo "           git -C $sm config --worktree core.worktree \"\$(pwd)/$sm\""
+      echo "           git -C $sm config --local  --unset core.worktree"
+    fi
+  done
+  [ "$found" -eq 0 ] && ok "no submodule keeps core.worktree in the shared config alongside worktreeConfig"
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
