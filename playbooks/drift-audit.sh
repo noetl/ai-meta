@@ -490,6 +490,47 @@ for i, l in enumerate(L):
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 10. Env vars the binary reads that its deployment-spec page never names.
+#
+# wiki-maintenance.md Rule 2a makes each component's `deployment-specification`
+# page the source of truth for its env vars.  Nothing forces that to agree with
+# the code.  Measured 2026-08-05: 18 literal `env::var("NOETL_*")` reads in
+# server@main and 25 in worker@main were absent from their pages, and ELEVEN of
+# them were set in production at that moment — including the whole post-T5
+# events-bus wiring and the #166 chain-index bounds whose absence had already
+# caused an OOM wedge.
+#
+# Only the literal-read direction is reported.  The reverse (documented but not
+# read) is dominated by false positives: `envy::prefixed("NOETL_")` derives vars
+# from struct field names, and pages legitimately mention a sibling component's
+# variables.
+# ---------------------------------------------------------------------------
+if run env-docs; then
+  hdr "wiki: env vars the binary reads that its deployment-spec page omits"
+  for pair in "server:noetl-server-wiki" "worker:noetl-worker-wiki"; do
+    repo="${pair%%:*}"; wiki="${pair#*:}"
+    d="$ROOT/repos/$repo"; page="$ROOT/repos/$wiki/deployment-specification.md"
+    [ -d "$d" ] || { skip "repos/$repo not checked out"; continue; }
+    [ -f "$page" ] || { skip "$wiki has no deployment-specification.md"; continue; }
+    ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
+    [ -z "$ref" ] && { skip "$repo: no origin/main"; continue; }
+    miss=$( (cd "$d" && git grep -ohE 'env::var(_os)?\(\s*"(NOETL|RUST)_[A-Z0-9_]*"' "$ref" -- src 2>/dev/null) \
+            | grep -oE '"(NOETL|RUST)_[A-Z0-9_]*"' | tr -d '"' | sort -u \
+            | while IFS= read -r v; do
+                grep -q "\b${v}\b" "$page" || printf '%s\n' "$v"
+              done )
+    n=$(printf '%s\n' "$miss" | grep -c . || true)
+    if [ "${n:-0}" -eq 0 ]; then
+      ok "$repo: every env var it reads is named on its deployment-spec page"
+    else
+      drift "$repo: $n env var(s) read by the binary are absent from $wiki/deployment-specification.md (Rule 2a)"
+      printf '%s\n' "$miss" | head -12 | sed 's/^/         /'
+      echo "         Cross-check which are LIVE:  kubectl -n noetl get deploy -o json | grep -o '\"NOETL_[A-Z_]*\"'"
+    fi
+  done
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
