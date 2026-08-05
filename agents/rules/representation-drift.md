@@ -109,10 +109,38 @@ as about the code. Each of these produced a confident, wrong zero:
 - **Name ambiguity in both directions.** A bare `from_env` matches every type's
   `from_env`; a qualified `Type::method` misses `value.method()`.
 
+- **An empty `/metrics`.** `Registry::gather` **prunes metric families with no
+  children** (prometheus 0.14, `registry.rs:126`), so a labelled metric is
+  absent until something increments it — registering it is not enough. Every
+  gateway metric is labelled by `subscription`, so the production gateway
+  served a 200 with **zero bytes**, indistinguishable from a broken exporter,
+  the wrong port, or a pod that is not the gateway.
+
 And one substantive rule, not a tooling one: **a thing is unused only if
 *every* use is unreachable.** `NOETL_SHARD_INDEX` is read by the dead affinity
 path *and* reachably by the durable-eventlog backend. Finding the first reader
 is not finding all of them.
+
+### Making absence readable
+
+Absence is the default state of every labelled metric, so it has to be
+designed away rather than noticed:
+
+- **Pin the known label values at 0** where the label set is closed
+  (`{reason}`, `{outcome}`). Then a scrape shows 0 for healthy and nothing for
+  "not this binary", instead of both looking the same.
+- **Pin unconditionally.** A pin placed inside a config branch is not a pin —
+  server#315 pinned the publish-skip reasons inside
+  `if event_bus_mode.publishes_ehdb()`, leaving them absent on exactly the
+  configuration whose `no_transport` reason someone would be reading.
+- **Where the label set is open, pinning cannot work at all**
+  (`{event_type}` takes a free-form String). The general remedy is per-process,
+  not per-metric: a `*_build_info{version}` gauge, always 1. If the running
+  version is new enough to have metric X, X's absence means it has not fired.
+  Landed for all three deployed binaries on 2026-08-05; before that **nothing
+  on any `/metrics` carried the version**, so "does this pod predate that
+  metric?" was answered from the Deployment's image tag — a different
+  representation, and one that can disagree with what is running.
 
 ### What to do with a clean result
 
