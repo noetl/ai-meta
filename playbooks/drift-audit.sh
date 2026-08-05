@@ -396,6 +396,100 @@ for it in items:
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 9. Tests that are compiled but never run.
+#
+# A `fn` inside `mod tests` with no `#[test]` attribute and no caller is dead
+# code wearing a test's name.  Found 2026-08-05 in two repos at once:
+#
+#   worker  command_completed_context_marks_a_parked_step   (noetl/worker#226)
+#   server  test_issue_89_scalar_renders_unaffected         (noetl/server#305)
+#
+# Both had the same cause: a later test was inserted between an earlier test's
+# doc comment and its `fn`, so the newcomer absorbed the `#[test]` (harmless
+# warning) and the original was orphaned.  Both passed once enabled — the
+# invariants held, they were simply unguarded.  The worker one guards #227's
+# parked-step marker, whose whole job is to stop the non-convergence sweep
+# terminating healthy work.
+#
+# `cargo check --all-targets` reports both halves, but neither server nor
+# worker runs PR-level CI, so nothing surfaces them at review time.  This is
+# the static equivalent and needs no build.
+# ---------------------------------------------------------------------------
+if run inert-tests; then
+  hdr "rust: test-shaped functions that carry no #[test] and have no caller"
+  found=0
+  for r in worker server tools cli; do
+    d="$ROOT/repos/$r"
+    [ -d "$d" ] || continue
+    ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
+    [ -z "$ref" ] && continue
+    out=$(cd "$d" && git ls-tree -r --name-only "$ref" 2>/dev/null | grep '\.rs$' | while IFS= read -r f; do
+      git show "$ref:$f" 2>/dev/null | python3 -c '
+import sys, re
+path = sys.argv[1]
+L = sys.stdin.read().split("\n")
+if not any(re.search(r"\bmod tests\b", l) for l in L): raise SystemExit
+
+# Mark the line ranges that are inside a `mod tests` block, by brace depth.
+inside = [False] * len(L)
+depth = 0; active = False
+for i, l in enumerate(L):
+    if not active and re.search(r"\bmod tests\b", l):
+        active = True; depth = 0
+    if active:
+        depth += l.count("{") - l.count("}")
+        inside[i] = True
+        if depth <= 0 and "{" in "".join(L[:i+1][-1:]) or (depth <= 0 and i > 0):
+            if depth <= 0: active = False
+
+def is_comment(x):
+    t = x.strip()
+    return t.startswith("//") or t.startswith("*") or t.startswith("/*")
+
+for i, l in enumerate(L):
+    if not inside[i]: continue
+    m = re.match(r"\s*(?:pub )?(?:async )?fn (\w+)\s*\(\s*\)", l)
+    if not m: continue
+    name = m.group(1)
+    j, has = i - 1, False
+    while j >= 0:
+        t = L[j].strip()
+        if t.startswith("//"): j -= 1; continue
+        if t.startswith("#["):
+            if re.search(r"#\[\s*(tokio::)?test", t): has = True
+            j -= 1; continue
+        break
+    if has: continue
+    if "assert" not in "\n".join(L[i:i+40]): continue
+    # A helper is CALLED. Comments that merely name it are not calls.
+    calls = 0
+    for k, x in enumerate(L):
+        if name not in x: continue
+        if re.match(rf"\s*(?:pub )?(?:async )?fn {name}\s*\(", x): continue
+        if is_comment(x): continue
+        calls += 1
+    if calls == 0:
+        print(f"{path}:{i+1}:{name}")
+' "$f"
+    done)
+    if [ -n "$out" ]; then
+      while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        drift "$r: ${line} — asserts, but carries no #[test] and nothing calls it"
+        found=$((found + 1))
+      done <<< "$out"
+    fi
+  done
+  if [ "$found" -eq 0 ]; then
+    ok "no orphaned test-shaped functions in worker/server/tools/cli"
+  else
+    echo "         Confirm with: cargo check --all-targets (reports dead_code +"
+    echo "         duplicate_macro_attributes for exactly this shape).  Enable the"
+    echo "         attribute and RUN it before assuming the invariant holds."
+  fi
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
