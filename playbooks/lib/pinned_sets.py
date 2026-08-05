@@ -49,10 +49,18 @@ REGISTRY = {
     "ORPHAN_SWEEP_OUTCOMES": ("server", "record_orphan_sweep", None),
     "RESULT_TIER_GC_OUTCOMES": ("server", "record_result_tier_gc", None),
     "CREDENTIAL_SEAL_STATUSES": ("server", "record_credential_seal", None),
+    "SYSTEM_PLUGIN_SEED_OUTCOMES": ("server", "record_system_plugin_seed", None),
+    # SECRET_REFRESH_OUTCOMES is deliberately absent: two of its five values
+    # (`succeeded`, `failed`) are assigned to a local in a `match` and passed as
+    # a variable, so a literal scan finds three and would call a complete set
+    # SHORT.  Its guard is `plugin_seed_and_secret_refresh_series_exist`, which
+    # asserts all five are pinned.
+    "SECRET_REFRESH_OUTCOMES": None,
     "STATE_BUILDER_DRIVE_OUTCOMES": ("worker", "record_state_builder_drive", None),
     "STATE_BUILDER_DRIVE_WAIT_OUTCOMES": ("worker", "record_state_builder_drive_wait", None),
     "STATE_BUILDER_BUILD_OUTCOMES": ("worker", "record_state_builder_build", None),
     "EHDB_CLAIM_RECONNECT_REASONS": ("worker", "record_ehdb_claim_reconnect", None),
+    "STATE_BUILDER_REPLAY_END_REASONS": ("worker", "record_state_builder_replay_end", None),
     # NONCONVERGENCE_SWEEP_OUTCOMES is deliberately absent: five of its seven
     # values come from `Disposition::metric_label`, not from call-site literals,
     # so a literal scan under-reports it by design.  Its guard is the exhaustive
