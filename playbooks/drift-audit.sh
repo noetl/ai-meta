@@ -534,7 +534,12 @@ if run env-docs; then
     # read in env_bool / env_u32 / env_u64 / env_addr / env_millis / env_truthy,
     # and an env::var-only pattern missed 55 of its 107 variables — including
     # NOETL_STATE_AFFINITY_ROUTE, which is set in prod and read by nothing.
-    miss=$( (cd "$d" && git grep -ohE '(env::var(_os)?|env_[a-z0-9_]+)\(\s*"(NOETL|RUST)_[A-Z0-9_]*"' "$ref" -- src 2>/dev/null) \
+    # Three read idioms, all of which have bitten:
+    #   env::var("NOETL_X")            — the obvious one
+    #   env_bool("NOETL_X", …)         — typed helpers; 55 of the worker's vars
+    #   const X_ENV: &str = "NOETL_X"  — then env::var(X_ENV); 44 more, incl.
+    #                                    the whole NOETL_EHDB_* tier family
+    miss=$( (cd "$d" && git grep -ohE '((env::var(_os)?|env_[a-z0-9_]+)\(\s*|const [A-Z_]+ *: *&str *= *)"(NOETL|RUST)_[A-Z0-9_]*"' "$ref" -- src 2>/dev/null) \
             | grep -oE '"(NOETL|RUST)_[A-Z0-9_]*"' | tr -d '"' | sort -u \
             | while IFS= read -r v; do
                 printf '%s\n' "$corpus" | grep -qx "$v" || printf '%s\n' "$v"
