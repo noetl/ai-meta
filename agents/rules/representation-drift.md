@@ -83,8 +83,17 @@ off it, and say so where it lives.
 
 `playbooks/drift-audit.sh` runs the classes above mechanically — stale project
 pins, a caret range that dropped a capability, published image architectures
-vs where they must run, a release job reported working that is not, and a table
-the live control plane never touches. Read-only; one command.
+vs where they must run, a release job reported working that is not, a table
+the live control plane never touches, declared workloads that are not running,
+and **running pods no applied scrape selects**. Read-only; one command.
+
+That last check (`scrape`) generalises a subtlety worth stating on its own: an
+**enumerated selector is itself a representation** — a copy of the workload set.
+`podmonitoring-noetl.yaml` listed four worker `app` names, two of which never
+existed, and omitted `noetl-worker-system-pool-shard1`, live since #166 Phase 5.
+Applying it would have scraped half the system pool and looked green. Partial
+monitoring coverage emits no error at all, so it can only be found by comparing
+the selector against the cluster — which is what the check does.
 
 It deliberately reports evidence rather than verdicts, because several of these
 have a stale **issue** as well as a stale artifact, and the two want different

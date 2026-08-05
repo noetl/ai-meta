@@ -322,6 +322,80 @@ except Exception:
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 8. Live pods that no APPLIED PodMonitoring selects.
+#
+# The inverse of check 7.  Check 7 asks "is what we declared running?"; this
+# asks "is what is running being watched?".  Found 2026-08-05: ns noetl had
+# exactly one PodMonitoring (the cmdbus writer), so the server and all four
+# worker pods were unscraped — and separately, the unapplied worker
+# PodMonitoring enumerated `app` names and had missed the #166 Phase 5 shard,
+# so applying it would have covered half the system pool while looking green.
+#
+# An enumerated selector is a copy of the workload set. Nothing forces it to
+# agree, and partial coverage produces no signal at all — which is why this is
+# a drift check and not a monitoring alert.
+# ---------------------------------------------------------------------------
+if run scrape; then
+  hdr "cluster: running pods that no applied PodMonitoring selects"
+  CTX="${PROD_CTX:-gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot}"
+  if ! kubectl --context "$CTX" get ns noetl >/dev/null 2>&1; then
+    skip "prod context unreachable — cannot compare pods against scrapes"
+  else
+    # Every selector of every APPLIED PodMonitoring in ns noetl, as a label
+    # query.  matchLabels -> k=v,k=v ; matchExpressions Exists -> k ; In -> k in (…)
+    sels=$(kubectl --context "$CTX" -n noetl get podmonitoring -o json 2>/dev/null | python3 -c '
+import sys, json
+try: items = json.load(sys.stdin).get("items", [])
+except Exception: sys.exit(0)
+for it in items:
+    sel = (it.get("spec") or {}).get("selector") or {}
+    parts = [f"{k}={v}" for k, v in (sel.get("matchLabels") or {}).items()]
+    for e in sel.get("matchExpressions") or []:
+        op, key = e.get("operator"), e.get("key")
+        if op == "Exists":
+            parts.append(key)
+        elif op == "In":
+            vals = ",".join(e.get("values") or [])
+            parts.append(key + " in (" + vals + ")")
+    if parts: print(",".join(parts))
+' 2>/dev/null)
+
+    covered=""
+    if [ -n "$sels" ]; then
+      while IFS= read -r s; do
+        [ -z "$s" ] && continue
+        hits=$(kubectl --context "$CTX" -n noetl get pods -l "$s" \
+                 -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+        covered=$(printf '%s\n%s' "$covered" "$hits")
+      done <<< "$sels"
+    fi
+
+    # Pods owned by a Deployment/StatefulSet — CronJob pods are short-lived and
+    # not expected to be scraped, so they are excluded rather than reported.
+    allpods=$(kubectl --context "$CTX" -n noetl get pods \
+                -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.metadata.ownerReferences[0].kind}{"\n"}{end}' 2>/dev/null \
+              | awk '$2=="ReplicaSet" || $2=="StatefulSet" {print $1}')
+
+    unscraped=0
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      if ! printf '%s\n' "$covered" | grep -qxF "$p"; then
+        drift "pod $p is selected by NO applied PodMonitoring — its /metrics reaches nothing"
+        unscraped=$((unscraped + 1))
+      fi
+    done <<< "$allpods"
+
+    n_pm=$(printf '%s\n' "$sels" | grep -c . || true)
+    if [ "$unscraped" -eq 0 ]; then
+      ok "every long-lived pod in ns noetl is selected by one of $n_pm applied PodMonitoring selector(s)"
+    else
+      echo "         $n_pm PodMonitoring selector(s) applied. A metric nothing scrapes cannot"
+      echo "         alert, and produces no error — the gap is silent by construction."
+    fi
+  fi
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
