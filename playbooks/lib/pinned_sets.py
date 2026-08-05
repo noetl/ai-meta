@@ -60,6 +60,15 @@ REGISTRY = {
     "CREDENTIAL_SEAL_STATUSES": ("server", "record_credential_seal", None),
     "SYSTEM_PLUGIN_SEED_OUTCOMES": ("server", "record_system_plugin_seed", None),
     "EHDB_COMMAND_PUBLISH_FAILED_REASONS": ("server", "record_ehdb_command_publish_failed", None),
+    "COMMAND_ROW_INSERT_MODES": ("server", "record_command_row_insert_failed", None),
+    # Not a label set at all: a list of METRIC NAMES that `init_unlabelled_series`
+    # must touch.  Its guard is `startup_inits_alone_register_every_unlabelled_metric`,
+    # which asserts each name is served after startup AND that the count matches
+    # the number of accessor touches.  Excluded explicitly so it reads as a
+    # decision rather than an unregistered gap.
+    "UNLABELLED_STARTUP_METRICS": None,
+    "LOGIN_OUTCOMES": ("gateway", "record_login", None),
+    "SESSION_CHECK_OUTCOMES": ("gateway", "record_session_check", None),
     # SECRET_REFRESH_OUTCOMES is deliberately absent: two of its five values
     # (`succeeded`, `failed`) are assigned to a local in a `match` and passed as
     # a variable, so a literal scan finds three and would call a complete set
@@ -73,6 +82,7 @@ REGISTRY = {
     "EHDB_CLAIM_RECONNECT_REASONS": ("worker", "record_ehdb_claim_reconnect", 1),
     "EHDB_CLAIM_FEEDS": ("worker", "record_ehdb_claim_reconnect", 0),
     "STATE_BUILDER_REPLAY_END_REASONS": ("worker", "record_state_builder_replay_end", None),
+    "MATERIALIZER_ACK_STAGES": ("worker", "record_materializer_ack_failed", None),
     # NONCONVERGENCE_SWEEP_OUTCOMES is deliberately absent: five of its seven
     # values come from `Disposition::metric_label`, not from call-site literals,
     # so a literal scan under-reports it by design.  Its guard is the exhaustive
@@ -102,6 +112,41 @@ def git_ls_rs(repo_dir: str):
     except Exception:
         return []
     return [l for l in out.splitlines() if l.endswith(".rs")]
+
+
+def strip_tests(src: str) -> str:
+    """Remove every `#[cfg(test)] mod ... { ... }` block, by brace matching.
+
+    Three attempts, each wrong in a different direction, which is why this is
+    spelled out:
+
+      1. Scanning test code counted `record_login("{o}")` inside a `format!`
+         in a guard test as a call site — two false SHORTs the moment the
+         gateway was added, whose sets live in the same file as their test.
+      2. Truncating at the first `#[cfg(test)]` overshot: `state_builder.rs`
+         annotates individual test-only helpers at lines 865/877, far above its
+         real call sites at 1333.
+      3. Truncating at the first `#[cfg(test)] mod` still overshot:
+         `event_bus.rs` has a test module at line 548 and real call sites at
+         871 and 905 AFTER it — which silently dropped one of two feeds and
+         still reported OK, because everything it did find was pinned.
+
+    A false OK is worse than a false SHORT, and (3) was caught only by noticing
+    the literal COUNT drop from 2 to 1.  That is why the check prints counts.
+    """
+    out, i = [], 0
+    for m in re.finditer(r"#\[cfg\(test\)\]\s*\n\s*(?:pub\s+)?mod\s+\w+\s*\{", src):
+        out.append(src[i:m.start()])
+        depth, k = 1, m.end()
+        while k < len(src) and depth:
+            if src[k] == "{":
+                depth += 1
+            elif src[k] == "}":
+                depth -= 1
+            k += 1
+        i = k
+    out.append(src[i:])
+    return "".join(out)
 
 
 def literals_after(src: str, call: str, arg_index: int = 0):
@@ -154,11 +199,13 @@ def const_values(metrics_src: str, name: str):
 def main(root: str) -> int:
     n_short = n_noguard = 0
     declared = {}
-    for repo in ("server", "worker"):
+    for repo in ("server", "worker", "gateway"):
         d = os.path.join(root, "repos", repo)
         if not os.path.isdir(d):
             continue
-        src = git_show(d, "src/metrics.rs")
+        # The gateway has no metrics.rs; its sets live beside the ingress
+        # registry.  Scan whichever file exists rather than assuming a layout.
+        src = git_show(d, "src/metrics.rs") or git_show(d, "src/ingress/mod.rs")
         if src is None:
             continue
         for name in re.findall(r"pub const ([A-Z_0-9]+)\s*:\s*\[&str;", src):
@@ -196,7 +243,7 @@ def main(root: str) -> int:
                 continue
             content = git_show(d, rel)
             if content:
-                found += literals_after(content, call, arg_index)
+                found += literals_after(strip_tests(content), call, arg_index)
         seen = []
         for o in found:
             if o not in seen:
