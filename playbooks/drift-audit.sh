@@ -294,6 +294,7 @@ if run workloads; then
     live=$(kubectl --context "${PROD_CTX:-gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot}" \
              -n noetl get deploy,sts -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
     missing=0
+    notprod=""
     for f in $(cd "$d" && git ls-tree -r --name-only origin/main ci/manifests/noetl/ 2>/dev/null | grep -E '\.ya?ml$'); do
       # Deployment/StatefulSet metadata.name declared in this file
       names=$(cd "$d" && git show "origin/main:$f" 2>/dev/null | python3 -c '
@@ -302,11 +303,26 @@ try:
     for doc in yaml.safe_load_all(sys.stdin):
         if isinstance(doc, dict) and doc.get("kind") in ("Deployment","StatefulSet"):
             n=(doc.get("metadata") or {}).get("name")
-            if n: print(n)
+            if not n: continue
+            spec=((doc.get("spec") or {}).get("template") or {}).get("spec") or {}
+            imgs=[c.get("image","") for c in spec.get("containers",[])]
+            kind_only=any(i.startswith("localhost/") for i in imgs)
+            template=any(("image_name" in i) or ("image_tag" in i) for i in imgs)
+            tag="kind-only" if kind_only else ("template" if template else "prod-shaped")
+            print(n+chr(9)+tag)
 except Exception:
     pass' 2>/dev/null)
-      for n in $names; do
+      while IFS=$'\t' read -r n tag; do
+        [ -z "$n" ] && continue
         if ! printf '%s\n' "$live" | grep -qx "$n"; then
+          # Only a prod-shaped manifest makes a claim about prod.  A localhost/
+          # image cannot be pulled by GKE and a placeholder tag is not a spec,
+          # so neither is drift — reporting them as such made 6 of 6 findings
+          # here wrong, which is how a check teaches its reader to skim it.
+          if [ "$tag" != "prod-shaped" ]; then
+            notprod="${notprod}${f} ($n, $tag)\n"
+            continue
+          fi
           # "Declared but not running" has THREE causes and only one is drift:
           #   dead legacy      — the Python-era server/worker (#97)
           #   gated feature    — deployed only when enabled (flightsql, subscription pool)
@@ -316,14 +332,19 @@ except Exception:
           drift "$f declares $n — not running in prod; is it dead legacy, a gated feature, or kind-only? (noetl/ai-meta#97)"
           missing=$((missing+1))
         fi
-      done
+      done <<< "$names"
     done
+    if [ -n "$notprod" ]; then
+      hold "$(printf "$notprod" | grep -c .) manifest(s) declare workloads absent from prod BY DESIGN — kind-only or a template, not a claim about prod"
+      printf "$notprod" | sed 's/^/         /'
+    fi
     if [ "$missing" -eq 0 ]; then
       ok "every declared Deployment/StatefulSet exists in prod"
     else
-      echo "         NOTE: $missing declared workload(s) are not running. Confirmed DEAD so far:"
-      echo "               server-deployment.yaml (image is the placeholder 'image_name:image_tag'),"
-      echo "               worker-deployment.yaml — both Python-era, superseded by the -rust workloads."
+        echo "         NOTE: $missing prod-shaped manifest(s) declare a workload prod is not"
+        echo "               running.  The kind-only and template ones are separated out above,"
+        echo "               so what is left here is genuinely ambiguous: dead legacy, a gated"
+        echo "               feature, or a fixture that happens to use a public image."
     fi
   fi
 fi
