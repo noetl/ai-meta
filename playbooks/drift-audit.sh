@@ -175,6 +175,41 @@ if run tables; then
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 6. Open issues whose acceptance is fully ticked.
+#    The judgement-heavy class this script said it could not catch — partly
+#    automatable after all.  An OPEN issue with >=1 checkbox and ZERO unticked
+#    is a strong signal the work landed and the record did not follow.
+#    Would have caught #165 (all boxes ticked, planner seven versions past its
+#    target) and #222 (last box blocked on a resolved blocker).
+#
+#    Reports candidates, never closes: "all boxes ticked" is evidence, not a
+#    verdict — #223 has five of six phases genuinely run and should still NOT
+#    be ticked, because two did not follow the sequence the issue exists to
+#    hold.
+# ---------------------------------------------------------------------------
+if run issues; then
+  hdr "issues: open, but every acceptance box is ticked"
+  if command -v gh >/dev/null 2>&1; then
+    found=0
+    for n in $(gh issue list --repo noetl/ai-meta --state open --label ai-task \
+                 --limit 60 --json number -q '.[].number' 2>/dev/null); do
+      body=$(gh issue view "$n" --repo noetl/ai-meta --json body -q .body 2>/dev/null)
+      [ -n "$body" ] || continue
+      done_n=$(printf '%s' "$body" | grep -cE '^[[:space:]]*-[[:space:]]*\[x\]' || true)
+      todo_n=$(printf '%s' "$body" | grep -cE '^[[:space:]]*-[[:space:]]*\[ \]' || true)
+      if [ "${done_n:-0}" -ge 1 ] && [ "${todo_n:-0}" -eq 0 ]; then
+        title=$(gh issue view "$n" --repo noetl/ai-meta --json title -q .title 2>/dev/null)
+        drift "#$n is OPEN with $done_n/$done_n boxes ticked — ${title:0:60}"
+        found=1
+      fi
+    done
+    [ "$found" -eq 0 ] && ok "no open ai-task issue has a fully-ticked acceptance list"
+  else
+    skip "gh not installed"
+  fi
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
@@ -183,6 +218,7 @@ else
   printf "\033[32mNo drift found by these checks.\033[0m\n"
 fi
 printf "These checks are not exhaustive: they cover the classes already SEEN.\n"
-printf "Unticked checkboxes for shipped work (#194, ehdb#241, #201) are the class\n"
-printf "no script catches — they need reading the issue against the cluster.\n"
+printf "Check 6 catches only the FULLY-ticked case.  Partially-ticked issues whose\n"
+printf "work has shipped (#194, ehdb#241, #201, #223) still need the issue read\n"
+printf "against the cluster — that part is judgement, not grep.\n"
 exit 0
