@@ -14,6 +14,12 @@ pinning was supposed to fix — while the other six read 0 and look complete.
 Found for real on `record_result_tier_gc`, where a same-line grep saw 6, reading
 the file saw 7, and the extraction below saw 8.
 
+Reads `origin/main`, not the working tree.  The first version read the tree and
+would have reported confidently against whatever branch happened to be checked
+out — including a `main` that was 143 commits stale, which is how this was
+found.  Every other check in `drift-audit.sh` reads `origin/main`; this one now
+matches.
+
 Two extraction rules, both learned from getting it wrong:
 
   1. Take the next quoted string AFTER the call, not on the same line.  One of
@@ -27,9 +33,9 @@ Prints one line per set: OK / SHORT / NO-GUARD, then a summary line
 `RESULT <n_short> <n_noguard>` for the caller to branch on.
 """
 
-import glob
 import os
 import re
+import subprocess
 import sys
 
 # const name -> (repo, recorder fn, files the recorder is called from)
@@ -47,6 +53,29 @@ REGISTRY = {
     # match in `every_disposition_label_is_pinned`, which fails at COMPILE time.
     "NONCONVERGENCE_SWEEP_OUTCOMES": None,
 }
+
+
+def git_show(repo_dir: str, path: str):
+    """File content at origin/main, or None if absent."""
+    try:
+        return subprocess.run(
+            ["git", "show", f"origin/main:{path}"],
+            cwd=repo_dir, capture_output=True, text=True, check=True,
+        ).stdout
+    except Exception:
+        return None
+
+
+def git_ls_rs(repo_dir: str):
+    """Every .rs path under src/ at origin/main."""
+    try:
+        out = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "origin/main", "src/"],
+            cwd=repo_dir, capture_output=True, text=True, check=True,
+        ).stdout
+    except Exception:
+        return []
+    return [l for l in out.splitlines() if l.endswith(".rs")]
 
 
 def literals_after(src: str, call: str):
@@ -88,10 +117,12 @@ def main(root: str) -> int:
     n_short = n_noguard = 0
     declared = {}
     for repo in ("server", "worker"):
-        p = os.path.join(root, "repos", repo, "src", "metrics.rs")
-        if not os.path.exists(p):
+        d = os.path.join(root, "repos", repo)
+        if not os.path.isdir(d):
             continue
-        src = open(p, errors="ignore").read()
+        src = git_show(d, "src/metrics.rs")
+        if src is None:
+            continue
         for name in re.findall(r"pub const ([A-Z_]+(?:OUTCOMES|STATUSES))\s*:", src):
             declared[name] = (repo, src)
 
@@ -115,11 +146,14 @@ def main(root: str) -> int:
             n_noguard += 1
             print(f"NO-GUARD {name} ({repo}): could not parse the const body")
             continue
+        d = os.path.join(root, "repos", repo)
         found = []
-        for f in glob.glob(os.path.join(root, "repos", repo, "src", "**", "*.rs"), recursive=True):
-            if f.endswith("metrics.rs"):
+        for rel in git_ls_rs(d):
+            if rel.endswith("metrics.rs"):
                 continue
-            found += literals_after(open(f, errors="ignore").read(), call)
+            content = git_show(d, rel)
+            if content:
+                found += literals_after(content, call)
         seen = []
         for o in found:
             if o not in seen:
