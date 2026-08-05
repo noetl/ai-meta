@@ -1,0 +1,282 @@
+{
+ "automation/agents/mcp/duffel": {
+  "catalog_id": "662330088389608328",
+  "version": 18,
+  "kind": "playbook",
+  "created_at": "2026-07-02T20:11:39.280638Z",
+  "content_bytes": 45389,
+  "content_sha256": "e43e15452cb60481c6ff5ca4e6d77eb69363c975ff7c55b37c195d64bc916a1a"
+ },
+ "automation/agents/mcp/duffel-rollup-validate": {
+  "catalog_id": "662326794602677127",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-07-02T20:05:06.393403Z",
+  "content_bytes": 45417,
+  "content_sha256": "f1b665a52ccbe0314ba60319ef4343a35b00bf59daaf0c04d0c3d772f8fb8651"
+ },
+ "automation/agents/mcp/firestore": {
+  "catalog_id": "659448197403640687",
+  "version": 10,
+  "kind": "playbook",
+  "created_at": "2026-06-28T20:45:50.954257Z",
+  "content_bytes": 43128,
+  "content_sha256": "5ec9fb858afb50d1bc535d9190e9360adf6ccc80e4a6e8de78b590c4ef1ca5e1"
+ },
+ "automation/agents/mcp/google-places": {
+  "catalog_id": "660119782112363381",
+  "version": 10,
+  "kind": "playbook",
+  "created_at": "2026-06-29T19:00:10.228630Z",
+  "content_bytes": 27906,
+  "content_sha256": "5895ab48d83054029d215fe460f1ed2f467771da3e2beb56eac32673ad8c5aaa"
+ },
+ "automation/agents/mcp/hotelbeds": {
+  "catalog_id": "662611025673323404",
+  "version": 5,
+  "kind": "playbook",
+  "created_at": "2026-07-03T05:29:49.615173Z",
+  "content_bytes": 47279,
+  "content_sha256": "fe03eaa29eeaf9a255efdf616105fd82602f4c12485d3a3f04bc2c6ff8268a7e"
+ },
+ "automation/agents/mcp/hotelbeds-activities": {
+  "catalog_id": "657200970236953433",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-25T18:21:00.753369Z",
+  "content_bytes": 21626,
+  "content_sha256": "c372fc9878d7ad6e1d4553f2d332a71d12bb54bb6307a76c11ba0f66df5d690e"
+ },
+ "automation/agents/mcp/hotelbeds-photofix-validate": {
+  "catalog_id": "662610003882148747",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-07-03T05:27:47.544378Z",
+  "content_bytes": 47311,
+  "content_sha256": "8b668d8f4d755d1fcacf1313e441808de7b793c355c40d47d9de8d72302259db"
+ },
+ "automation/agents/mcp/hotelbeds-transfers": {
+  "catalog_id": "657200972283773786",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-25T18:21:00.997223Z",
+  "content_bytes": 20009,
+  "content_sha256": "4b2d70030eabf5cf8246c10fb912956731686ae5a12b3e8247f2a52e7fa6833e"
+ },
+ "automation/agents/travel/runtime": {
+  "catalog_id": "625385144664195482",
+  "version": 16,
+  "kind": "playbook",
+  "created_at": "2026-05-12T20:48:38.608118Z",
+  "content_bytes": 96127,
+  "content_sha256": "51e2bf8862c9a807e2163786b3dac6952e41ec9308930172ef6eafc358badc6b"
+ },
+ "batch_execution/multi_playbook_batch": {
+  "catalog_id": "572079500121341960",
+  "version": 7,
+  "kind": "Playbook",
+  "created_at": "2026-02-28T07:39:50.771743Z",
+  "content_bytes": 3359,
+  "content_sha256": "d3152744296626e1a972c965dc934873ca623b2455913b86f68cbb8efdbe15eb"
+ },
+ "muno/playbooks/itinerary-planner": {
+  "catalog_id": "664081132547212184",
+  "version": 67,
+  "kind": "playbook",
+  "created_at": "2026-07-05T06:10:39.736969Z",
+  "content_bytes": 254876,
+  "content_sha256": "34cc14f352d7289a975e400d3439d4fe814cdbe127e0d4f78a1b5718ed2d5d36"
+ },
+ "muno/playbooks/itinerary-planner-actvalidate": {
+  "catalog_id": "660441362587714429",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-30T05:39:05.417396Z",
+  "content_bytes": 220265,
+  "content_sha256": "27e98ea95d301d09bd2b025b64220fa316b2ad867560a8737bd1df756b582606"
+ },
+ "muno/playbooks/itinerary-planner-consolidated": {
+  "catalog_id": "634022992418177772",
+  "version": 2,
+  "kind": "playbook",
+  "created_at": "2026-05-24T18:50:30.466573Z",
+  "content_bytes": 71570,
+  "content_sha256": "5a256364e131b2e01e19fea40222b62584c781b6b127181d10c932ede289b9e4"
+ },
+ "muno/playbooks/itinerary-planner-fixb-candidate": {
+  "catalog_id": "659471024441787248",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-28T21:31:12.293854Z",
+  "content_bytes": 101140,
+  "content_sha256": "7b34da9d2ddb2be6af0b808898ca6280f3c931aa29db978c0c1ebcbf4911bd5c"
+ },
+ "muno/playbooks/itinerary-planner-flowfix-v66": {
+  "catalog_id": "663746329469780886",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-07-04T19:05:28.161016Z",
+  "content_bytes": 250211,
+  "content_sha256": "cbe4710e2a97b8ebd58e601b8a0a77afbb46daa63184262e865efb5e05ec6dce"
+ },
+ "muno/playbooks/itinerary-planner-hbphotos-validate": {
+  "catalog_id": "662611030496773005",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-07-03T05:29:50.188576Z",
+  "content_bytes": 243131,
+  "content_sha256": "b17a2a24e338b3b75783e0fdb2a6a690cc5eb06fab9e3af87ad939e34c80f0d6"
+ },
+ "muno/playbooks/itinerary-planner-hotelbook-validate": {
+  "catalog_id": "660411597306725243",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-30T04:39:57.316119Z",
+  "content_bytes": 218844,
+  "content_sha256": "ead1f8f65036a2537b11e34a1c85760e135ad42eaf613d287a64b471e715b2d8"
+ },
+ "muno/playbooks/itinerary-planner-mapdbg": {
+  "catalog_id": "662896075933483923",
+  "version": 2,
+  "kind": "playbook",
+  "created_at": "2026-07-03T14:56:10.255621Z",
+  "content_bytes": 247976,
+  "content_sha256": "56f00933e62c7bdb89ae1ea07f6f3495817e1b5a67cff1f45bc7c42c98de9ff7"
+ },
+ "muno/playbooks/itinerary-planner-mapfix-validate": {
+  "catalog_id": "662898577668047764",
+  "version": 4,
+  "kind": "playbook",
+  "created_at": "2026-07-03T15:01:08.478687Z",
+  "content_bytes": 248585,
+  "content_sha256": "7da57d636dfb31e64d7709fae50c66ea5c78cf47439ea3cebffcbe44c17b7cbc"
+ },
+ "muno/playbooks/itinerary-planner-rollup-validate": {
+  "catalog_id": "662330198792078217",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-07-02T20:11:52.426180Z",
+  "content_bytes": 242397,
+  "content_sha256": "34a6a8f0cac5a5dfb6ddf583718e591b4d55f9335aa3c08385afad2b6ebf2ba6"
+ },
+ "muno/playbooks/itinerary-planner-summaryv60-validate": {
+  "catalog_id": "660462421902885760",
+  "version": 2,
+  "kind": "playbook",
+  "created_at": "2026-06-30T06:20:56.085342Z",
+  "content_bytes": 232181,
+  "content_sha256": "495bdbc38b25f7e63cc533f9d7ffc5d92a3eb86d90269720407e4161b432726a"
+ },
+ "muno/playbooks/itinerary-planner-v57cand": {
+  "catalog_id": "660220555659838327",
+  "version": 2,
+  "kind": "playbook",
+  "created_at": "2026-06-29T22:20:23.382800Z",
+  "content_bytes": 210077,
+  "content_sha256": "20d33a94ca889cc603606026acd4a1ac4c0690bed0cb506b5314525817fd411f"
+ },
+ "muno/playbooks/itinerary-planner-v61-validate": {
+  "catalog_id": "660480820234158978",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-30T06:57:29.105601Z",
+  "content_bytes": 240107,
+  "content_sha256": "51627bba4f9df9bce2df41df7aafaf014c7ec9d30dd6e84db91e77a3f15a5597"
+ },
+ "muno/playbooks/itinerary-planner-v61seqmap-validate": {
+  "catalog_id": "660484859357299587",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-30T07:05:30.833507Z",
+  "content_bytes": 240311,
+  "content_sha256": "5088892afc79ebc9afbc9ea1af98d8fc3fa41d1b0a0da160e9a83bc2602ac64d"
+ },
+ "muno/playbooks/itinerary-planner-v62trim-validate": {
+  "catalog_id": "660644910474724229",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-30T12:23:30.148978Z",
+  "content_bytes": 241216,
+  "content_sha256": "61cf21adf78c0e83aff393ea57affebfcda72e10a580c388e1581dc85161611b"
+ },
+ "muno/playbooks/itinerary-planner-validate9474": {
+  "catalog_id": "660047533976060786",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-29T16:36:37.436300Z",
+  "content_bytes": 111529,
+  "content_sha256": "191927f8c3e56eb568b8b4156dd36d1ae0b056c4095c530051ce90c3e4becd53"
+ },
+ "muno/slm/ceiling-run-test": {
+  "catalog_id": "657920129761543011",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-26T18:09:51.043577Z",
+  "content_bytes": 88867,
+  "content_sha256": "0acf8bcfbdad0a30a22fa403ee016630807beed2f707835ce7dafd5211dee80a"
+ },
+ "muno/slm/ceiling-run-test-v2": {
+  "catalog_id": "657922724282499940",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-26T18:15:00.540091Z",
+  "content_bytes": 90344,
+  "content_sha256": "a516f4b760d487e22520ffa27c6b2fce118cf383af4e195e93d2b392c939270b"
+ },
+ "muno/slm/ceiling-run-test-v3": {
+  "catalog_id": "657934624655410021",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-06-26T18:38:39.171042Z",
+  "content_bytes": 91085,
+  "content_sha256": "b809da301e69ad1d2ed2c8882ce2fcd72fe512698b479129177e6551134299d4"
+ },
+ "tests/fixtures/playbooks/duckdb_gcs_workload_identity/workload_identity": {
+  "catalog_id": "572079526184747038",
+  "version": 2,
+  "kind": "Playbook",
+  "created_at": "2026-02-28T07:39:53.871455Z",
+  "content_bytes": 2081,
+  "content_sha256": "2bdfbd7d642ee4f8fc8a4fd308e7918dbc79d543fb60c468aed3d2c41b014004"
+ },
+ "tests/fixtures/playbooks/oauth/google_gcs": {
+  "catalog_id": "572079550100668465",
+  "version": 3,
+  "kind": "Playbook",
+  "created_at": "2026-02-28T07:39:56.728189Z",
+  "content_bytes": 3650,
+  "content_sha256": "dd35e87e56d9a79a7609b5788bd973f84182cb53b196a1efc9f299890fe71257"
+ },
+ "tests/fixtures/playbooks/oauth/google_secret_manager": {
+  "catalog_id": "572079551182798898",
+  "version": 3,
+  "kind": "Playbook",
+  "created_at": "2026-02-28T07:39:56.857922Z",
+  "content_bytes": 5215,
+  "content_sha256": "3799f21afce7030b1a0cdbdda1ee8d3b4d85c877ca3fe1a8745ab3718f37c3ca"
+ },
+ "tests/script_execution/k8s_job_python_gcs": {
+  "catalog_id": "572079598142226520",
+  "version": 2,
+  "kind": "Playbook",
+  "created_at": "2026-02-28T07:40:02.456368Z",
+  "content_bytes": 3545,
+  "content_sha256": "cf104a75f4e2ef9695e3d6d97a523af2eb04f29a8604f68ca9b00edd3a792df5"
+ },
+ "tests/script_execution/python_gcs": {
+  "catalog_id": "572079602705629276",
+  "version": 2,
+  "kind": "Playbook",
+  "created_at": "2026-02-28T07:40:03.000478Z",
+  "content_bytes": 1763,
+  "content_sha256": "7841a8be272bd4c3fa15128021efaefabaa7c4f3bc1a1be9afa3db8b19ca38e0"
+ },
+ "travel/playbooks/catalog/calendar/list": {
+  "catalog_id": "636776087644536929",
+  "version": 1,
+  "kind": "playbook",
+  "created_at": "2026-05-28T14:00:24.981923Z",
+  "content_bytes": 5357,
+  "content_sha256": "20dfd31050238139a9172ed49d7210908427bd659773e59a5d793a84ae397ad2"
+ }
+}
