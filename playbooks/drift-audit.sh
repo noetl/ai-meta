@@ -144,9 +144,13 @@ if run images; then
   if command -v crane >/dev/null 2>&1; then
     want_arch=$(kubectl --context kind-noetl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}' 2>/dev/null || echo "")
     [ -n "$want_arch" ] && echo "         kind node architecture: $want_arch"
-    for pair in "server:ghcr.io/noetl/server" "worker:ghcr.io/noetl/worker"; do
+    # The gateway was NOT in this list until 2026-08-05, which is why its
+    # amd64-only images went unnoticed: it cannot run on the arm64 validation
+    # cluster at all, so "kind-validate the gateway" was silently impossible.
+    # Its tags carry a `v` prefix; server and worker's do not.
+    for pair in "server:ghcr.io/noetl/server" "worker:ghcr.io/noetl/worker" "gateway:ghcr.io/noetl/gateway"; do
       name="${pair%%:*}"; ref="${pair#*:}"
-      tag=$(crane ls "$ref" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | tail -1)
+      tag=$(crane ls "$ref" 2>/dev/null | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | tail -1)
       [ -n "$tag" ] || { skip "$name: no semver tag readable (auth?)"; continue; }
       arches=$(crane manifest "$ref:$tag" 2>/dev/null | python3 -c '
 import json,sys
