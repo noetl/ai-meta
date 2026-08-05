@@ -47,6 +47,7 @@ REGISTRY = {
     "STATE_BUILDER_DRIVE_OUTCOMES": ("worker", "record_state_builder_drive", None),
     "STATE_BUILDER_DRIVE_WAIT_OUTCOMES": ("worker", "record_state_builder_drive_wait", None),
     "STATE_BUILDER_BUILD_OUTCOMES": ("worker", "record_state_builder_build", None),
+    "EHDB_CLAIM_RECONNECT_REASONS": ("worker", "record_ehdb_claim_reconnect", None),
     # NONCONVERGENCE_SWEEP_OUTCOMES is deliberately absent: five of its seven
     # values come from `Disposition::metric_label`, not from call-site literals,
     # so a literal scan under-reports it by design.  Its guard is the exhaustive
