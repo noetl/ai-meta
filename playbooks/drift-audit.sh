@@ -28,6 +28,12 @@ hdr() { printf "\n\033[1m== %s ==\033[0m\n" "$1"; }
 drift() { DRIFT=$((DRIFT+1)); printf "  \033[31mDRIFT\033[0m  %s\n" "$1"; }
 ok()   { printf "  \033[32mOK\033[0m     %s\n" "$1"; }
 skip() { printf "  SKIP   %s\n" "$1"; }
+# A finding that has been investigated and deliberately left as-is.  Still
+# printed, still visible, but not counted as drift — a check that reports the
+# same decided item on every run trains the reader to skim it, which is the
+# same failure as a check that never fires.  Every HOLD must name where the
+# decision is recorded, so it can be re-opened rather than merely tolerated.
+hold() { printf "  \033[33mHOLD\033[0m   %s\n" "$1"; }
 run()  { [ "$ONLY" = "all" ] || [ "$ONLY" = "$1" ]; }
 
 # Top-level, not inside a check: every check must be runnable standalone, and
@@ -594,14 +600,35 @@ if run dead-recorders; then
       n=$(cd "$d" && git grep -l "$fn" "$ref" -- src 2>/dev/null | grep -cv 'src/metrics.rs' || true)
       [ "${n:-0}" -eq 0 ] && out="${out}${fn}\n"
     done <<< "$muts"
-    n=$(printf "$out" | grep -c . || true)
+    # Recorders investigated under noetl/ai-meta#242 and deliberately kept.
+    # `record_affinity_decision` is downstream of an INERT FEATURE, not an
+    # unwired measurement: AffinityConfig::from_env has no non-test caller, so
+    # no AffinityDecision is ever constructed.  Deleting it would strip the
+    # instrumentation while leaving the feature, so switching affinity routing
+    # on later would come up silently unmeasured — the exact defect this check
+    # exists to catch.  Resolve it when #116 / #172 resolve, not here.
+    held="record_affinity_decision"
+    kept="" ; flagged=""
+    while IFS= read -r fn; do
+      [ -z "$fn" ] && continue
+      case " $held " in
+        *" $fn "*) kept="${kept}${fn}\n" ;;
+        *)         flagged="${flagged}${fn}\n" ;;
+      esac
+    done <<< "$(printf "$out")"
+    n=$(printf "$flagged" | grep -c . || true)
+    h=$(printf "$kept" | grep -c . || true)
     if [ "${n:-0}" -eq 0 ]; then
       ok "$repo: every metric-mutating recorder in metrics.rs is called from src/"
     else
       drift "$repo: $n metric recorder(s) mutate a metric but have NO caller — what they set can never move"
-      printf "$out" | head -10 | sed 's/^/         /'
+      printf "$flagged" | head -10 | sed 's/^/         /'
       echo "         Confirm on a live pod: the metric is absent from /metrics while"
       echo "         its siblings are present.  Then check no ALERT records off it."
+    fi
+    if [ "${h:-0}" -gt 0 ]; then
+      hold "$repo: $h recorder(s) knowingly unwired — see noetl/ai-meta#242"
+      printf "$kept" | head -10 | sed 's/^/         /'
     fi
   done
 fi
