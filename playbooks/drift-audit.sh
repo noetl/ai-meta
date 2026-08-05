@@ -262,6 +262,66 @@ if run issues; then
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 7. Manifests declaring workloads that do not exist in the cluster.
+#    The "dead install path" variant — worse than a stale description, because
+#    the person who trips over it is doing a disaster-recovery rebuild.
+#    Three instances found 2026-08-05:
+#      ci/manifests/noetl/{server,worker}-deployment.yaml  (#97, Python-era,
+#        and its image is the unsubstituted placeholder `image_name:image_tag`)
+#      ci/manifests/nats/                                  (NATS deleted in T5)
+#      automation/helm/.../outbox-publisher-deployment.yaml (#201)
+#
+#    Compares Deployment/StatefulSet NAMES declared under ci/manifests against
+#    what the cluster actually runs.  Helm templates are skipped — their names
+#    are templated and cannot be compared without rendering.
+# ---------------------------------------------------------------------------
+if run workloads; then
+  hdr "manifests: declared workloads that do not exist in the cluster"
+  d="$ROOT/repos/ops"
+  if [ ! -d "$d" ]; then
+    skip "repos/ops not checked out"
+  elif ! kubectl --context "${PROD_CTX:-gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot}" \
+         get ns noetl >/dev/null 2>&1; then
+    skip "prod context unreachable — cannot compare declared vs running"
+  else
+    live=$(kubectl --context "${PROD_CTX:-gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot}" \
+             -n noetl get deploy,sts -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+    missing=0
+    for f in $(cd "$d" && git ls-tree -r --name-only origin/main ci/manifests/noetl/ 2>/dev/null | grep -E '\.ya?ml$'); do
+      # Deployment/StatefulSet metadata.name declared in this file
+      names=$(cd "$d" && git show "origin/main:$f" 2>/dev/null | python3 -c '
+import sys, yaml
+try:
+    for doc in yaml.safe_load_all(sys.stdin):
+        if isinstance(doc, dict) and doc.get("kind") in ("Deployment","StatefulSet"):
+            n=(doc.get("metadata") or {}).get("name")
+            if n: print(n)
+except Exception:
+    pass' 2>/dev/null)
+      for n in $names; do
+        if ! printf '%s\n' "$live" | grep -qx "$n"; then
+          # "Declared but not running" has THREE causes and only one is drift:
+          #   dead legacy      — the Python-era server/worker (#97)
+          #   gated feature    — deployed only when enabled (flightsql, subscription pool)
+          #   kind-only fixture— never intended for prod (spool-downstream-echo)
+          # A check that cannot tell them apart gets ignored, so this reports
+          # the fact and names the question rather than asserting drift.
+          drift "$f declares $n — not running in prod; is it dead legacy, a gated feature, or kind-only? (noetl/ai-meta#97)"
+          missing=$((missing+1))
+        fi
+      done
+    done
+    if [ "$missing" -eq 0 ]; then
+      ok "every declared Deployment/StatefulSet exists in prod"
+    else
+      echo "         NOTE: $missing declared workload(s) are not running. Confirmed DEAD so far:"
+      echo "               server-deployment.yaml (image is the placeholder 'image_name:image_tag'),"
+      echo "               worker-deployment.yaml — both Python-era, superseded by the -rust workloads."
+    fi
+  fi
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
