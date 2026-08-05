@@ -530,7 +530,11 @@ if run env-docs; then
     # documented on a sibling page is documented.  Rule 2a still wants it on the
     # spec page, but that is an editorial call, not drift.
     corpus=$(cd "$ROOT/repos/$wiki" && git grep -h -oE '(NOETL|RUST)_[A-Z0-9_]+' "$wref" -- '*.md' 2>/dev/null | sort -u)
-    miss=$( (cd "$d" && git grep -ohE 'env::var(_os)?\(\s*"(NOETL|RUST)_[A-Z0-9_]*"' "$ref" -- src 2>/dev/null) \
+    # Match helper reads too, not just env::var.  The worker wraps every typed
+    # read in env_bool / env_u32 / env_u64 / env_addr / env_millis / env_truthy,
+    # and an env::var-only pattern missed 55 of its 107 variables — including
+    # NOETL_STATE_AFFINITY_ROUTE, which is set in prod and read by nothing.
+    miss=$( (cd "$d" && git grep -ohE '(env::var(_os)?|env_[a-z0-9_]+)\(\s*"(NOETL|RUST)_[A-Z0-9_]*"' "$ref" -- src 2>/dev/null) \
             | grep -oE '"(NOETL|RUST)_[A-Z0-9_]*"' | tr -d '"' | sort -u \
             | while IFS= read -r v; do
                 printf '%s\n' "$corpus" | grep -qx "$v" || printf '%s\n' "$v"
