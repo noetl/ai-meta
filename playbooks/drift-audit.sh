@@ -231,8 +231,21 @@ if run issues; then
   hdr "issues: open, but every acceptance box is ticked"
   if command -v gh >/dev/null 2>&1; then
     found=0
-    for n in $(gh issue list --repo noetl/ai-meta --state open --label ai-task \
-                 --limit 60 --json number -q '.[].number' 2>/dev/null); do
+    # --limit is a CAP, not a page size: `gh issue list --limit 60` silently
+    # returns at most 60 and looks exactly like a total.  Reporting that number
+    # as the open count is a mistake already made in this session's status
+    # reports.  Ask for more than the queue can plausibly hold, and verify the
+    # result is stable across two limits before trusting it as a total.
+    listed=$(gh issue list --repo noetl/ai-meta --state open --label ai-task \
+               --limit 200 --json number -q '.[].number' 2>/dev/null)
+    n_listed=$(printf '%s\n' "$listed" | grep -c . || true)
+    n_check=$(gh issue list --repo noetl/ai-meta --state open --label ai-task \
+               --limit 400 --json number -q 'length' 2>/dev/null)
+    if [ -n "$n_check" ] && [ "$n_listed" != "$n_check" ]; then
+      drift "issue enumeration is TRUNCATED ($n_listed at limit 200 vs $n_check at 400) — counts below are not totals"
+    fi
+    echo "         scanning $n_listed open ai-task issues"
+    for n in $listed; do
       body=$(gh issue view "$n" --repo noetl/ai-meta --json body -q .body 2>/dev/null)
       [ -n "$body" ] || continue
       done_n=$(printf '%s' "$body" | grep -cE '^[[:space:]]*-[[:space:]]*\[x\]' || true)
