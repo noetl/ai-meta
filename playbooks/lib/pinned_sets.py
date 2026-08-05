@@ -28,6 +28,11 @@ Two extraction rules, both learned from getting it wrong:
      recorders here are not (`record_credential_seal` /
      `noetl_credentials_sealed_total`), so the mapping is explicit.
 
+Discovery matches `pub const *_OUTCOMES | *_STATUSES | *_REASONS`.  A pinned set
+named outside that convention is invisible to discovery, which surfaces as
+NO-GUARD for its registry entry rather than as a silent pass — that is how
+`EHDB_CLAIM_RECONNECT_REASONS` was caught on the commit that added it.
+
 Usage:  pinned_sets.py <repos-root>
 Prints one line per set: OK / SHORT / NO-GUARD, then a summary line
 `RESULT <n_short> <n_noguard>` for the caller to branch on.
@@ -124,7 +129,7 @@ def main(root: str) -> int:
         src = git_show(d, "src/metrics.rs")
         if src is None:
             continue
-        for name in re.findall(r"pub const ([A-Z_]+(?:OUTCOMES|STATUSES))\s*:", src):
+        for name in re.findall(r"pub const ([A-Z_]+(?:OUTCOMES|STATUSES|REASONS))\s*:", src):
             declared[name] = (repo, src)
 
     # A const with no registry entry is the drift this file must not have.
@@ -139,7 +144,11 @@ def main(root: str) -> int:
         repo, call, _ = entry
         if name not in declared:
             n_noguard += 1
-            print(f"NO-GUARD {name} ({repo}): registered here but no longer declared in metrics.rs")
+            print(
+                f"NO-GUARD {name} ({repo}): registered here but not discovered in "
+                "metrics.rs — deleted, renamed, or its suffix is outside "
+                "OUTCOMES/STATUSES/REASONS"
+            )
             continue
         _, metrics_src = declared[name]
         pinned = const_values(metrics_src, name)
