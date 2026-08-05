@@ -515,10 +515,21 @@ if run env-docs; then
     [ -f "$page" ] || { skip "$wiki has no deployment-specification.md"; continue; }
     ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
     [ -z "$ref" ] && { skip "$repo: no origin/main"; continue; }
+    # Fetch the WIKI first.  A stale local wiki checkout makes variables that are
+    # documented at the true tip read as missing — that happened, and produced a
+    # duplicate section on a page that already had the row.
+    ( cd "$ROOT/repos/$wiki" && git fetch origin --quiet 2>/dev/null ) || true
+    wref=$(cd "$ROOT/repos/$wiki" && (git rev-parse --verify -q origin/master 2>/dev/null \
+             || git rev-parse --verify -q origin/main 2>/dev/null))
+    [ -z "$wref" ] && wref=HEAD
+    # Compare against EVERY page, not just deployment-specification.md: a var
+    # documented on a sibling page is documented.  Rule 2a still wants it on the
+    # spec page, but that is an editorial call, not drift.
+    corpus=$(cd "$ROOT/repos/$wiki" && git grep -h -oE '(NOETL|RUST)_[A-Z0-9_]+' "$wref" -- '*.md' 2>/dev/null | sort -u)
     miss=$( (cd "$d" && git grep -ohE 'env::var(_os)?\(\s*"(NOETL|RUST)_[A-Z0-9_]*"' "$ref" -- src 2>/dev/null) \
             | grep -oE '"(NOETL|RUST)_[A-Z0-9_]*"' | tr -d '"' | sort -u \
             | while IFS= read -r v; do
-                grep -q "\b${v}\b" "$page" || printf '%s\n' "$v"
+                printf '%s\n' "$corpus" | grep -qx "$v" || printf '%s\n' "$v"
               done )
     n=$(printf '%s\n' "$miss" | grep -c . || true)
     if [ "${n:-0}" -eq 0 ]; then
