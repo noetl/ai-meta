@@ -550,6 +550,53 @@ if run env-docs; then
   done
 fi
 
+# ---------------------------------------------------------------------------
+# 11. Metric recorders nothing calls.
+#
+# A metric can be declared, registered, exported in /metrics HELP output — and
+# still never carry a value, because the function that sets it has no caller.
+# Prometheus shows nothing, which is indistinguishable from "healthy zero".
+#
+# Found 2026-08-05: `record_nats_consumer_lag` sets
+# noetl_worker_nats_consumer_pending{stream,consumer}.  Its doc says "called by
+# the periodic lag poller after fetching consumer info from JetStream"; that
+# poller went with NATS at T5, and the function now has no caller.  Three
+# alerts in rules-materializer-lag.yaml recorded off that gauge, so they could
+# never fire — guarding the component whose stall stops the durable log.
+#
+# An EARLIER sweep asked "does a recorder exist for each metric" and reported
+# zero orphans.  It does exist.  The right question is whether it is REACHED.
+# ---------------------------------------------------------------------------
+if run dead-recorders; then
+  hdr "rust: metric recorders with no caller"
+  for repo in worker server; do
+    d="$ROOT/repos/$repo"
+    [ -d "$d" ] || { skip "repos/$repo not checked out"; continue; }
+    ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
+    [ -z "$ref" ] && { skip "$repo: no origin/main"; continue; }
+    # Only functions that actually MUTATE a metric count.  metrics.rs is full of
+    # lazy accessors (`auth_jwt_verify_total()` returning the handle) called only
+    # from the record_* wrappers in the same file; flagging those made a first
+    # cut report 51 of the server's 66 as orphans.
+    muts=$(cd "$d" && git show "$ref:src/metrics.rs" 2>/dev/null | python3 "$ROOT/playbooks/lib/mutating_recorders.py")
+    out=""
+    while IFS= read -r fn; do
+      [ -z "$fn" ] && continue
+      n=$(cd "$d" && git grep -l "$fn" "$ref" -- src 2>/dev/null | grep -cv 'src/metrics.rs' || true)
+      [ "${n:-0}" -eq 0 ] && out="${out}${fn}\n"
+    done <<< "$muts"
+    n=$(printf "$out" | grep -c . || true)
+    if [ "${n:-0}" -eq 0 ]; then
+      ok "$repo: every metric-mutating recorder in metrics.rs is called from src/"
+    else
+      drift "$repo: $n metric recorder(s) mutate a metric but have NO caller — what they set can never move"
+      printf "$out" | head -10 | sed 's/^/         /'
+      echo "         Confirm on a live pod: the metric is absent from /metrics while"
+      echo "         its siblings are present.  Then check no ALERT records off it."
+    fi
+  done
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
