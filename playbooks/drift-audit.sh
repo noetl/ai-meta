@@ -508,11 +508,15 @@ fi
 # ---------------------------------------------------------------------------
 if run env-docs; then
   hdr "wiki: env vars the binary reads that its deployment-spec page omits"
-  for pair in "server:noetl-server-wiki" "worker:noetl-worker-wiki"; do
-    repo="${pair%%:*}"; wiki="${pair#*:}"
-    d="$ROOT/repos/$repo"; page="$ROOT/repos/$wiki/deployment-specification.md"
+  # gateway has no deployment-specification.md; configuration.md is its equivalent
+  # (Rule 2a names the page, but the substance is what matters).
+  for pair in "server:noetl-server-wiki:deployment-specification.md" \
+              "worker:noetl-worker-wiki:deployment-specification.md" \
+              "gateway:noetl-gateway-wiki:configuration.md"; do
+    repo="${pair%%:*}"; rest="${pair#*:}"; wiki="${rest%%:*}"; pagename="${rest#*:}"
+    d="$ROOT/repos/$repo"; page="$ROOT/repos/$wiki/$pagename"
     [ -d "$d" ] || { skip "repos/$repo not checked out"; continue; }
-    [ -f "$page" ] || { skip "$wiki has no deployment-specification.md"; continue; }
+    [ -f "$page" ] || { skip "$wiki has no $pagename"; continue; }
     ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
     [ -z "$ref" ] && { skip "$repo: no origin/main"; continue; }
     # Fetch the WIKI first.  A stale local wiki checkout makes variables that are
@@ -533,9 +537,9 @@ if run env-docs; then
               done )
     n=$(printf '%s\n' "$miss" | grep -c . || true)
     if [ "${n:-0}" -eq 0 ]; then
-      ok "$repo: every env var it reads is named on its deployment-spec page"
+      ok "$repo: every env var it reads is named somewhere in $wiki"
     else
-      drift "$repo: $n env var(s) read by the binary are absent from $wiki/deployment-specification.md (Rule 2a)"
+      drift "$repo: $n env var(s) read by the binary are absent from $wiki/$pagename (Rule 2a)"
       printf '%s\n' "$miss" | head -12 | sed 's/^/         /'
       echo "         Cross-check which are LIVE:  kubectl -n noetl get deploy -o json | grep -o '\"NOETL_[A-Z_]*\"'"
       echo "         NOTE: reads inside a #[cfg(test)] module are NOT filtered here."
