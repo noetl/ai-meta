@@ -10,3 +10,18 @@ ci/kind/cache/
 .claude/worktrees/
 .claude/settings.local.json
 .claude/agent-memory-local/
+
+# Local scratch that must never be committed (noetl/ai-meta housekeeping).
+#
+# Two accidental `git add -A` runs in one session staged ~11k files from these
+# paths.  The repo root carries a large untracked surface — a Python venv, git
+# worktrees, MCP browser traces — so `git add -A` is never the right command
+# here.  Ignoring them removes the trap rather than relying on remembering.
+#
+# `.worktrees/` in particular holds full checkouts of every submodule branch
+# under active work; committing it would inline whole repos into ai-meta.
+.slm-venv/
+.slm_logs/
+.slm_registry/
+.worktrees/
+.playwright-mcp/
