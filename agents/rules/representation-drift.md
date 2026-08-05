@@ -79,6 +79,21 @@ off it, and say so where it lives.
 - Shadow/observe-only surfaces documented as inert. Inert **and labelled**
   is a shipped shadow slice, not drift.
 
+## A repeatable check
+
+`playbooks/drift-audit.sh` runs the classes above mechanically — stale project
+pins, a caret range that dropped a capability, published image architectures
+vs where they must run, a release job reported working that is not, and a table
+the live control plane never touches. Read-only; one command.
+
+It deliberately reports evidence rather than verdicts, because several of these
+have a stale **issue** as well as a stale artifact, and the two want different
+fixes.
+
+What it cannot catch is the class it was written from: **unticked checkboxes for
+shipped work** (#194, ehdb#241, #201). Those need the issue read against the
+cluster, which is judgement, not grep.
+
 ## Related
 
 - [`wiki-maintenance.md`](wiki-maintenance.md) Rule 0a — the dashboard is a
