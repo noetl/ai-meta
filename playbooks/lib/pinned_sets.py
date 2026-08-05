@@ -28,10 +28,13 @@ Two extraction rules, both learned from getting it wrong:
      recorders here are not (`record_credential_seal` /
      `noetl_credentials_sealed_total`), so the mapping is explicit.
 
-Discovery matches `pub const *_OUTCOMES | *_STATUSES | *_REASONS`.  A pinned set
-named outside that convention is invisible to discovery, which surfaces as
-NO-GUARD for its registry entry rather than as a silent pass — that is how
-`EHDB_CLAIM_RECONNECT_REASONS` was caught on the commit that added it.
+Discovery matches ANY `pub const NAME: [&str; N]` rather than a suffix
+convention.  It used to match `*_OUTCOMES | *_STATUSES`, then also `*_REASONS`,
+then `EHDB_CLAIM_FEEDS` arrived — three widenings for the same reason.  A naming
+convention that has to be extended per metric is a representation of the set of
+pinned sets, and it drifted every time.  Now the registry below is the only
+place relevance is decided: an unregistered const is NO-GUARD (a gap to decide
+on), and an explicitly `None` entry is a documented exclusion.
 
 Usage:  pinned_sets.py <repos-root>
 Prints one line per set: OK / SHORT / NO-GUARD, then a summary line
@@ -43,13 +46,20 @@ import re
 import subprocess
 import sys
 
-# const name -> (repo, recorder fn, files the recorder is called from)
+# const name -> (repo, recorder fn, arg_index)
+#
+# `arg_index` is which string literal in the call carries THIS set: 0 for a
+# single-label recorder, 1 when an earlier label comes first.  It exists because
+# `record_ehdb_claim_reconnect(feed, reason)` gained a `feed` label, and reading
+# argument 0 there would compare feed names against reason names and report a
+# correct set as SHORT.
 # Explicit because recorder names are not derivable from metric names.
 REGISTRY = {
     "ORPHAN_SWEEP_OUTCOMES": ("server", "record_orphan_sweep", None),
     "RESULT_TIER_GC_OUTCOMES": ("server", "record_result_tier_gc", None),
     "CREDENTIAL_SEAL_STATUSES": ("server", "record_credential_seal", None),
     "SYSTEM_PLUGIN_SEED_OUTCOMES": ("server", "record_system_plugin_seed", None),
+    "EHDB_COMMAND_PUBLISH_FAILED_REASONS": ("server", "record_ehdb_command_publish_failed", None),
     # SECRET_REFRESH_OUTCOMES is deliberately absent: two of its five values
     # (`succeeded`, `failed`) are assigned to a local in a `match` and passed as
     # a variable, so a literal scan finds three and would call a complete set
@@ -59,7 +69,9 @@ REGISTRY = {
     "STATE_BUILDER_DRIVE_OUTCOMES": ("worker", "record_state_builder_drive", None),
     "STATE_BUILDER_DRIVE_WAIT_OUTCOMES": ("worker", "record_state_builder_drive_wait", None),
     "STATE_BUILDER_BUILD_OUTCOMES": ("worker", "record_state_builder_build", None),
-    "EHDB_CLAIM_RECONNECT_REASONS": ("worker", "record_ehdb_claim_reconnect", None),
+    # arg 1: the recorder is (feed, reason) — arg 0 would compare feeds to reasons.
+    "EHDB_CLAIM_RECONNECT_REASONS": ("worker", "record_ehdb_claim_reconnect", 1),
+    "EHDB_CLAIM_FEEDS": ("worker", "record_ehdb_claim_reconnect", 0),
     "STATE_BUILDER_REPLAY_END_REASONS": ("worker", "record_state_builder_replay_end", None),
     # NONCONVERGENCE_SWEEP_OUTCOMES is deliberately absent: five of its seven
     # values come from `Disposition::metric_label`, not from call-site literals,
@@ -92,23 +104,35 @@ def git_ls_rs(repo_dir: str):
     return [l for l in out.splitlines() if l.endswith(".rs")]
 
 
-def literals_after(src: str, call: str):
-    """Every string literal passed as the first argument to `call`."""
+def literals_after(src: str, call: str, arg_index: int = 0):
+    """Every string literal at position `arg_index` of a call to `call`."""
     out, rest, needle = [], src, call + "("
     while True:
         i = rest.find(needle)
         if i < 0:
             break
         rest = rest[i + len(needle):]
-        q1 = rest.find('"')
-        if q1 < 0:
-            break
-        # A ')' before the quote means this call had no string first arg.
-        if rest[:q1].count(")") == 0:
-            after = rest[q1 + 1:]
-            q2 = after.find('"')
-            if q2 >= 0:
-                out.append(after[:q2])
+        # Walk the argument list, collecting quoted literals until the call
+        # closes.  A ')' reached before enough literals means this site passed a
+        # variable — correctly skipped rather than guessed at.
+        seg, depth, k, lits = rest, 0, 0, []
+        while k < len(seg):
+            c = seg[k]
+            if c == ")" and depth == 0:
+                break
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            elif c == '"':
+                end = seg.find('"', k + 1)
+                if end < 0:
+                    break
+                lits.append(seg[k + 1:end])
+                k = end
+            k += 1
+        if len(lits) > arg_index:
+            out.append(lits[arg_index])
     seen = []
     for o in out:
         if o not in seen:
@@ -137,7 +161,7 @@ def main(root: str) -> int:
         src = git_show(d, "src/metrics.rs")
         if src is None:
             continue
-        for name in re.findall(r"pub const ([A-Z_]+(?:OUTCOMES|STATUSES|REASONS))\s*:", src):
+        for name in re.findall(r"pub const ([A-Z_0-9]+)\s*:\s*\[&str;", src):
             declared[name] = (repo, src)
 
     # A const with no registry entry is the drift this file must not have.
@@ -149,7 +173,8 @@ def main(root: str) -> int:
     for name, entry in REGISTRY.items():
         if entry is None:
             continue
-        repo, call, _ = entry
+        repo, call, arg_index = entry
+        arg_index = arg_index or 0
         if name not in declared:
             n_noguard += 1
             print(
@@ -171,7 +196,7 @@ def main(root: str) -> int:
                 continue
             content = git_show(d, rel)
             if content:
-                found += literals_after(content, call)
+                found += literals_after(content, call, arg_index)
         seen = []
         for o in found:
             if o not in seen:
