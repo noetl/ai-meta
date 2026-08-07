@@ -84,6 +84,15 @@ if [ -n "$WORKER_TAG" ]; then
     c=$(KC get deploy "$d" -o jsonpath='{.spec.template.spec.containers[0].name}' 2>/dev/null) || continue
     KC set image "deploy/$d" "$c=ghcr.io/noetl/worker:$WORKER_TAG" >/dev/null 2>&1
   done
+  # Wait for the workers too.  Only the SERVER rollout used to be awaited, so a
+  # run that changed the worker image raced its own restart: C3b/C9/C10 need a
+  # live worker to claim their commands, and a mid-rollout pool times them out.
+  # That produced two spurious failures in a run whose cases were all sound.
+  for d in noetl-worker-rust noetl-worker-system-pool; do
+    KC get deploy "$d" >/dev/null 2>&1 || continue
+    timeout 400 kubectl --context "$CTX" -n "$NS" rollout status "deploy/$d" --timeout=380s >/dev/null 2>&1 \
+      || info "worker $d did not settle within 380s — downstream cases may be unreliable"
+  done
 fi
 
 # --------------------------------------------------------------------------
