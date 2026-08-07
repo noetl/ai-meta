@@ -217,6 +217,73 @@ on missing permissions.
 
 ---
 
+## 3b. Catalog soft delete — add the `archived_at` column (#237)
+
+**Unblocks:** retiring the stale test/one-off catalog entries. Until this runs,
+soft delete reports itself unavailable and nothing can be archived.
+
+Entries that have ever been *executed* can never be hard-deleted — `noetl.event`
+holds a foreign key onto `noetl.catalog` and the event log is append-only. Soft
+delete is the resolution, and it needs one column:
+
+```sql
+ALTER TABLE noetl.catalog ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ NULL;
+```
+
+⚠ **The server cannot run this itself.** `noetl.catalog` is owned by role
+**`demo`**, while the server connects as **`noetl`**, and Postgres requires
+ownership to `ALTER`. Run it as `demo` (or a superuser).
+
+**Verify:**
+
+```sql
+SELECT column_name, is_nullable, data_type
+FROM information_schema.columns
+WHERE table_schema = 'noetl' AND table_name = 'catalog' AND column_name = 'archived_at';
+```
+
+**Nothing needs redeploying.** The server detects the column from
+`information_schema` at startup, so restarting the pod (or waiting for the next
+roll) turns soft delete on. Detection is deliberately independent of the
+`ALTER`'s result, because `ADD COLUMN IF NOT EXISTS` fails with "must be owner"
+for a non-owner *even when the column already exists*.
+
+**Purely additive and reversible.** Nullable, defaults NULL, every existing row
+reads "not archived". Server versions ≥ 3.79.2 work identically with or without
+it — that is validated by the regression harness, not assumed.
+
+**What the agent does next, unprompted:** archives only the confidently-stale
+test/one-off entries — dry-run and count reported first, nothing live or
+ambiguous touched — and every one of them is restorable with
+`POST /api/catalog/restore`, since archiving destroys nothing.
+
+### ⚠ Worth a separate look: the ownership split itself
+
+Read-only observation, no change made. `noetl.catalog` is owned by `demo` while
+`event`, `result_store` and `plugin_module` are owned by `noetl`:
+
+```
+catalog        owner=demo
+event          owner=noetl
+plugin_module  owner=noetl
+result_store   owner=noetl
+```
+
+The server already tolerates this — `event_chain` DDL logs
+*"skipped (server role likely not table owner; column expected to be provisioned
+by schema_ddl.sql)"* on every boot, and the new `archived_at` DDL now does the
+same. So it is not breaking anything today.
+
+But it does mean **any future additive column on `catalog` needs an out-of-band
+DDL step**, and that asymmetry is invisible until a change trips over it — which
+is precisely how this one was found. Whether to align ownership (e.g.
+`ALTER TABLE noetl.catalog OWNER TO noetl`) is a decision with its own blast
+radius: it changes who can alter a table that predates the Rust server, and the
+`demo` role may be load-bearing for something not audited here. Flagged, not
+recommended either way, and deliberately not attempted.
+
+---
+
 ## 4. Two actions with no command
 
 ### 4a. One real application login — unblocks JWT enforcement (#169)
@@ -281,6 +348,7 @@ delivery can be confirmed end-to-end, then deletes the temporary policy again.
 | 2b | enable `aiplatform.googleapis.com` | command | travel/runtime Vertex, #234 |
 | 2c | enable `firestore.googleapis.com` | command | prerequisite only — **read §3** |
 | 3 | Firestore data migration | **decision** | the last #234 item; not reversible by catalog rollback |
+| 3b | `ALTER TABLE noetl.catalog ADD COLUMN archived_at` **as role `demo`** | SQL | catalog soft delete / archiving the stale set, #237 |
 | 4a | one real app login | manual | JWT enforce, #169 |
 | 4b | verify the alert email channel | console | alert delivery, #238 |
 
