@@ -29,6 +29,16 @@
 #      enough.  C7/C8 drive execute-by-path and list against whatever column
 #      state the database is actually in.
 #
+# C11 — A CASE THAT CANNOT FAIL PROVES NOTHING, SO EVERY CASE NEEDS THE OTHER
+#      ANSWER DEMONSTRATED.  Container gating (noetl/ai-meta#186: a step whose
+#      terminal callback never arrives must not advance the DAG) is trivially
+#      "passing" if the fixture could never reach the downstream step at all.
+#      C11a asserts the gate holds with the callback path disabled; C11b is its
+#      control, proving the same fixture DOES finish when the callback arrives.
+#      Verified to fail in both directions before it was committed: C11a returns
+#      TERMINATED (fail) if run with the callback path enabled, and its detector
+#      returns ADVANCED_EARLY on a #186-shaped event stream.
+#
 # Exit code is the number of failed cases, so CI can gate on it.
 
 set -uo pipefail
@@ -374,6 +384,115 @@ case "$PROV" in
   SKIP)      info "C9 provider tools/list — skipped (provider not in this catalog)" ;;
   *)         bad "C9 provider tools/list" "got $PROV" ;;
 esac
+
+# --------------------------------------------------------------------------
+# C11 — CONTAINER GATING (the noetl/ai-meta#186 class).  A container step whose
+# terminal callback never arrives must NOT advance the DAG.
+#
+# Opt-in (HARNESS_CONTAINER=1): it restarts the kind worker twice and takes
+# ~4 minutes.  It also mutates worker env IN KIND ONLY and restores it after.
+#
+# Two-sided by construction, which is the whole point:
+#
+#   C11a  poll fallback OFF -> no terminal event can ever arrive.  The k8s Job
+#         still SUCCEEDS, so the work is done; the assertion is that the DAG
+#         nevertheless does not advance past the container step.
+#   C11b  poll fallback ON  -> the same fixture must reach COMPLETED with 'end'
+#         entering AFTER the container terminal.
+#
+# C11b is C11a's positive control: without it, "end did not enter" could mean
+# the fixture can never reach 'end' at all, and C11a would be vacuous.
+# --------------------------------------------------------------------------
+if [ "${HARNESS_CONTAINER:-0}" = "1" ]; then
+  CFIX="$(cd "$(dirname "$0")/.." && pwd)/repos/e2e/fixtures/playbooks/container_callback_happy_path/container_callback_happy_path.yaml"
+  if [ ! -f "$CFIX" ]; then
+    bad "C11 container gating" "fixture not found: $CFIX"
+  else
+    # --- C11a: callback can never arrive -------------------------------------
+    KC set env deploy/noetl-worker-rust NOETL_CONTAINER_COMPLETION_POLL- NOETL_CONTAINER_POLL_INTERVAL_SECS- >/dev/null 2>&1
+    kubectl --context kind-noetl -n noetl rollout status deploy/noetl-worker-rust --timeout=280s >/dev/null 2>&1
+    GATE=$(/usr/bin/python3 - "$CFIX" <<'PYC11A'
+import json,sys,time,urllib.request
+def post(p,b):
+    r=urllib.request.Request('http://localhost:8082'+p,data=json.dumps(b).encode(),
+      headers={'Content-Type':'application/json'},method='POST')
+    return json.load(urllib.request.urlopen(r,timeout=90))
+try:
+    cid=post('/api/catalog/register',{'content':open(sys.argv[1]).read(),'resource_type':'Playbook'})['catalog_id']
+    eid=post('/api/execute',{'catalog_id':int(cid),'payload':{}})['execution_id']
+    entered_container=False
+    for i in range(30):
+        try:
+            evs=json.load(urllib.request.urlopen(
+                f'http://localhost:8082/api/executions/{eid}',timeout=30)).get('events',[])
+        except Exception:
+            time.sleep(4); continue
+        ent={e.get('node_name') for e in evs if e.get('event_type')=='step.enter'}
+        term=[e for e in evs if e.get('node_name')=='dispatch_container'
+              and e.get('event_type') in ('call.done','call.error')]
+        if 'dispatch_container' in ent: entered_container=True
+        # The bug: downstream advances while the container step is unterminated.
+        if 'end' in ent and not term: print('ADVANCED_EARLY'); break
+        if term: print('TERMINATED'); break          # poll leaked back on
+        if entered_container and i>=18: print('GATED'); break
+        time.sleep(4)
+    else: print('NO_CONTAINER_STEP' if not entered_container else 'GATED')
+except Exception as e: print('PROBE_ERROR:'+type(e).__name__+':'+str(e)[:90])
+PYC11A
+)
+    case "$GATE" in
+      GATED)          ok "C11a container gating (callback never arrives)" "'end' did not enter; Job succeeded anyway" ;;
+      ADVANCED_EARLY) bad "C11a container gating (callback never arrives)" "DAG ADVANCED past an unterminated container step — #186 regression" ;;
+      TERMINATED)     bad "C11a container gating (callback never arrives)" "a terminal event arrived with the poll disabled" ;;
+      *)              bad "C11a container gating (callback never arrives)" "inconclusive: $GATE" ;;
+    esac
+
+    # --- C11b: the control — the same fixture MUST be able to finish ---------
+    KC set env deploy/noetl-worker-rust NOETL_CONTAINER_COMPLETION_POLL=true NOETL_CONTAINER_POLL_INTERVAL_SECS=3 >/dev/null 2>&1
+    kubectl --context kind-noetl -n noetl rollout status deploy/noetl-worker-rust --timeout=280s >/dev/null 2>&1
+    DONE=$(/usr/bin/python3 - "$CFIX" <<'PYC11B'
+import json,sys,time,urllib.request
+def post(p,b):
+    r=urllib.request.Request('http://localhost:8082'+p,data=json.dumps(b).encode(),
+      headers={'Content-Type':'application/json'},method='POST')
+    return json.load(urllib.request.urlopen(r,timeout=90))
+try:
+    cid=post('/api/catalog/register',{'content':open(sys.argv[1]).read(),'resource_type':'Playbook'})['catalog_id']
+    eid=post('/api/execute',{'catalog_id':int(cid),'payload':{}})['execution_id']
+    for _ in range(45):
+        try:
+            d=json.load(urllib.request.urlopen(f'http://localhost:8082/api/executions/{eid}',timeout=30))
+        except Exception:
+            time.sleep(4); continue
+        if d.get('status') in ('COMPLETED','FAILED'):
+            evs=d.get('events',[])
+            ti=[i for i,e in enumerate(evs) if e.get('node_name')=='dispatch_container'
+                and e.get('event_type') in ('call.done','call.error')]
+            ei=[i for i,e in enumerate(evs) if e.get('event_type')=='step.enter'
+                and e.get('node_name')=='end']
+            if d['status']!='COMPLETED': print('NOT_COMPLETED')
+            elif not ei:                 print('NO_END')
+            elif not ti:                 print('NO_TERMINAL')
+            elif ei[0] < ti[0]:          print('OUT_OF_ORDER')
+            else:                        print('ORDERED')
+            break
+        time.sleep(4)
+    else: print('TIMEOUT')
+except Exception as e: print('PROBE_ERROR:'+type(e).__name__+':'+str(e)[:90])
+PYC11B
+)
+    case "$DONE" in
+      ORDERED) ok "C11b control: the fixture CAN finish, 'end' after terminal" "C11a is not vacuous" ;;
+      *)       bad "C11b control: the fixture CAN finish, 'end' after terminal" "got $DONE — C11a proves nothing" ;;
+    esac
+
+    # Restore the kind default (poll off).  Kind only; prod is never touched.
+    KC set env deploy/noetl-worker-rust NOETL_CONTAINER_COMPLETION_POLL- NOETL_CONTAINER_POLL_INTERVAL_SECS- >/dev/null 2>&1
+    kubectl --context kind-noetl -n noetl rollout status deploy/noetl-worker-rust --timeout=280s >/dev/null 2>&1
+  fi
+else
+  info "C11 container gating — skipped (set HARNESS_CONTAINER=1; ~4 min, restarts the kind worker)"
+fi
 
 # --------------------------------------------------------------------------
 # Cleanup — best effort; the probe may be un-deletable by design (C6).
