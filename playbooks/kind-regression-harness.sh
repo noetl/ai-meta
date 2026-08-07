@@ -223,6 +223,130 @@ UNDEF=$(KC logs deploy/noetl-server-rust --tail=400 2>/dev/null | grep -c 'does 
   || bad "C8 no undefined-column errors in the log" "$UNDEF occurrence(s)"
 
 # --------------------------------------------------------------------------
+# C10 — A FAILING STEP MUST BE RECORDED AS AN ERROR SOMEWHERE.
+#
+# A playbook whose step raises currently reports `playbook.completed
+# COMPLETED` (noetl/ai-meta#251), so the terminal status cannot be asserted --
+# whether that is a defect is an open semantic decision.
+#
+# What CAN be asserted, and is not disputed, is that the failure is recorded at
+# all: `command.completed` carries `status: error` and the result payload holds
+# the exit code and traceback.  A regression that stopped recording it would
+# make a broken playbook indistinguishable from a working one at EVERY level,
+# and nothing else in this suite would notice.
+#
+# Deliberately does NOT assert `status == FAILED`.  Encoding a disputed
+# semantic as a test would either fail permanently or freeze a decision nobody
+# has made.
+# --------------------------------------------------------------------------
+FAIL_PATH="tests/_harness_fail_probe_$$"
+cat > "$TMP/failprobe.yaml" <<YAML
+apiVersion: noetl.io/v2
+kind: Playbook
+metadata:
+  name: harness_fail_probe
+  path: $FAIL_PATH
+  description: Deliberately raises. Harness fixture for noetl/ai-meta#251.
+workload: {}
+workflow:
+- step: start
+  tool:
+    kind: python
+    code: |
+      raise RuntimeError("deliberate harness failure")
+YAML
+ERR_RECORDED=$(/usr/bin/python3 - "$TMP/failprobe.yaml" <<'PYC10'
+import json,sys,time,urllib.request
+def post(p,b):
+    r=urllib.request.Request('http://localhost:8082'+p,data=json.dumps(b).encode(),
+      headers={'Content-Type':'application/json'},method='POST')
+    return json.load(urllib.request.urlopen(r,timeout=90))
+try:
+    cid=post('/api/catalog/register',{'content':open(sys.argv[1]).read(),'resource_type':'Playbook'})['catalog_id']
+    eid=post('/api/execute',{'catalog_id':int(cid),'payload':{}})['execution_id']
+    d={}
+    for _ in range(45):
+        try:
+            d=json.load(urllib.request.urlopen('http://localhost:8082/api/executions/'+str(eid),timeout=30))
+            if d.get('status') in ('COMPLETED','FAILED'): break
+        except Exception: pass
+        time.sleep(2)
+    recorded = any(
+        (e.get('event_type')=='call.error')
+        or (str(e.get('status','')).lower()=='error')
+        or ('"error"' in json.dumps(e.get('result') or {}))
+        for e in d.get('events',[])
+    )
+    print('YES' if recorded else 'NO')
+except Exception:
+    print('ERR')
+PYC10
+)
+case "$ERR_RECORDED" in
+  YES) ok "C10 a failing step is recorded as an error" "terminal status: see noetl/ai-meta#251" ;;
+  NO)  bad "C10 a failing step is recorded as an error" "a raising step left NO error anywhere in the stream" ;;
+  *)   bad "C10 a failing step is recorded as an error" "probe error" ;;
+esac
+
+# --------------------------------------------------------------------------
+# C10b — THE CONTROL FOR C10.  The same predicate must say NO for a run with
+# no failure, or C10 is vacuously true and proves nothing.
+#
+# This suite has already shipped one test that could not fail and one harness
+# case that reported green off an error body.  A detector without its negative
+# control is the same defect wearing a third costume.
+# --------------------------------------------------------------------------
+OK_PATH="tests/_harness_ok_probe_$$"
+cat > "$TMP/okprobe.yaml" <<YAML
+apiVersion: noetl.io/v2
+kind: Playbook
+metadata:
+  name: harness_ok_probe
+  path: $OK_PATH
+  description: Succeeds. Negative control for C10.
+workload: {}
+workflow:
+- step: start
+  tool:
+    kind: python
+    code: |
+      result = {"status": "success"}
+YAML
+OK_RECORDED=$(/usr/bin/python3 - "$TMP/okprobe.yaml" <<'PYC10B'
+import json,sys,time,urllib.request
+def post(p,b):
+    r=urllib.request.Request('http://localhost:8082'+p,data=json.dumps(b).encode(),
+      headers={'Content-Type':'application/json'},method='POST')
+    return json.load(urllib.request.urlopen(r,timeout=90))
+y=open(sys.argv[1]).read()
+try:
+    cid=post('/api/catalog/register',{'content':y,'resource_type':'Playbook'})['catalog_id']
+    eid=post('/api/execute',{'catalog_id':int(cid),'payload':{}})['execution_id']
+    d={}
+    for _ in range(45):
+        try:
+            d=json.load(urllib.request.urlopen('http://localhost:8082/api/executions/'+str(eid),timeout=30))
+            if d.get('status') in ('COMPLETED','FAILED'): break
+        except Exception: pass
+        time.sleep(2)
+    recorded = any(
+        (e.get('event_type')=='call.error')
+        or (str(e.get('status','')).lower()=='error')
+        or ('"error"' in json.dumps(e.get('result') or {}))
+        for e in d.get('events',[])
+    )
+    print('YES' if recorded else 'NO')
+except Exception:
+    print('ERR')
+PYC10B
+)
+case "$OK_RECORDED" in
+  NO)  ok "C10b control: no error on a SUCCESSFUL run" "C10 discriminates" ;;
+  YES) bad "C10b control: no error on a SUCCESSFUL run" "C10 is VACUOUS — it fires on success too" ;;
+  *)   bad "C10b control: no error on a SUCCESSFUL run" "probe error" ;;
+esac
+
+# --------------------------------------------------------------------------
 # C9 — a provider call still reaches its backend (credential + egress path).
 # Skipped, not failed, when the provider is absent from this catalog.
 # --------------------------------------------------------------------------
