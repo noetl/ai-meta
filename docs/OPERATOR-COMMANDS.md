@@ -76,9 +76,16 @@ bucket again, capture it verbatim and hand it back rather than acting on it.
 **Unblocks:** `publish-ar` on every release, for both `noetl/server` and
 `noetl/worker`.
 
-**What the agent does next, unprompted:** re-runs the release, reads the tag
-back, and — if `publish-ar` now succeeds — retires the `crane copy` GHCR→AR
-workaround from the deploy runbook, since it exists only because this job fails.
+**✅ RESOLVED 2026-08-09 — no grant needed after all.** The cause was never
+`serviceusage` and never the bucket roles. `gcloud builds submit` *lists* buckets
+to discover the staging bucket, and `storage.buckets.list` is a **project-level**
+permission, while every role granted here is **bucket-scoped** — so `buckets.get`
+returned 200, `gcloud storage ls` succeeded, and only the list 403'd. Fixed
+without IAM in [noetl/server#339](https://github.com/noetl/server/pull/339) by
+passing `--gcs-source-staging-dir`, which skips discovery entirely.
+
+`publish-ar` is green on every release; the `crane copy` GHCR→AR step is now a
+documented **fallback** in the deploy runbook rather than the normal path.
 
 ---
 

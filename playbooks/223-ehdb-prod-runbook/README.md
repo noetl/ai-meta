@@ -335,7 +335,19 @@ multi-arch) are the artefacts of record.
 **Gate:** `publish-manifest` green; `ghcr.io/noetl/worker:5.92.0` is a
 two-arch manifest list.
 
-### P1b — GHCR → Artifact Registry by digest, via crane
+### P1b — GHCR → Artifact Registry by digest, via crane (FALLBACK)
+
+> **As of 2026-08-09 this step is no longer required.** `publish-ar` publishes
+> to Artifact Registry on every release — fixed in
+> [noetl/server#339](https://github.com/noetl/server/pull/339) by passing
+> `--gcs-source-staging-dir` so `gcloud builds submit` skips the bucket-discovery
+> call that needed project-level `storage.buckets.list`. Verified green on runs
+> `31337162229` and `31337178005`, with `v3.79.4` present in AR.
+>
+> **Keep this step as the escape hatch.** If `publish-ar` ever regresses, the
+> `crane` copy below still works and is the fastest way to unblock a deploy.
+> Check the job before reaching for it: `gh run list --repo noetl/<repo>`.
+
 
 ```bash
 crane copy ghcr.io/noetl/worker:5.92.0 \
