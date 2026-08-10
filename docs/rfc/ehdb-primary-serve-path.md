@@ -231,6 +231,23 @@ can be built: a listener that does not exist unless a flag is set.
 
 ## 7. Open questions for review
 
+> **Defaults adopted 2026-08-10** so the build is not blocked while these are
+> reviewed. Each is reversible and none is load-bearing for PR 1, which is inert.
+> Say the word and any of them changes.
+>
+> 1. **Cutover order — KV first, event-log last.** KV has the smallest blast
+>    radius (its live seam is the spool circuit-breaker put) and event-log is the
+>    replay source of truth.
+> 2. **Accept the single-writer dependency for now.** The writer is `replicas: 1`
+>    and already a single point for both buses; fronting tier reads there adds no
+>    *new* class of dependency. Revisit before PR 5, which is where it first
+>    matters.
+> 3. **Do not pull shadow-storage forward.** Shadow keeps writing pod-local under
+>    the 1Gi limit; the unbounded-JSONL caveat is watched via `df -h /tmp` rather
+>    than fixed early. Moving shadow onto the service before the service can store
+>    anything would couple a working thing to an unbuilt one.
+
+
 1. **Cutover order** — KV first is proposed as lowest-consequence. Object may be
    an equally good start; event-log is certainly last.
 2. **Availability.** The writer is `replicas: 1`. Fronting tier reads there puts
