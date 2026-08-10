@@ -450,7 +450,7 @@ fi
 if run inert-tests; then
   hdr "rust: test-shaped functions that carry no #[test] and have no caller"
   found=0
-  for r in worker server tools cli; do
+  for r in worker server tools cli ehdb gateway; do
     d="$ROOT/repos/$r"
     [ -d "$d" ] || continue
     ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
@@ -513,7 +513,7 @@ for i, l in enumerate(L):
     fi
   done
   if [ "$found" -eq 0 ]; then
-    ok "no orphaned test-shaped functions in worker/server/tools/cli"
+    ok "no orphaned test-shaped functions in worker/server/tools/cli/ehdb/gateway"
   else
     echo "         Confirm with: cargo check --all-targets (reports dead_code +"
     echo "         duplicate_macro_attributes for exactly this shape).  Enable the"

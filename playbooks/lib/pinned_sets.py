@@ -88,6 +88,19 @@ REGISTRY = {
     # so a literal scan under-reports it by design.  Its guard is the exhaustive
     # match in `every_disposition_label_is_pinned`, which fails at COMPILE time.
     "NONCONVERGENCE_SWEEP_OUTCOMES": None,
+    # --- registered 2026-08-09; these six were NO-GUARD since they were added ---
+    "CATALOG_DELETE_OUTCOMES": ("server", "record_catalog_delete", None),
+    "SINK_STATE_OPS": ("server", "record_sink_state", None),
+    "AUTHZ_OUTCOMES": ("gateway", "record_authz", None),
+    "SESSION_CACHE_STAGES": ("gateway", "record_session_cache_failed", None),
+    "EVENT_FEED_RECONNECT_REASONS": ("gateway", "record_event_feed_reconnect", None),
+    # SINK_GATE_OUTCOMES is deliberately absent: its six values come from FOUR
+    # separate zero-arg recorders that each hardcode their own literal
+    # (`record_sink_gate_marked` -> "marked", `_confirmed` -> "confirmed", ...)
+    # plus `record_sink_gate_released(reason: &str)`, which passes a VARIABLE.
+    # A literal scan against any one recorder under-reports by design — the same
+    # shape as SECRET_REFRESH_OUTCOMES above.
+    "SINK_GATE_OUTCOMES": None,
 }
 
 
