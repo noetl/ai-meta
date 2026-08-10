@@ -28,6 +28,24 @@ hdr() { printf "\n\033[1m== %s ==\033[0m\n" "$1"; }
 drift() { DRIFT=$((DRIFT+1)); printf "  \033[31mDRIFT\033[0m  %s\n" "$1"; }
 ok()   { printf "  \033[32mOK\033[0m     %s\n" "$1"; }
 skip() { printf "  SKIP   %s\n" "$1"; }
+
+# Fetch a code submodule's origin/main once per run, before any check reads that
+# ref.  Three checks (inert tests, env-var-vs-wiki, orphan metric recorders) read
+# `origin/main` from a submodule checkout.  None of them fetched it, so each was
+# really measuring "whatever was last fetched locally" — and a clean result was
+# indistinguishable from a stale ref.
+#
+# Measured 2026-08-10: NOETL_PROVIDER_ERROR_TERMINATES shipped in worker v5.109.0
+# while repos/worker sat 25 commits behind origin/main.  The env-var check reported
+# "worker: every env var it reads is named somewhere in noetl-worker-wiki" — a
+# confident OK about code it could not see.  The wiki side of that same check had
+# already learned this lesson and fetched; the code side had not.
+FETCHED_REPOS=""
+fetch_repo_once() {
+  case " $FETCHED_REPOS " in *" $1 "*) return 0 ;; esac
+  FETCHED_REPOS="$FETCHED_REPOS $1"
+  ( cd "$1" && git fetch origin main --quiet 2>/dev/null ) || true
+}
 # A finding that has been investigated and deliberately left as-is.  Still
 # printed, still visible, but not counted as drift — a check that reports the
 # same decided item on every run trains the reader to skim it, which is the
@@ -453,6 +471,7 @@ if run inert-tests; then
   for r in worker server tools cli ehdb gateway; do
     d="$ROOT/repos/$r"
     [ -d "$d" ] || continue
+    fetch_repo_once "$d"
     ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
     [ -z "$ref" ] && continue
     out=$(cd "$d" && git ls-tree -r --name-only "$ref" 2>/dev/null | grep '\.rs$' | while IFS= read -r f; do
@@ -548,6 +567,7 @@ if run env-docs; then
     d="$ROOT/repos/$repo"; page="$ROOT/repos/$wiki/$pagename"
     [ -d "$d" ] || { skip "repos/$repo not checked out"; continue; }
     [ -f "$page" ] || { skip "$wiki has no $pagename"; continue; }
+    fetch_repo_once "$d"
     ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
     [ -z "$ref" ] && { skip "$repo: no origin/main"; continue; }
     # Fetch the WIKI first.  A stale local wiki checkout makes variables that are
@@ -612,6 +632,7 @@ if run dead-recorders; then
   for repo in worker server; do
     d="$ROOT/repos/$repo"
     [ -d "$d" ] || { skip "repos/$repo not checked out"; continue; }
+    fetch_repo_once "$d"
     ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
     [ -z "$ref" ] && { skip "$repo: no origin/main"; continue; }
     # Only functions that actually MUTATE a metric count.  metrics.rs is full of
