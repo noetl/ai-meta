@@ -1,7 +1,25 @@
 # Worker 5.108.1 → 5.115.3 — the behaviourally-inert roll
 
-**Status: STAGED, NOT APPLIED.** Prepared 2026-08-11. Nothing in this
-directory has been run against prod.
+**Status: EXECUTED 2026-08-11 21:57–22:00Z.** All four workloads are on
+`sha256:c50eff55…` (5.115.3), verified from each process's own
+`noetl_worker_build_info`. No tier flipped, no tier-service flag set,
+[ops#255](https://github.com/noetl/ops/pull/255) not applied.
+
+Outcome recorded on [ai-meta#257](https://github.com/noetl/ai-meta/issues/257#issuecomment-5259405593).
+Two findings the plan below did not anticipate, kept here because the next
+writer roll will hit them again:
+
+- **The writer restart re-executed one in-flight step.** The 22:00
+  `system/scheduled_cleanup` completed normally at 22:00:05, then its `end`
+  step ran again in full at 22:00:33 — a 30.3 s gap against
+  `NOETL_COMMAND_BUS_ACK_WAIT_SECS = 30`. An ack was lost to the restart and
+  the command was redelivered. At-least-once working as designed, harmless for
+  an idempotent step; **any writer roll can do this to a non-idempotent one.**
+  §3's "writer LAST and on its own" is right but insufficient — also roll it
+  when the system is quiet.
+- **A single slow execution right after a roll is not a regression signal.**
+  The mid-roll smoke took ~4 minutes; the same pods, settled, took 7 s. Re-run
+  before concluding anything. §4 should have said so.
 
 ## Why this is its own step
 
