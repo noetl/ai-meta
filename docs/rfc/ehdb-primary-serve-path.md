@@ -175,6 +175,33 @@ incumbent keeps being written throughout (§3.3). This preserves the append-only
 Event-log tier goes **last**, not first: it is the source of truth for replay.
 Suggested order: **KV → object → projection → vector → event-log.**
 
+> **Correction, 2026-08-11 ([#259](https://github.com/noetl/ai-meta/issues/259)).**
+> That order is not runnable, and saying it without this caveat is how an
+> operator ends up flipping a tier that cannot move.
+>
+> PRs 5/6 wired **exactly one** tier: the event log. `kv`, `object`,
+> `projection` and `vector` each have a `serve_primary_cycle` whose only caller
+> is `bin/ehdb-selfcheck` — a conformance drive that never authors a NoETL
+> event. Setting those four to `primary` changes nothing a caller can observe;
+> the worker now says so explicitly (`outcome="primary_not_wired"`).
+>
+> So the order as-wired is the **reverse** of the intent: the only tier that can
+> be flipped today is the one this section names last. Two consequences:
+>
+> 1. **The first flip is the event log**, or it is nothing. The blast-radius
+>    argument for KV-first is sound but it is a statement about work that has
+>    not been done — wiring the other four tiers to `primary_serve::decide` is
+>    unstarted.
+> 2. The blast-radius concern is answered a different way in the meantime: the
+>    event-log flip is safe *because primary only appends* and the incumbent
+>    keeps receiving the complete event set throughout, which the PR-7 drill
+>    measured (37/37 executions carried all 13 events across the primary
+>    window). Rollback is the flag back.
+>
+> `primary_serve::SERVE_WIRED_TIERS` is the machine-readable form of this, and a
+> test re-derives it from the tier sources so this paragraph cannot go stale the
+> way its predecessor did.
+
 ### 3.5 Data-access boundary
 
 Unchanged and reinforced. Workers never read `noetl.*`. The tier service carries
@@ -255,6 +282,9 @@ can be built: a listener that does not exist unless a flag is set.
 
 1. **Cutover order** — KV first is proposed as lowest-consequence. Object may be
    an equally good start; event-log is certainly last.
+   **Resolved by construction, 2026-08-11:** only the event log is wired, so it
+   is necessarily first. See the correction in §3.4. The open question shrinks
+   to "in what order do we *wire* the remaining four", which is not urgent.
 2. **Availability.** The writer is `replicas: 1`. Fronting tier reads there puts
    another dependency behind a single pod. Phase 1 is inert so this does not bite
    yet, but before PR 5 we should decide: accept it (as the buses already do), or
