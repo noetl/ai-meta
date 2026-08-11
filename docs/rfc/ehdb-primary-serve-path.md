@@ -44,9 +44,14 @@ plus a WARN and an `outcome="primary_not_wired"` counter. This RFC builds on tha
 
 - The default backend is `LocalReference`, a **pod-local JSONL** driver.
 - Each worker mirrors into **its own** `NOETL_EHDB_LOCAL_REFERENCE_LOG`.
-- The server's `/api/ehdb/*` resolves tier data from the **server's own**
-  `from_env()` location — not where any worker writes. On prod,
-  `/api/ehdb/health` returns **404**.
+- The server's `/api/ehdb/*` cannot reach worker-written tier data. **Correction
+  (2026-08-11):** an earlier draft cited *"prod `/api/ehdb/health` returns 404"* as
+  evidence. That was **wrong** — `/health` is not a route, and `/api/ehdb` itself
+  returns **200** on prod. The accurate statement is narrower and stronger: the
+  server is **deliberately barred** from opening tier storage (control-plane
+  guard) and instead **relays** raw tier reads to the worker via
+  `NOETL_EHDB_WORKER_QUERY_URL` — which is **unset on prod**, so raw tier queries
+  return **501**. The relay, not a new resolver, is the mechanism PR 4 must use.
 - Every prod PVC is **ReadWriteOnce** (`premium-rwo`), so the "shared mount"
   that `NOETL_EHDB_EVENTLOG_SHARED_DIR` anticipates cannot be mounted by more
   than one pod.
