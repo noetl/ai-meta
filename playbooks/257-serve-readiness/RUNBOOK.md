@@ -148,6 +148,10 @@ label check and failed only the data checks. Compare counts, not labels.
 `NOETL_EHDB_TIER_SERVICE_DIR` on a **PVC path**. The durable dir is pod-local by
 default; without a volume the store dies with the pod.
 
+The manifest half of this is [ops#255](https://github.com/noetl/ops/pull/255)
+(*declare the writer's tier-service face (:9110), default OFF*), open and not
+applied. It is a **port declaration**, not monitoring — see P6.
+
 ### P5 — comparator divergence == 0 over a real prod soak
 
 `NOETL_EHDB_CROSSSTORE_PARITY_ENABLED=true`, then over the soak window:
@@ -163,8 +167,15 @@ measured nothing; require positive matches.
 
 ### P6 — monitoring applied, during a quiet window
 
-[ops#255](https://github.com/noetl/ops/pull/255) (7 rules + the events scrape)
-applied. ⚠ **Prod has zero notification channels**
+[ops#252](https://github.com/noetl/ops/pull/252) (7 rules + the events scrape)
+applied. ⚠ **corrected 2026-08-12**: this line previously cited **ops#255**,
+which is a different PR — *"declare the writer's tier-service face (:9110),
+default OFF"*, the manifest half of **P4**, not monitoring. Both are needed and
+they are not interchangeable: applying ops#255 and ticking P6 would leave the
+flip entirely unalerted. Every other reference in these playbooks uses ops#255
+correctly; this row was the only one wrong.
+
+⚠ **Prod has zero notification channels**
 ([#238](https://github.com/noetl/ai-meta/issues/238)) — a firing rule reaches
 nobody. Either add a channel or accept that the flip is watched by a human
 looking at dashboards, and say which.
@@ -207,8 +218,10 @@ line, the state P0 was found in.
 that `primary` did nothing, on a build that serves. It fires from
 `runtime_hook_env`, which is reached only on `MIRROR_SOURCE=worker` — so it is
 *unreachable on the serve-ready configuration* and cannot mislead there, but it
-is still wrong on the other one. worker `fix/259-primary-flip-signal` (pushed,
-unmerged) replaces it with three distinct conditions
+is still wrong on the other one. worker `fix/259-primary-flip-signal` is open as
+**[worker#263](https://github.com/noetl/worker/pull/263)** (*"the flip-time
+signal must describe the tier it fires for"*) — a PR, not just a pushed branch —
+and replaces it with three distinct conditions
 (`primary_not_wired` / `primary_no_tier_service` / `primary_armed`). Land it, and
 note that landing it alone would **not** have fixed P0 — the same disarm that
 routes around the serve decision routes around that warning.
