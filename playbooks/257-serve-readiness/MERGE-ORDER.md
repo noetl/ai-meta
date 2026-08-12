@@ -171,25 +171,47 @@ git fetch origin --tags && git tag --sort=-v:refname | head -1   # did it move?
 
 Four things are **not** ready. Three are quick; one is real work.
 
-### B1 — the wiki trail is incomplete (Rule 2a)
+### B1 — ✅ **CLOSED 2026-08-12.** The wiki trail is complete
 
 `wiki-maintenance.md` Rule 2a: the deployment-spec page is the env-var source of
-truth and must move **in the same change set** as the code. Current state:
+truth and must move **in the same change set** as the code. All six items are
+now written and committed locally — **nothing pushed**.
 
 | item | state |
 | :-- | :-- |
-| `noetl-worker-wiki` `MIRROR_SOURCE` row (#258) | committed `6bff4d9`, **unpushed** |
-| `noetl-server-wiki` `MIRROR_SOURCE` row (#258) | committed `0f11841`, **unpushed** |
-| `noetl-worker-wiki` tier-service metrics (#260) | **uncommitted**, 49 lines in the working tree |
-| `NOETL_EHDB_TIER_QUERY_SOURCE` | **0 hits — undocumented.** It is precondition **P3** |
-| `serve_state` reply field | **0 hits — undocumented** |
-| `tier_query_source` reply field | **0 hits — undocumented** |
+| `noetl-worker-wiki` `MIRROR_SOURCE` row (#258) | committed `6bff4d9` |
+| `noetl-worker-wiki` tier-service metrics (#260) | ✅ was 49 uncommitted lines — now in `2acfd0f` |
+| `NOETL_EHDB_TIER_QUERY_SOURCE` (**precondition P3**) | ✅ new row + the multi-replica constraint in plain words + the asymmetric failure table — `2acfd0f` |
+| `serve_state` / `tier_query_source` reply fields | ✅ five values, `unknown ≠ not_primary`, the transition log line, the pinned seven-outcome set — `2acfd0f` |
+| `noetl-server-wiki` `MIRROR_SOURCE` row (#258) | committed `0f11841` |
+| `noetl-server-wiki` `tier_query_source` in the parity reply | ✅ `9673f45` |
 
-Steps 6–8 cannot ship compliantly until the last three are written. Content is
-specified in the four `PENDING-PUSH.md` files; the P0 note in particular must
-**replace**, not extend, the earlier text — the previous draft said `primary` is
-inert on `MIRROR_SOURCE=server` + `TIER_QUERY_SOURCE=service`, which `8d46b33`
-made false.
+Two **replacements**, not additions — the earlier text was made false by
+`8d46b33`:
+
+* The serve-path description said the event-log tier serves *"on the append
+  path"* without naming which. On `MIRROR_SOURCE=server` +
+  `TIER_QUERY_SOURCE=service` the flip reached neither of the then-existing call
+  sites and served nothing, silently. Replaced with the three call sites and
+  which configuration reaches each.
+* The three-outcome flip-time signal table documented **worker#263, which is
+  open and unmerged** — a binary built from `main` today records only
+  `primary_not_wired`. Marked as unreleased, and noted that it fires from
+  `runtime_hook_env`, which `MIRROR_SOURCE=server` disarms: unreachable on the
+  serve-ready configuration, so its silence is not evidence of anything.
+
+Verification, on the page that had **0 hits** for all three:
+
+```
+NOETL_EHDB_TIER_QUERY_SOURCE     4 hits
+serve_state                      5 hits
+tier_query_source                3 hits
+served_primary                   7 hits
+downgraded_local                 2 hits
+```
+
+Both wiki pushes dry-run verified as clean fast-forwards:
+`961a909..2acfd0f` (worker) and `80558b9..9673f45` (server).
 
 ### B2 — ops#255 was mis-cited as the monitoring PR
 
@@ -247,21 +269,23 @@ gh issue create --repo noetl/worker --label ai-task \
   --title "EHDB primary serve path — Round 03 (PR 7: the serve decision's third call site)"  # → #257
 ```
 
-### Step 1 — wiki first (Rule 2a: same change set, and it gates B1)
+### Step 1 — wiki first (Rule 2a: same change set)
+
+**Already written and committed locally — this step is now a push only.**
 
 ```bash
 cd "$AM/repos/noetl-worker-wiki"
-# WRITE the missing sections first — see B1. Then:
-git add deployment-specification.md
-git commit -m "docs(deployment-spec): EHDB tier-service metrics, TIER_QUERY_SOURCE, serve_state (ai-meta#257/#260)"
-git push origin master          # also carries the unpushed 6bff4d9 (#258 MIRROR_SOURCE row)
+git log --oneline origin/master..HEAD   # expect 2acfd0f + 6bff4d9
+git push origin master                  # dry-run verified: 961a909..2acfd0f
 
 cd "$AM/repos/noetl-server-wiki"
-# WRITE tier_query_source on /api/ehdb/parity/executions/{id}. Then:
-git add deployment-specification.md
-git commit -m "docs(deployment-spec): tier_query_source in the parity reply (ai-meta#257)"
-git push origin master          # also carries the unpushed 0f11841
+git log --oneline origin/master..HEAD   # expect 9673f45 + 0f11841
+git push origin master                  # dry-run verified: 80558b9..9673f45
 ```
+
+Each wiki carries **two** commits: the #258 `MIRROR_SOURCE` row from the earlier
+session, and this pass's completion of the trail. Push before the PRs open so
+the PR bodies can link a page that already describes the surface.
 
 ### Step 2 — push all six branches
 

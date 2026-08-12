@@ -103,7 +103,23 @@ afterwards.
   corrected in place (`noetl_worker_ehdb_query_ops_total`), with the correction
   marked and `serve_state` added to the reply-field list.
 
-## 3. Wiki edits — REQUIRED, not yet written
+## 3. Wiki edits — ✅ **WRITTEN AND COMMITTED 2026-08-12** (not pushed)
+
+> **Status update.** Everything specified in this section is now written and
+> committed locally: `noetl-worker-wiki` **`2acfd0f`** and `noetl-server-wiki`
+> **`9673f45`**, each sitting on top of the earlier `#258` commit (`6bff4d9` /
+> `0f11841`). Both push dry-runs are clean fast-forwards. The `NOETL_EHDB_EVENTLOG`
+> P0 note was **replaced** as required below, not appended. See
+> `MERGE-ORDER.md` §4 B1 for the verification counts.
+>
+> Two things were found while writing it and fixed in the same commit: the
+> serve-path description named no call site (so it read as "any `primary` flip
+> serves"), and the three-outcome flip-time signal table documented
+> **worker#263, which is open and unmerged** — a binary from `main` records only
+> `primary_not_wired`.
+
+The original specification, kept because it is what the commit was written
+against:
 
 `wiki-maintenance.md` Rule 2a — the deployment-spec page is the env-var source of
 truth and must move in the same change set as the code.

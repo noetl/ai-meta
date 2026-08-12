@@ -39,7 +39,11 @@ gh run watch --repo noetl/worker
 git fetch origin --tags && git tag --sort=-v:refname | head -1
 ```
 
-## Wiki edit (local only, in the submodule)
+## Wiki edit — ✅ **COMMITTED 2026-08-12** (not pushed)
+
+> The ~49 lines below were uncommitted in the working tree until this pass;
+> they are now in `noetl-worker-wiki` **`2acfd0f`**, alongside the #257/#258
+> rows, so the whole deployment-spec trail ships as one commit.
 
 * `repos/noetl-worker-wiki/deployment-specification.md` — a new **EHDB tier
   service — the server half** bullet under `## Observability`: the five metrics,

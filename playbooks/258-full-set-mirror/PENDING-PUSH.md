@@ -18,7 +18,11 @@ Both branch off **open PRs**, not `main`. They must not be pushed as PRs against
 top and reviewed as such. Opening them against `main` would show the comparator's
 1,944 lines as part of this change.
 
-## Wiki edits (local only, in the submodules)
+## Wiki edits — committed (not pushed)
+
+> `noetl-worker-wiki` **`6bff4d9`** and `noetl-server-wiki` **`0f11841`**, each
+> now with a second commit on top completing the #257/#260 trail (`2acfd0f` /
+> `9673f45`). Both push dry-runs are clean fast-forwards.
 
 * `repos/noetl-server-wiki/deployment-specification.md` — `NOETL_EHDB_EVENTLOG_MIRROR_SOURCE` row.
 * `repos/noetl-worker-wiki/deployment-specification.md` — same variable, worker half.

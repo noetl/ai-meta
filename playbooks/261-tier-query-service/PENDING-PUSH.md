@@ -48,7 +48,15 @@ wrong — they produce no release at all, silently. Do **not** hand-edit
 `Cargo.toml`, do **not** push a tag, merge with `--merge` (squash is forbidden
 in these repos), and read the tag back afterwards.
 
-## Wiki edits — REQUIRED, not yet written
+## Wiki edits — ✅ **WRITTEN AND COMMITTED 2026-08-12** (not pushed)
+
+> `noetl-worker-wiki` **`2acfd0f`**, `noetl-server-wiki` **`9673f45`**. Every
+> item below is covered, including the corrected metric name
+> (`noetl_worker_ehdb_query_ops_total`) and the multi-replica constraint in
+> plain words. See `../257-serve-readiness/MERGE-ORDER.md` §4 B1.
+
+The original specification, kept because it is what the commit was written
+against:
 
 `wiki-maintenance.md` Rule 2a: the deployment-spec page is the env-var source of
 truth and must be updated **in the same change set** as the code. This change
