@@ -1,0 +1,50 @@
+diff --git a/.dockerignore b/.dockerignore
+index 52fe10e..f9edb05 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -1,8 +1,10 @@
+-target
+-# Nested Cargo target dirs (e.g. plugins/reference-materializer/target) — the
+-# top-level `target` glob only matches at the context root, so without this a
+-# locally-built plug-in ships its whole target dir in the build context.
+-**/target
++# NOTE: patterns here are NOT root-anchored unless they start with `/`.
++# A bare `target` — and `**/target` just as much — matches ANY path segment
++# named target, including `vendor/cc/src/target/`, which makes `cargo chef cook`
++# fail with "failed to calculate checksum of /app/vendor/cc/src/target/apple.rs".
++# Anchor the top-level one and name the nested plug-in target dirs explicitly.
++/target
++/plugins/reference-materializer/target
+ .git
+ .github
+ .DS_Store
+diff --git a/src/metrics_server.rs b/src/metrics_server.rs
+index 531dd5c..fa4ea83 100644
+--- a/src/metrics_server.rs
++++ b/src/metrics_server.rs
+@@ -189,14 +189,17 @@ async fn ehdb_tier_query_handler(
+                     )),
+                 );
+             }
+-            // `execution`, NOT `execution_id`: the latter is documented in
+-            // QueryParams as a tracing correlation id, and reading by it would
+-            // silently query the wrong key.
+-            let reply = match params.execution.as_deref() {
+-                Some(eid) => client.read_execution(eid).await,
+-                None => client.scan(None, 100).await,
+-            };
+-            return match reply {
++            // MUTATION (ai-meta#257 PR 4 gate): reinstate the silent fall-back
++            // to the pod-local store while STILL reporting `tier_query_source:
++            // service`.  This is the defect PR 4 closes, in its most dangerous
++            // form — the label says one store, the bytes come from another — and
++            // it is invisible to any check that reads the label alone.
++            let _ = &client;
++            let reply: Result<String, String> =
++                Err("mutation: fall through to the pod-local store".to_string());
++            if reply.is_err() {}
++            #[allow(unreachable_code)]
++            let _unused = || match reply {
+                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
+                     Ok(v) => (
+                         StatusCode::OK,

@@ -1,0 +1,42 @@
+# Gate image for the noetl/ai-meta#258 kind validation.
+#
+# NOT a release Dockerfile. The podman VM has no outbound HTTPS this session
+# (crates.io, github.com and the alpine index all time out while DNS still
+# resolves), so this builds with `--network none` against a host-side
+# `cargo vendor`.
+#
+# Three deviations from `Dockerfile`, each forced by that:
+#
+#  1. no `apk add` — the cargo-chef alpine base already ships gcc, ld and
+#     musl-dev, which is what this build needs.
+#  2. `--offline`, against `/app/vendor` + the `.cargo/config.toml` written by
+#     `cargo vendor`.
+#  3. the runtime layer is `FROM` the comparator image already built locally
+#     rather than `alpine` + `apk add`. That also keeps the released wasm
+#     plug-in without a `rustup target add` (which needs network), and it makes
+#     the gate image differ from the comparator image in exactly one file — the
+#     binary — so a behaviour difference in kind is attributable to this change
+#     and not to a rebuilt base.
+ARG RUNTIME_BASE=localhost/noetl-server:parity-real
+
+FROM lukemathwalker/cargo-chef:0.1.73-rust-1.91.1-alpine3.22 AS chef
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+COPY vendor vendor
+COPY .cargo .cargo
+# Cook the dependency layer separately so a source-only change (the mutation
+# arm) rebuilds in minutes rather than re-doing the whole dependency graph.
+RUN cargo chef cook --release --offline --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --offline --bin noetl-control-plane
+
+FROM ${RUNTIME_BASE} AS runtime
+WORKDIR /app
+COPY --from=builder /app/target/release/noetl-control-plane ./noetl-control-plane
+ENTRYPOINT ["./noetl-control-plane"]

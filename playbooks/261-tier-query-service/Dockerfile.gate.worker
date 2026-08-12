@@ -1,0 +1,38 @@
+# Gate image for the noetl/ai-meta#258 kind validation.
+#
+# NOT a release Dockerfile. See `Dockerfile.gate` in noetl/server for the full
+# reasoning; the short version is that the podman VM has no outbound HTTPS this
+# session, so this builds `--network none` against a host-side `cargo vendor`.
+#
+# ⚠ ONE BEHAVIOURAL DIFFERENCE FROM THE RELEASE IMAGE, stated rather than
+# buried: `--features duckdb-integration` is DROPPED. `libduckdb-sys` needs a
+# C++ toolchain that the cargo-chef alpine base does not carry and only
+# `apk add g++` supplies, which needs network. **This gate worker is not
+# DuckDB-capable.** That is sound for this gate — nothing on the event-log
+# mirror path or in the probe playbook touches DuckDB — but it would not be
+# sound for a gate that exercised a `duckdb` tool step, and a later reader must
+# not mistake this image for a release one.
+#
+# The runtime layer is `FROM` the comparator image already built locally, so the
+# gate image differs from it in exactly one file: the `noetl-worker` binary.
+ARG RUNTIME_BASE=localhost/noetl-worker:parity-real
+
+FROM lukemathwalker/cargo-chef:0.1.73-rust-1.91.1-alpine3.22 AS chef
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+COPY vendor vendor
+COPY .cargo .cargo
+RUN cargo chef cook --release --offline --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --offline --bin noetl-worker
+
+FROM ${RUNTIME_BASE} AS runtime
+WORKDIR /app
+COPY --from=builder /app/target/release/noetl-worker ./noetl-worker
+ENTRYPOINT ["./noetl-worker"]
