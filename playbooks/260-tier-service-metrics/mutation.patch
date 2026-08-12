@@ -1,0 +1,49 @@
+Mutation for the ai-meta#260 gate — break the metric increment on ONE path.
+
+The gate's `up` arm passes when the counters and the histogram move. That is
+only evidence if the gate would notice them NOT moving. This drops the recording
+for `append` and for nothing else, so:
+
+  * `tier_service.append/ok` stays at its baseline (delta 0, want 1)
+  * `noetl_ehdb_tier_service_duration_seconds_count{operation="append"}` stays 0
+  * `store_appends_total` still moves — the append itself is untouched
+
+That last point is the sharp part. The append still SUCCEEDS and the store still
+grows; only the request-path observation is gone. A weaker gate that asserted
+"the store grew" would pass this mutation, which is precisely the invisibility
+#260 was filed about: the work happens, and nothing on the request path says so.
+
+Apply with `git apply mutation.patch`, build the image, run `gate.sh up`, and
+expect a NON-ZERO exit. Revert with `git apply -R mutation.patch`.
+
+diff --git a/src/ehdb/tier_service.rs b/src/ehdb/tier_service.rs
+index 1e07bad..06cac19 100644
+--- a/src/ehdb/tier_service.rs
++++ b/src/ehdb/tier_service.rs
+@@ -315,13 +315,19 @@ async fn serve_conn(mut stream: TcpStream) {
+                 let req = decode_request(&payload);
+                 let (resp, obs) = encode_response_observed(&req);
+                 let elapsed = started.elapsed().as_secs_f64();
+-                super::metrics::record_tier_service(
+-                    obs.op,
+-                    obs.outcome,
+-                    obs.ok,
+-                    obs.degraded,
+-                    elapsed,
+-                );
++                // GATE MUTATION (ai-meta#260) — deliberately stop observing the
++                // append path so the gate has a real regression to catch. The
++                // append itself still happens and the store still grows; only
++                // the request-path signal disappears. REVERT.
++                if obs.op != "append" {
++                    super::metrics::record_tier_service(
++                        obs.op,
++                        obs.outcome,
++                        obs.ok,
++                        obs.degraded,
++                        elapsed,
++                    );
++                }
+                 if let Err(e) = write_frame(&mut stream, &resp).await {
+                     // Degraded: the request was served and the answer was lost.
+                     // From the caller's side this is indistinguishable from the

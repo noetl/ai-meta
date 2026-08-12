@@ -1,0 +1,42 @@
+# Gate image for the noetl/ai-meta#260 kind validation.
+#
+# NOT a release Dockerfile.
+#
+# Two deliberate differences from `Dockerfile` in noetl/worker, stated here
+# rather than buried, because a later reader must not mistake this for a release
+# image:
+#
+#  1. **`--offline` against a host-side `cargo vendor`.** The podman VM has no
+#     outbound HTTPS, so nothing here may reach crates.io. `vendor/` is produced
+#     on the host and `.cargo/config.toml` redirects every source at it.
+#  2. **`--features duckdb-integration` is DROPPED.** `libduckdb-sys` needs a C++
+#     toolchain the cargo-chef alpine base does not carry, and installing it
+#     needs network. **This gate worker is not DuckDB-capable.** Sound for this
+#     gate — nothing on the tier-service request path touches DuckDB — but it
+#     would not be sound for a gate that exercised a `duckdb` tool step.
+#
+# The runtime layer is `FROM` the exact released image the kind writer already
+# runs, so the gate image differs from what is deployed in exactly one file: the
+# `noetl-worker` binary. That is what makes a behavioural difference in the gate
+# attributable to this change rather than to the image.
+ARG RUNTIME_BASE=ghcr.io/noetl/worker:5.115.3-arm64
+
+FROM lukemathwalker/cargo-chef:0.1.73-rust-1.91.1-alpine3.22 AS chef
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+COPY vendor vendor
+COPY .cargo .cargo
+RUN cargo chef cook --release --offline --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --offline --bin noetl-worker
+
+FROM ${RUNTIME_BASE} AS runtime
+WORKDIR /app
+COPY --from=builder /app/target/release/noetl-worker ./noetl-worker
+ENTRYPOINT ["./noetl-worker"]
