@@ -1,0 +1,81 @@
+Composed mutation for the ai-meta#257 serve-readiness gate.
+
+Two compiling defects at once, one from each of the two pieces whose evidence
+this gate consolidates. The point of composing them is that the consolidated
+gate must catch BOTH families of assertion, not just whichever one it happens to
+run first — a bundle that only fails on one of them would be reporting the other
+family's checks as evidence when they cannot fail.
+
+  1. src/metrics_server.rs (from playbooks/261-tier-query-service) — reinstate
+     the silent fall-back to the pod-local store WHILE STILL REPORTING
+     `tier_query_source: service`. The label stays honest-looking and the bytes
+     come from another store. This is the defect PR 4 closes, in the form that
+     is invisible to any check reading the label alone.
+
+  2. src/ehdb/tier_service.rs (from playbooks/260-tier-service-metrics) — drop
+     the `record_tier_service` call for `append` and nothing else. The append
+     still succeeds and the store still grows; only the request-path signal
+     disappears. A gate asserting "the store grew" passes this.
+
+Apply with `git apply --3way mutation.patch`, build, and expect a NON-ZERO exit
+from `gate.sh service`. Revert with `git apply -R --3way mutation.patch`.
+
+diff --git a/src/metrics_server.rs b/src/metrics_server.rs
+index 531dd5c..fa4ea83 100644
+--- a/src/metrics_server.rs
++++ b/src/metrics_server.rs
+@@ -189,14 +189,15 @@ async fn ehdb_tier_query_handler(
+                     )),
+                 );
+             }
+-            // `execution`, NOT `execution_id`: the latter is documented in
+-            // QueryParams as a tracing correlation id, and reading by it would
+-            // silently query the wrong key.
+-            let reply = match params.execution.as_deref() {
+-                Some(eid) => client.read_execution(eid).await,
+-                None => client.scan(None, 100).await,
+-            };
+-            return match reply {
++            // MUTATION (ai-meta#257 serve-readiness gate): reinstate the silent
++            // fall-back to the pod-local store while STILL reporting
++            // `tier_query_source: service`.
++            let _ = &client;
++            let reply: Result<String, String> =
++                Err("mutation: fall through to the pod-local store".to_string());
++            if reply.is_err() {}
++            #[allow(unreachable_code)]
++            let _unused = || match reply {
+                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
+                     Ok(v) => (
+                         StatusCode::OK,
+diff --git a/src/ehdb/tier_service.rs b/src/ehdb/tier_service.rs
+index 1e07bad..06cac19 100644
+--- a/src/ehdb/tier_service.rs
++++ b/src/ehdb/tier_service.rs
+@@ -315,13 +315,19 @@ async fn serve_conn(mut stream: TcpStream) {
+                 let req = decode_request(&payload);
+                 let (resp, obs) = encode_response_observed(&req);
+                 let elapsed = started.elapsed().as_secs_f64();
+-                super::metrics::record_tier_service(
+-                    obs.op,
+-                    obs.outcome,
+-                    obs.ok,
+-                    obs.degraded,
+-                    elapsed,
+-                );
++                // GATE MUTATION (ai-meta#260) — deliberately stop observing the
++                // append path so the gate has a real regression to catch. The
++                // append itself still happens and the store still grows; only
++                // the request-path signal disappears. REVERT.
++                if obs.op != "append" {
++                    super::metrics::record_tier_service(
++                        obs.op,
++                        obs.outcome,
++                        obs.ok,
++                        obs.degraded,
++                        elapsed,
++                    );
++                }
+                 if let Err(e) = write_frame(&mut stream, &resp).await {
+                     // Degraded: the request was served and the answer was lost.
+                     // From the caller's side this is indistinguishable from the
