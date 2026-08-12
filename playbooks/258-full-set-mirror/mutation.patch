@@ -1,0 +1,14 @@
+diff --git a/src/handlers/ehdb_eventlog_mirror.rs b/src/handlers/ehdb_eventlog_mirror.rs
+index 50dfe21..a00f071 100644
+--- a/src/handlers/ehdb_eventlog_mirror.rs
++++ b/src/handlers/ehdb_eventlog_mirror.rs
+@@ -221,6 +221,9 @@ pub async fn mirror_rows(state: &AppState, rows: &[EventRow]) {
+     let execution_id = rows[0].execution_id;
+     let records: Vec<String> = rows
+         .iter()
++        // GATE MUTATION (ai-meta#258) — deliberately drop a server-authored
++        // event so the comparator has something real to catch. REVERT.
++        .filter(|r| r.event_type != "command.issued")
+         .map(|r| mirror_payload(r).to_string())
+         .collect();
+     let count = records.len();
