@@ -13,12 +13,22 @@ pair of built images and runs them **together** at **three** worker replicas.
 
 ## The composed branch
 
-`feat/257-serve-readiness` on `noetl/worker` — `feat/257-pr4-tier-query-service`
-(`7fd7e42`) with `feat/260-tier-service-metrics` (`dcd0266`) cherry-picked on
-top. Those two were **separate lineages off v5.115.3**, so no build before this
-one contained both. The cherry-pick auto-merged `src/ehdb/metrics.rs` and
-`src/event_bus.rs`; both changes survive in the composed tree (`#260`'s
-`pin_tier_service_series` call and PR 4's corrected startup line).
+`feat/257-serve-readiness` on `noetl/worker` @ **`8d46b33`** —
+`feat/257-pr4-tier-query-service` (`7fd7e42`) with
+`feat/260-tier-service-metrics` (`dcd0266`) cherry-picked on top, plus the **P0
+fix** (`8d46b33`). Those two were **separate lineages off v5.115.3**, so no build
+before this one contained both. The cherry-pick auto-merged
+`src/ehdb/metrics.rs` and `src/event_bus.rs`; both changes survive in the
+composed tree (`#260`'s `pin_tier_service_series` call and PR 4's corrected
+startup line).
+
+**The P0 the composition found.** With both pieces in one build, a flip to
+`primary` turned out to be inert AND silent: `MIRROR_SOURCE=server` and
+`TIER_QUERY_SOURCE=service` each route around one of `primary_serve::decide`'s
+two call sites, so the serve decision never fired. `8d46b33` adds the third call
+site, at the append chokepoint that configuration does reach. Neither of the two
+pieces was wrong alone — the gap existed only in their composition, which is the
+argument for this gate existing at all.
 
 Server needs no composition: `feat/258-server-authored-mirror` (`2206728`)
 already carries the comparator, the mirror and PR 4's server half.
@@ -39,6 +49,14 @@ already carries the comparator, the mirror and PR 4's server half.
 ./deploy.sh tierup                  # and it re-promotes on a real success
 
 ./deploy.sh mode shadow             # THE ROLLBACK — the same lever, back
+
+# the P0 mutation check: only the pool's image moves
+./deploy.sh mode primary
+./deploy.sh poolimg localhost/noetl-worker:capp0mut   # bypass reinstated
+./gate.sh primary                   # MUST fail, on the serve assertions only
+./deploy.sh poolimg localhost/noetl-worker:capp0      # and pass again restored
+./gate.sh primary
+
 ./deploy.sh restore                 # released images, zero EHDB env
 ```
 
@@ -50,6 +68,13 @@ already carries the comparator, the mirror and PR 4's server half.
 | `primary` | flipping the tier makes some code path take a different branch — and the **incumbent** keeps receiving the complete set throughout the primary window |
 | `killswitch` | with the tier service dead the tier demotes to the incumbent: it never serves partial data, never produces a false `match`, and never errors the caller |
 | `mutated` | the whole bundle fails when it should, in **both** families |
+
+Two mutations, targeting different arms:
+
+| patch | target arm | defect reinstated |
+| :-- | :-- | :-- |
+| `mutation.patch` | `service` | the silent fall-back that keeps reporting `tier_query_source: service`, plus the dropped `record_tier_service` for `append` |
+| `mutation-p0.patch` | `primary` | the serve-decision bypass — appends still land, every replica still agrees, only the serve decision disappears |
 
 ## Why the mutation is composed too
 

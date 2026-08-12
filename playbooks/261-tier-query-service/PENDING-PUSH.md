@@ -61,8 +61,13 @@ does not add a variable but it materially changes what two existing ones do:
     `tier_query_source.rs` is the text to mirror.
   * `NOETL_EHDB_TIER_SERVICE_ADDR` — a malformed value now disables the read
     path rather than being ignored.
-  * New reply field `tier_query_source` on `GET|POST /ehdb/tiers/{tier}`, and
-    the `noetl_ehdb_query_ops_total{operation="tier_query_source.*"}` counter.
+  * New reply fields `tier_query_source` **and `serve_state`** on
+    `GET|POST /ehdb/tiers/{tier}`, and the
+    `noetl_worker_ehdb_query_ops_total{operation="tier_query_source.*"}` counter.
+    ⚠ **corrected 2026-08-12**: this line previously named
+    `noetl_ehdb_query_ops_total`, which is not a series that exists — the family
+    is `noetl_worker_ehdb_query_ops_total`. A wiki page written from the old
+    line would have documented a metric nobody can scrape.
   * ⚠ **The multi-replica constraint belongs here in plain words**: with more
     than one replica, `local` answers from one pod's fragment. An operator
     reading the current page has no way to know that.

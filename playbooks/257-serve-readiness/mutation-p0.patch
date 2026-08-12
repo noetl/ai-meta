@@ -1,0 +1,72 @@
+Mutation for the ai-meta#257 **P0 fix** — re-introduce the bypass.
+
+`mutation.patch` (the composed one) targets arm `service`: it breaks the read
+path and the tier-service request signal. It cannot fail the `primary` arm,
+because the serve decision is not what it touches. This patch is the other
+half: it targets arm **`primary`** and nothing else.
+
+The defect it reinstates is the P0 exactly as it was found. The serve decision
+had two runtime call sites and the serve-ready configuration routed around
+both:
+
+  * `MIRROR_SOURCE=server` disarms the worker's own mirror hook in
+    `client/control_plane.rs`, so `mirror_live_event` — and with it
+    `runtime_hook_env`, the only caller of the flip-time signal — never runs.
+  * `TIER_QUERY_SOURCE=service` takes `Resolution::Service(client)` in the
+    append handler, which calls `client.append()` directly and never enters
+    `mirror_event`, where the other call site lives.
+
+So this patch removes the third call site — the one the fix added — and leaves
+everything else alone. The appends still land, all 13 of them, every replica
+still agrees, the comparator still says `match`, the observability still moves.
+Only the serve decision disappears.
+
+**That is the whole point.** Under this mutation the `service`-arm assertions
+all still pass. If the primary arm did not fail, the gate would be reporting
+41 green checks about a flip that changed nothing — which is precisely the
+state the composed gate found and this patch must reproduce.
+
+Expected:
+
+  gate.sh service   ->  passes    (the mutation is invisible to it, by design)
+  gate.sh primary   ->  FAILS on:
+                          * every replica reports serve_state=... (endpoint level)
+                          * the flip reached the serve path — served_primary
+                          * served_primary is 0/absent across every replica
+
+Apply with `git apply --3way mutation-p0.patch`, build, expect a NON-ZERO exit
+from `gate.sh primary`. Revert with `git apply -R --3way mutation-p0.patch`.
+
+--- a/src/metrics_server.rs
++++ b/src/metrics_server.rs
+@@ -492,21 +492,17 @@
+             // vocabulary.  It records on every record, landed or not, so a dead
+             // tier service shows as a demote rather than as a serve signal that
+             // quietly stopped.
+-            let mut previous_sequence = 0u64;
+-            let mut serve_state = crate::ehdb::eventlog::current_serve_state();
++            let previous_sequence = 0u64;
++            let serve_state = crate::ehdb::eventlog::current_serve_state();
+             for payload in &records {
+-                let started = std::time::Instant::now();
+                 let out = client.append(&execution_id, payload).await;
+-                let serve = crate::ehdb::eventlog::serve_service_append(
+-                    &env,
+-                    out.as_deref().map_err(String::as_str),
+-                    previous_sequence,
+-                    started.elapsed().as_secs_f64(),
+-                );
+-                if let Some(seq) = serve.sequence {
+-                    previous_sequence = seq;
+-                }
+-                serve_state = serve.decision.outcome_label();
++                // GATE MUTATION (ai-meta#257 P0) — the bypass, reinstated. The
++                // append through the tier service happens and NOTHING consults
++                // `primary_serve::decide`, so `primary` takes no different branch
++                // on this configuration, records no `served_primary`, and logs no
++                // line. Every other assertion in the bundle still passes, which is
++                // the point. REVERT.
++                let _ = (&env, previous_sequence, &serve_state);
+                 match out {
+                     Ok(_) => appended += 1,
+                     Err(e) => failures.push(e),

@@ -1,11 +1,33 @@
 # ai-meta#257 — consolidated serve-readiness gate: results
 
-Run 2026-08-12, kind cluster `kind-noetl`, **three worker replicas**, on built
-images. This is the go/no-go evidence for promoting the EHDB event-log tier.
+Kind cluster `kind-noetl`, **three worker replicas**, on built images. The
+go/no-go evidence for promoting the EHDB event-log tier.
+
+**Two runs, both 2026-08-12.** Run 1 found the P0; run 2 closes it. Run 1's
+sections are kept below verbatim under *Run 1* — they are the evidence the
+defect existed, and deleting them would leave the fix unmotivated.
 
 ---
 
-## Verdict
+## Verdict (run 2, worker `8d46b33`)
+
+> **The serve-readiness bundle is GREEN and the flip now reaches the serve
+> path.** P0 — the one hard blocker — is closed. The remaining preconditions are
+> unchanged: P5 (prod soak), P6 (monitoring applied, zero notification
+> channels), P7 (availability posture in writing), P8's `#259` half, and P9
+> (explicit per-tier go) are all still open, and three of those are prod-side.
+>
+> On `MIRROR_SOURCE=server` + `TIER_QUERY_SOURCE=service` at three replicas,
+> `NOETL_EHDB_EVENTLOG=primary` produces `served_primary` **+13** per execution,
+> `serve_state=served_primary` on the tier endpoint, and one log line per
+> transition — while the tier still holds the full authoritative set (13/13 from
+> all three replicas, one `match` verdict per pin) and the incumbent still
+> receives a complete set (3/3).
+>
+> A mutation reinstating the bypass fails **exactly** the two serve assertions
+> and nothing else: 47 passed, 2 failed. Restoring returns 49/0.
+
+### Verdict (run 1) — kept, because it is why run 2 exists
 
 > **The serve-readiness bundle is GREEN. The flip itself is BLOCKED.**
 >
@@ -21,6 +43,285 @@ images. This is the go/no-go evidence for promoting the EHDB event-log tier.
 >
 > A prod flip today would be inert, and — until worker `fix/259-primary-flip-signal`
 > lands — would emit **no log line at all** saying so.
+
+---
+
+# Run 2 — the P0 fix, measured
+
+## What changed
+
+Worker `8d46b33` on `feat/257-serve-readiness`, on top of `a87dd14`. Four files:
+`src/ehdb/eventlog.rs`, `src/ehdb/metrics.rs`, `src/ehdb/tier_store.rs`,
+`src/metrics_server.rs`.
+
+**The third call site.** `primary_serve::decide` had two, and the serve-ready
+configuration routed around both — `MIRROR_SOURCE=server` disarms the worker's
+mirror hook before the tier mode is consulted, and `TIER_QUERY_SOURCE=service`
+takes `Resolution::Service(client)`, which never enters `mirror_event`. The fix
+puts the decision at the append chokepoint that configuration *does* reach: the
+`Resolution::Service` branch of `ehdb_tier_append_handler`, via
+`eventlog::serve_service_append`.
+
+It is **not** a second policy. It calls the same `decide` with the same three
+conditions and maps the verdict onto the same outcome vocabulary `mirror_event`
+uses. A property test walks all eight input combinations and asserts this site's
+verdict equals `decide`'s — so the two sites cannot drift apart about what
+`primary` means.
+
+The three conditions, all measured:
+
+| condition | how |
+| :-- | :-- |
+| primary mode | `NOETL_EHDB_EVENTLOG=primary` + the compile-time `PRIMARY_SERVE_ACTIVATED` |
+| durable service reachable | `reachability::is_reachable()` — set only by a real successful operation, cleared by any transport failure. The append that produced the reply **is** that operation, so this is a post-append fact, not a cached poll (the arm-D discipline) |
+| parity held | the remote store's own reply. `tier_store::append` now returns `log_record_count`, so the caller can check `log_record_count == global_sequence` — the same gapless invariant `mirror_event` checks locally — plus batch-local ordering |
+
+Parity here is **self**-consistency, not cross-store parity: it catches a store
+that has forgotten or rewound, which a promoted tier would otherwise answer from
+confidently. Parity against `noetl.event` stays the server comparator's job,
+because per `data-access-boundary.md` the worker may not read `noetl.*`. Ordering
+is checked batch-locally on purpose — the store has N appenders and
+process-global bookkeeping would report a divergence whenever two batches
+interleaved.
+
+**Two things that made the defect invisible, closed:**
+
+* **The serve series is pinned.** `served_primary` was not 0, it was *absent*,
+  and an absent family is the same bytes as a build with no serve path. It is now
+  created at 0 at the bind site of the route that carries server-authored
+  appends. Gated on EHDB enabled + tier not `off`, so a disabled build's
+  `/metrics` stays byte-identical — and **both** `shadow` and `primary` pin, so
+  the flip changes values, never which series exist. Measured, on a shadow pod
+  before any traffic:
+
+  ```
+  noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="mirrored"} 0
+  noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="parity_mismatch"} 0
+  noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="primary_divergence"} 0
+  noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="primary_unavailable"} 0
+  noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="rejected"} 0
+  noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="served_primary"} 0
+  noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="unavailable"} 0
+  ```
+
+* **The serve state is at the endpoint and in the log.** `serve_state` on the
+  tier route's replies (event-log tier only — a bare `serve_state` on a `kv` body
+  would describe the wrong thing), and one log line per transition in **both**
+  directions. Transition-only because an append happens 13 times per execution
+  and a line on each is a line nobody reads, which is operationally the same as
+  the no-line state P0 was found in.
+
+## Images
+
+| tag | image id | source |
+| :-- | :-- | :-- |
+| `localhost/noetl-worker:capp0` | `e6a592eafc6f` | composed tree @ `8d46b33` |
+| `localhost/noetl-worker:capp0mut` | `d1ca3aa83326` | same + `mutation-p0.patch` |
+| `localhost/noetl-server:pr4real` | `f2fa90c38021` | server `2206728` (unchanged from run 1) |
+
+Distinct ids confirm the mutation reached the binary. `deploy.sh load` asserted
+each tag present in the kind node **by name** before arming.
+
+## Arm `service` — the bundle, with the two new controls
+
+```
+=== arm service: 45 passed, 0 failed ===
+```
+
+19/19 from all three replicas (`10.244.0.138/139/140`), one `match` verdict per
+relay pin, `holds: true`, `unmirrored_by_design 0`, `divergences 0`, observability
+moving (`append/ok +19`, `read_execution/hit +7`, store `+19`, histogram sums
+`0.083138` / `0.022832`, `+Inf == count`).
+
+Four assertions are new. Two matter on their own:
+
+* **the pin** — `the serve-decision series is pinned on every replica (0, not
+  absent)`. This is the assertion whose absence let run 1's zero look like a
+  reading rather than a hole.
+* **the negative control** — `no replica served as primary while the tier is
+  shadow`, paired with `the serve site ran and recorded on the shadow label`.
+  Without the pair, `served_primary > 0` under `primary` would be satisfied by a
+  recorder that fired unconditionally. Same code, same traffic, only the flip
+  differs.
+
+## Arm `primary` — the flip, and it serves
+
+```
+=== arm primary: 49 passed, 0 failed ===
+```
+
+```
+replica 10.244.0.145  served_primary=13 primary_unavailable=0 serve_state=served_primary  (baseline 0)
+replica 10.244.0.147  served_primary=0  primary_unavailable=0 serve_state=unknown         (baseline 0)
+replica 10.244.0.146  served_primary=0  primary_unavailable=0 serve_state=unknown         (baseline 0)
+TOTAL: served_primary=13 (delta +13)   endpoint served_primary: 1/3
+```
+
+Three independent readings, because run 1 had all three silent at once:
+
+| reading | result |
+| :-- | :-- |
+| the counter **moved**, as a delta against this run's own baseline | `+13` — and the baseline was `0`, not `__ABSENT__`, so the pin held |
+| the **endpoint** | `serve_state=served_primary` on 1/3 replicas |
+| the **log**, once per transition | `NOETL_EHDB_EVENTLOG=primary IS SERVING: the event-log tier answered authoritatively through the writer-fronted tier service (mirror_source=server, tier_query_source=service) serve_state="served_primary" outcome="served_primary"` |
+
+**Why 1 of 3 and not 3 of 3, and why the gate asserts ≥1.** The server's mirror
+hop resolves the pool's ClusterIP Service, so which replicas receive appends is a
+load-balancing outcome, not something this gate controls. A replica that received
+none has decided nothing and reports `unknown` — which is a different statement
+from `not_primary` and must not be conflated with it. Requiring 3/3 would be
+asserting a property of kube-proxy. Over the whole run two of the three pods
+logged the serve line.
+
+Everything the `service` arm asserts still held under `primary`: 13/13 from all
+three replicas, one `match` verdict, `holds: true`, observability moving. And the
+incumbent kept the complete set through the primary window:
+
+| execution | events | `playbook.completed` | issued / completed |
+| :-- | --: | --: | :-- |
+| 345861381431496704 | 13 | 1 | 2 / 2 |
+| 345861509785587712 | 13 | 1 | 2 / 2 |
+| 345861624759848960 | 13 | 1 | 2 / 2 |
+
+## Mutation check — the bypass, reinstated
+
+`mutation-p0.patch` removes the third call site and nothing else. The appends
+still land, every replica still agrees, the comparator still says `match`, the
+observability still moves.
+
+```
+=== arm primary: 47 passed, 2 failed ===       (worker pool on capp0mut, writer on capp0)
+```
+
+```
+  FAIL  served_primary did not move (delta 0) across any replica while 13 events flowed —
+        'primary' took no different branch on this configuration
+  FAIL  no replica reports serve_state=served_primary at the endpoint;
+        a metric-only signal is how the P0 stayed invisible
+```
+
+**Only the pool image was swapped** (`deploy.sh poolimg`), because the serve
+decision runs in the pool's append handler — swapping the writer too would move a
+second variable for no reason.
+
+**The 47 that still passed are the point.** 13/13 full-set match from all three
+replicas, one verdict, `holds: true`, `divergences: 0`, every observability
+delta, and the incumbent 3/3. A bundle without the serve assertions would have
+reported 47 green checks about a flip that changed nothing — which is precisely
+run 1's state.
+
+One improvement over run 1 worth naming: under the mutation `served_primary`
+reads **`0`**, not absent, because `capp0mut` still carries the pin. The gate now
+fails on "did not move" rather than on "series absent" — a sharper signal about a
+narrower fault.
+
+**Restoring `capp0` returned the same cluster to 49 passed / 0 failed** (exit 0),
+so the two failures are attributable to the mutation and not to drift.
+
+## Arm `killswitch` — demote, visibly
+
+```
+=== arm killswitch: 23 passed, 0 failed ===
+```
+
+| property | result |
+| :-- | :-- |
+| the serve counter | `served_primary` **+0** through the outage — it stopped, and the stop is not the only signal |
+| the demote, on the metric | `unavailable` moved **+23** and **+41** on the two replicas receiving appends. A serve signal that merely stops incrementing is indistinguishable from no traffic; this is the difference |
+| the demote, in the log | `NOETL_EHDB_EVENTLOG=primary is NOT serving — the incumbent answers (demoted: no_durable_service)`, `detail="tier-service append failed: connect: Connection refused (os error 111)"` |
+| the tier-service metric surface | entirely absent (#260's discriminating `off` arm, reproduced) |
+| the read | every replica **alive** (`/healthz` answers) and **refused** — no silent fall-back |
+| the comparator | `ehdb_unavailable` from all three replicas. **Never `match`** |
+| the caller | 3/3 executions completed during the outage with a complete set in the incumbent |
+
+### Recovery — re-promotion on a real success, no restart
+
+`tierup`, then one execution:
+
+```
+10.244.0.146  served_primary 39 -> 41   serve_state=served_primary
+10.244.0.145  served_primary 13 (unchanged)  serve_state=no_durable_service
+10.244.0.147  served_primary 0  (unchanged)  serve_state=unknown
+
+restartCount: 0  0  0
+```
+
+Zero restarts, so belief was restored by a real successful operation rather than
+by a bounce or a timer. The replica that received no append **stayed demoted**,
+and that is correct: belief is per-process and only its own success restores it.
+
+## Rollback
+
+```bash
+kubectl -n noetl set env deploy/noetl-worker-rust NOETL_EHDB_EVENTLOG=shadow
+```
+
+Post-rollback `service` arm on the same cluster: **45 passed, 0 failed** — 19/19
+from all three replicas, one `match`, `divergences: 0`, observability moving
+(`append/ok +25`, store `+25`, sums `0.180728` / `0.049828`). The fresh pods pin
+`served_primary` at 0 while `mirrored` moves, which is the shadow reading the
+negative control asserts. `MIRROR_SOURCE=server` and `TIER_QUERY_SOURCE=service`
+were deliberately left in place — they are not part of the flip.
+
+## Unit gate
+
+660 tests pass (`cargo test --lib`), including eleven new ones for the serve
+site: the eight-combination equality against `decide`, primary-serves-when-all-
+three-hold, never-serves-without-a-reachable-service, demote-on-divergence
+(count and ordering), shadow-mirrors-and-never-claims-to-serve, off-and-disabled
+record nothing, a-record-that-did-not-land-demotes-visibly,
+a-rejected-record-does-not-demote-the-whole-tier, ordering-only parity when the
+writer omits the count, the transition signal in both directions, and a guard
+that the **pinned label set covers every outcome this site records** — the drift
+check from `representation-drift.md`, since a pinned set missing one value
+reintroduces the absent-series bug on that value alone.
+
+The decision function is split so the two process globals (the tier-client env
+and the reachability latch) are read in exactly one place and the tests take the
+verdict as a parameter. `cargo test` does not serialise tests, so a test that
+drove either global would race every other test in the binary.
+
+## What run 2 does NOT establish
+
+* **It is not a promotion.** No tier is `primary` outside this kind cluster.
+* **P1–P9 minus P0 are untouched.** P5 (prod soak), P6 (monitoring applied; prod
+  still has zero notification channels), P7 (posture in writing), P9 (per-tier
+  go) are open, and P8's `#259` half is still unlanded.
+* **The composed mutation (`mutation.patch`) was not re-run.** It targets the
+  `service` arm; `mutation-p0.patch` targets `primary`. Run 1's 25/15 result for
+  the former stands, and nothing in this fix touches the read path or the
+  tier-service request signal it breaks.
+* **Single writer, RWO store, no PodDisruptionBudget in namespace `noetl`.**
+  Unchanged accepted posture.
+* **The gate worker image is not DuckDB-capable** (`--features
+  duckdb-integration` cannot build offline).
+
+## State left behind (verified, not assumed)
+
+```
+noetl-server-rust     ghcr.io/noetl/server:3.79.2
+noetl-worker-rust     ghcr.io/noetl/worker:5.115.3-arm64   (0 replicas, KEDA paused-replicas=0)
+noetl-cmdbus-writer   ghcr.io/noetl/worker:5.115.3-arm64
+
+NOETL_EHDB_* remaining:
+  worker pool: none
+  writer:      none
+  server:      NOETL_EHDB_WORKER_QUERY_URL=…   (the value that was there before)
+```
+
+Prod, read-only and unchanged: `NOETL_EHDB_EVENTLOG=shadow`, no
+`NOETL_EHDB_TIER_*` and no `NOETL_EHDB_EVENTLOG_MIRROR_SOURCE` on any workload.
+
+⚠ The writer's PVC still holds `/data/eventbus/tier/eventlog.jsonl` with both
+runs' records (sequence ~180 at the start of run 2). Inert — no listener — but a
+future run's "before" figures will count them, which is why every number here is
+a delta measured inside its own run.
+
+---
+
+# Run 1 — the bundle that found P0
+
+Everything below is run 1, unchanged.
 
 ---
 
@@ -273,7 +574,8 @@ around them, so the runbook cites commands that have been run.
 
 ## Findings this run produced
 
-**1. ⛔ `primary` is inert on the serve-ready configuration.** The headline, above.
+**1. ⛔ `primary` is inert on the serve-ready configuration.** — **FIXED in run 2
+by worker `8d46b33`.** The original text follows.
 The two changes that make the tier *correct* at multiple replicas
 (`MIRROR_SOURCE=server`, `TIER_QUERY_SOURCE=service`) are the two that route
 around every caller of the serve policy. This is not a regression in either of
@@ -307,13 +609,18 @@ must not depend on the thing under test, and now comes from
 **5. `playbooks/261-tier-query-service/PENDING-PUSH.md` names the wrong metric.**
 The counter is `noetl_worker_ehdb_query_ops_total{operation="tier_query_source.*"}`,
 not `noetl_ehdb_query_ops_total`. A wiki page written from that line would
-document a series that does not exist.
+document a series that does not exist. — **FIXED in run 2**: the line is
+corrected in place, with the correction marked.
 
 **6. The server's PR-4 commit is not on the branch its own staging document
 names.** `playbooks/261-tier-query-service/PENDING-PUSH.md` describes a server
 branch `feat/257-pr4-tier-query-service` @ `2206728`; no such branch exists —
 `2206728` is the tip of `feat/258-server-authored-mirror`. Two staged documents
-disagree about the shape of the stack. See `PENDING-PUSH.md` §1.
+disagree about the shape of the stack. — **FIXED in run 2**, ref-only: the branch
+`feat/257-pr4-tier-query-service` now exists at `2206728` and
+`feat/258-server-authored-mirror` was moved back to `b97e3bf`, its own commit. No
+commit was lost; both are reachable, and the two staged documents now describe
+the same stack. See `PENDING-PUSH.md` §1.
 
 ---
 

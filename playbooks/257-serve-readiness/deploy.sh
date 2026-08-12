@@ -20,6 +20,7 @@
 #   deploy.sh blackhole                — point workers at an unreachable tier service
 #   deploy.sh point <host:port>        — repoint ONLY the tier-service address
 #   deploy.sh relay <url|pod-ip>       — pin the server's relay at one replica
+#   deploy.sh poolimg <image>          — swap ONLY the pool's image (the mutation lever)
 #   deploy.sh restore                  — released images, zero EHDB env, pool back to 0
 #
 # Every lever moves exactly one variable. A gate whose arms differ in two things
@@ -194,6 +195,27 @@ point() {
   echo "tier-service address now: $addr"
 }
 
+# Swap ONLY the worker pool's image, keeping every env var and the replica count.
+#
+# This is the mutation lever for the P0 arm. The serve decision runs in the pool's
+# append handler, so the mutation lives entirely on that side — swapping the
+# writer too would move a second variable for no reason, and the writer's tier
+# store is identical in both images.
+poolimg() {
+  local img="$1" replicas
+  replicas=$(k get scaledobject "$WORKER_DEPLOY" \
+      -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused-replicas}')
+  k set image "deploy/$WORKER_DEPLOY" "$WORKER_CTR=$img"
+  k rollout status "deploy/$WORKER_DEPLOY" --timeout=300s
+  pin_replicas "${replicas:-3}"
+  # The roll gives every replica a new pod IP; un-pin the relay so the comparator
+  # is not aimed at a dead pod for reasons unrelated to the image.
+  k set env deploy/noetl-server-rust NOETL_EHDB_WORKER_QUERY_URL="$RELAY_SVC" >/dev/null
+  k rollout status deploy/noetl-server-rust --timeout=240s >/dev/null 2>&1
+  wait_server
+  echo "worker pool image: $img"
+}
+
 relay() {
   k set env deploy/noetl-server-rust NOETL_EHDB_WORKER_QUERY_URL="$1"
   k rollout status deploy/noetl-server-rust --timeout=240s
@@ -235,7 +257,8 @@ case "${1:-}" in
   tierup)    tierup ;;
   blackhole) blackhole ;;
   point)     point "${2:?need host:port}" ;;
+  poolimg)   poolimg "${2:?need an image}" ;;
   relay)     relay "${2:?need a URL}" ;;
   restore)   restore ;;
-  *) echo "usage: deploy.sh {load|writer|arm <local|service> [N] [shadow|primary]|mode <shadow|primary>|tierdown|tierup|blackhole|point <addr>|relay <url>|restore}" >&2; exit 2 ;;
+  *) echo "usage: deploy.sh {load|writer|arm <local|service> [N] [shadow|primary]|mode <shadow|primary>|tierdown|tierup|blackhole|point <addr>|relay <url>|poolimg <image>|restore}" >&2; exit 2 ;;
 esac

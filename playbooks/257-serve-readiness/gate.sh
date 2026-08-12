@@ -274,6 +274,19 @@ for ip in "${PODIP[@]}"; do
 done
 info "baseline eventlog mirror served_primary: ${B_SERVED[*]}"
 
+# The serve series must be PINNED — present at 0 before any traffic, on every
+# replica. This is the assertion the P0 hid behind: `served_primary` was not 0,
+# it was ABSENT, and an absent series reads exactly like a build that has no
+# serve path at all. With the pin, `0` means "did not serve" and nothing means
+# "this binary predates the metric" — two different facts, two different
+# readings. Asserted for shadow AND primary: the flip must change the VALUES,
+# never which series exist.
+if [ "$ARM" != "killswitch" ]; then
+  pin_absent=0
+  for v in "${B_SERVED[@]}"; do [ "$v" = "__ABSENT__" ] && pin_absent=$((pin_absent+1)); done
+  eq "the serve-decision series is pinned on every replica (0, not absent)" "$pin_absent" "0"
+fi
+
 # ---------------------------------------------------------------------------
 # 3. Drive one execution and let the authoritative event set settle.
 # ---------------------------------------------------------------------------
@@ -351,7 +364,7 @@ else
   bad "the authoritative set moved $EXPECT_EVENTS -> $AUTH_AT_4 between settling and measuring; the quiet window is too short"
   EXPECT_EVENTS="$AUTH_AT_4"
 fi
-counts=(); sources=()
+counts=(); sources=(); serves=()
 for ip in "${PODIP[@]}"; do
   body=$(fetch "http://$ip:9090/ehdb/tiers/eventlog?execution=$exec_id&limit=1000")
   if [ -z "$body" ]; then
@@ -369,13 +382,20 @@ for ip in "${PODIP[@]}"; do
     else
       bad "replica $ip did not answer its tier route — a failed fetch is not a zero"
     fi
-    counts+=("__FETCHFAIL__"); sources+=("__FETCHFAIL__"); continue
+    counts+=("__FETCHFAIL__"); sources+=("__FETCHFAIL__"); serves+=("__FETCHFAIL__"); continue
   fi
   c=$(field "$body" '((.records // .result.records) // []) | length')
   s=$(field "$body" '.tier_query_source')
-  counts+=("$c"); sources+=("$s")
-  info "replica $ip -> records=$c source=$s"
+  # The serve decision, AT THE ENDPOINT (ai-meta#257 P0). The P0 was found by a
+  # gate reading a metric family that turned out to be absent, which reads the
+  # same as a build without the serve path. A field in the reply body cannot be
+  # absent for that reason, so the serve state is asserted here as well as from
+  # /metrics — two independent surfaces for one fact.
+  v=$(field "$body" '.serve_state')
+  counts+=("$c"); sources+=("$s"); serves+=("$v")
+  info "replica $ip -> records=$c source=$s serve_state=$v"
 done
+uniq_serves=$(printf '%s\n' "${serves[@]}" | sort -u | tr '\n' ',' | sed 's/,$//')
 uniq_counts=$(printf '%s\n' "${counts[@]}" | sort -u | tr '\n' ',' | sed 's/,$//')
 uniq_sources=$(printf '%s\n' "${sources[@]}" | sort -u | tr '\n' ',' | sed 's/,$//')
 full=0; short=0
@@ -384,12 +404,26 @@ for c in "${counts[@]}"; do
 done
 info "distinct record counts: {$uniq_counts}   distinct sources: {$uniq_sources}"
 
+info "distinct serve_state: {$uniq_serves}"
+
+# The serve state, per arm. `unknown` is a legitimate value and NOT a pass or a
+# fail on its own: the server's mirror hop goes through the pool's ClusterIP
+# Service, so a replica that happened to receive none of this execution's appends
+# has decided nothing — which is a different statement from `not_primary`, and
+# conflating them is what a single boolean would do. What must never appear is a
+# DEGRADED state, on any arm where the tier is healthy.
+degraded_serves=0
+for v in "${serves[@]}"; do
+  case "$v" in no_durable_service|parity_diverged) degraded_serves=$((degraded_serves+1)) ;; esac
+done
+
 case "$ARM" in
   service|primary)
     eq "every replica reports source=service" "$uniq_sources" "service"
     eq "every replica returns the SAME view" "$(printf '%s\n' "${counts[@]}" | sort -u | wc -l | tr -d ' ')" "1"
     eq "and that view is the FULL authoritative set" "$uniq_counts" "$EXPECT_EVENTS"
     eq "no replica is short" "$short" "0"
+    eq "no replica reports a DEGRADED serve state" "$degraded_serves" "0"
     ;;
   killswitch)
     # The service is gone. The read must FAIL LOUD, not quietly answer from the
@@ -530,6 +564,43 @@ for ip in "${PODIP[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
+# 6c. THE NEGATIVE CONTROL for section 7.
+#
+# `served_primary > 0` under `primary` proves nothing on its own — a recorder
+# that fired unconditionally would satisfy it. This arm runs the SAME code over
+# the SAME traffic with `shadow` instead of `primary`, and requires the serve
+# series to stay at 0 while the mirror series moves. The pair is what makes the
+# flip attributable to the flip.
+# ---------------------------------------------------------------------------
+if [ "$ARM" = "service" ] || [ "$ARM" = "mutated" ]; then
+  echo
+  echo "-- 6c. negative control: shadow must NOT serve --"
+  i=0; shadow_served=0
+  for ip in "${PODIP[@]}"; do
+    s=$(fetch "http://$ip:9090/metrics")
+    sp=$(elog "$s" mirror served_primary)
+    mr=$(elog "$s" mirror mirrored)
+    info "replica $ip  served_primary=$sp mirrored=$mr (baseline served=${B_SERVED[$i]})"
+    if [ "$sp" != "__ABSENT__" ] && [ "$sp" != "0" ]; then shadow_served=$((shadow_served+1)); fi
+    i=$((i+1))
+  done
+  eq "no replica served as primary while the tier is shadow" "$shadow_served" "0"
+  # And the mirror side DID move, so the zero above is "did not serve" rather
+  # than "no appends reached this path at all".
+  moved_any=0
+  for ip in "${PODIP[@]}"; do
+    s=$(fetch "http://$ip:9090/metrics")
+    mr=$(elog "$s" mirror mirrored)
+    [ "$mr" != "__ABSENT__" ] && [ "$mr" != "0" ] && moved_any=$((moved_any+1))
+  done
+  if [ "$moved_any" -ge 1 ]; then
+    ok "the serve site ran and recorded on the shadow label ($moved_any replica(s))"
+  else
+    bad "no replica recorded ANY mirror outcome — the zero above would be vacuous"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # 7. THE FLIP — what changes when the event-log tier is `primary`?
 #
 # Measured, not assumed. The flip is only meaningful if some code path takes a
@@ -542,25 +613,78 @@ if [ "$ARM" = "primary" ] || [ "$ARM" = "killswitch" ]; then
   m=$(k get deploy noetl-worker-rust \
       -o jsonpath='{.spec.template.spec.containers[?(@.name=="worker")].env[?(@.name=="NOETL_EHDB_EVENTLOG")].value}')
   eq "the pool's NOETL_EHDB_EVENTLOG" "$m" "$([ "$ARM" = "killswitch" ] && echo primary || echo primary)"
-  i=0; served_total=0; unavail_total=0
+  i=0; served_total=0; unavail_total=0; served_delta=0; endpoint_served=0
   for ip in "${PODIP[@]}"; do
     s=$(fetch "http://$ip:9090/metrics")
     sp=$(elog "$s" mirror served_primary)
     pu=$(elog "$s" mirror primary_unavailable)
     mr=$(elog "$s" mirror mirrored)
-    info "replica $ip  served_primary=$sp primary_unavailable=$pu mirrored=$mr (baseline served=${B_SERVED[$i]})"
+    # The serve state at the ENDPOINT, independent of the metric family. Read
+    # from the tier route, which is the same surface the comparator reads.
+    es=$(field "$(fetch "http://$ip:9090/ehdb/tiers/eventlog?execution=$exec_id&limit=1")" '.serve_state')
+    info "replica $ip  served_primary=$sp primary_unavailable=$pu mirrored=$mr serve_state=$es (baseline served=${B_SERVED[$i]})"
     [ "$sp" != "__ABSENT__" ] && served_total=$(awk -v a="$served_total" -v b="$sp" 'BEGIN{print a+b}')
     [ "$pu" != "__ABSENT__" ] && unavail_total=$(awk -v a="$unavail_total" -v b="$pu" 'BEGIN{print a+b}')
+    # The DELTA, per replica, against this run's own baseline. A cluster with
+    # history makes an absolute value a lie, and an absent endpoint is a failure
+    # rather than a zero.
+    if [ "$sp" != "__ABSENT__" ] && [ "${B_SERVED[$i]}" != "__ABSENT__" ]; then
+      d=$(awk -v a="$sp" -v b="${B_SERVED[$i]}" 'BEGIN{printf "%d", a-b}')
+      served_delta=$(awk -v a="$served_delta" -v b="$d" 'BEGIN{print a+b}')
+    fi
+    [ "$es" = "served_primary" ] && endpoint_served=$((endpoint_served+1))
     i=$((i+1))
   done
-  info "TOTAL across replicas: served_primary=$served_total primary_unavailable=$unavail_total"
+  info "TOTAL across replicas: served_primary=$served_total (delta +$served_delta) primary_unavailable=$unavail_total  endpoint served_primary: $endpoint_served/$N"
   if [ "$ARM" = "primary" ]; then
-    # Reported and asserted separately, because a zero here is a FINDING about
-    # reachability of the serve path, not necessarily a broken flip. See RESULTS.
-    if [ "$served_total" -gt 0 ] 2>/dev/null; then
-      ok "the flip reached the serve path — served_primary=$served_total across the pool"
+    # THE P0 ASSERTION. Three independent readings of one fact, because the
+    # defect was that all three were silent at once: an absent metric family, a
+    # zero counter, and no log line.
+    #
+    # 1. the counter MOVED in this run (delta, not an absolute)
+    if [ "$served_delta" -gt 0 ] 2>/dev/null; then
+      ok "the flip reached the serve path — served_primary moved +$served_delta across the pool"
     else
-      bad "served_primary is 0 across every replica while $EXPECT_EVENTS events flowed — 'primary' took no different branch on this configuration"
+      bad "served_primary did not move (delta $served_delta) across any replica while $EXPECT_EVENTS events flowed — 'primary' took no different branch on this configuration"
+    fi
+    # 2. the endpoint says so, on at least one replica.
+    #
+    # At least one and not all three: the server's mirror hop resolves the pool's
+    # ClusterIP Service, so which replicas receive appends is a load-balancing
+    # outcome, not something this gate controls. A replica that received none has
+    # decided nothing and correctly reports `unknown`. Requiring all three would
+    # be asserting a property of kube-proxy.
+    if [ "$endpoint_served" -ge 1 ]; then
+      ok "the serve decision is visible at the endpoint — $endpoint_served/$N replica(s) report serve_state=served_primary"
+    else
+      bad "no replica reports serve_state=served_primary at the endpoint; a metric-only signal is how the P0 stayed invisible"
+    fi
+    # 3. no replica is degraded while the tier is healthy.
+    dg=0
+    for ip in "${PODIP[@]}"; do
+      es=$(field "$(fetch "http://$ip:9090/ehdb/tiers/eventlog?execution=$exec_id&limit=1")" '.serve_state')
+      case "$es" in no_durable_service|parity_diverged) dg=$((dg+1)) ;; esac
+    done
+    eq "no replica demoted while the tier service is healthy" "$dg" "0"
+  fi
+  if [ "$ARM" = "killswitch" ]; then
+    # Arm E, at the endpoint. With the tier service dead the serve state must
+    # DEMOTE and say which condition failed — not go quiet. A serve signal that
+    # merely stops incrementing is indistinguishable from no traffic.
+    dg=0; still_serving=0
+    for ip in "${PODIP[@]}"; do
+      es=$(field "$(fetch "http://$ip:9090/ehdb/tiers/eventlog?execution=$exec_id&limit=1")" '.serve_state')
+      info "replica $ip serve_state=$es"
+      case "$es" in
+        no_durable_service|parity_diverged) dg=$((dg+1)) ;;
+        served_primary) still_serving=$((still_serving+1)) ;;
+      esac
+    done
+    eq "no replica still claims to be serving primary with the tier service DOWN" "$still_serving" "0"
+    if [ "$dg" -ge 1 ]; then
+      ok "the demote is visible at the endpoint on $dg/$N replica(s)"
+    else
+      info "no replica reported a demote at the endpoint (the read refuses before the state is reachable on $N/$N)"
     fi
   fi
 
