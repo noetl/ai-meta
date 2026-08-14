@@ -460,10 +460,10 @@ planner's routing; the corpus was regenerated and the divergence gate re-run.
 
 | Measure | Before | After |
 | :-- | --: | --: |
-| Agreement with the catalog | 38.7% | **79.6%** |
+| Agreement with the catalog | 38.7% | **82.2%** |
 | Declared render intents the oracle cannot emit | 8 / 16 | **0 / 16** |
 | Declared tools the oracle cannot request | 3 / 7 | **0 / 7** |
-| Cells fully agreeing | 20 | **41** |
+| Cells fully agreeing | 20 | **45** / 71 |
 
 Two ordering rules carry most of it, both taken from v67:
 
@@ -500,9 +500,17 @@ provenance field from a row changes no oracle output — an oracle that peeked a
 
 Positive control, because a check that has never failed is indistinguishable
 from one that cannot: injecting exactly that cheat makes all three guards fail
-and the score read **100.0%**. Removing it restores 79.6%.
+and the score read **100.0%**. Removing it restores the real score.
 
-### The remaining 20% is mostly spec, not code
+A second pass then closed four more classes the report attributed to causes:
+`"tickets"` was not a flight word (the most ordinary flight phrasing in the
+catalog matched no provider intent); comparison and assembly were conflated
+(`summarize` vs `summary`, and a comparison *with* a hotel list is neither —
+it is a hotel comparison); booking retrieval lost to provider search on the
+`hotel` keyword; and region restatement fired on rows whose prompt names a
+different city than the seeded region.
+
+### The remaining ~18% is mostly spec, not code
 
 Characterised rather than tuned away — tuning these would be fitting the
 oracle to individual rows:
