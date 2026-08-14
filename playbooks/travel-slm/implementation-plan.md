@@ -1,6 +1,9 @@
 # Travel SLM + playbooks — consolidated implementation plan
 
-- **Status:** Phase 0 (plan) complete. Phases 1–2 not started.
+- **Status:** Phase 0 (plan) complete. Phase 1 shipped — both playbooks
+  registered on prod and validated. Phase 2 determinate part shipped (vocab
+  reconciled, corpus staged); render/ranking labels stop at the product line
+  in §5 and at the oracle gap in §8. **Results: §8.**
 - **Source:** operator-supplied archive `SLM-20260814T173426Z-1-001.zip`
   (10 files; 7 `.docx` converted with [`docx2md.py`](docx2md.py), a stdlib
   `word/document.xml` reader — no pandoc/python-docx on this host).
@@ -95,9 +98,18 @@ So the correction in `flight-planner` is **per-reference**:
 
 | Reference | Now | Action |
 | :-- | :-- | :-- |
-| `openai_secret_path: projects/1014428265962/…` | `1014428265962` **is** noetl-demo-19700101 | repoint to prod secret path |
-| `anthropic_secret_path: projects/1014428265962/…` | same | repoint to prod secret path |
+| `openai_secret_path: projects/1014428265962/…` | `1014428265962` **is** noetl-demo-19700101 | ~~repoint to prod~~ → **leave** (see below) |
+| `anthropic_secret_path: projects/1014428265962/…` | same | ~~repoint to prod~~ → **leave** (see below) |
 | `gcp_project: noetl-demo-19700101` (Firestore + Places) | old project | **leave as-is** |
+
+⚠ **Corrected during Phase 1 by testing it.** The two secret-path repoints were
+applied and then reverted: prod returns `403 Permission
+'secretmanager.versions.access' denied` for the worker GSA, after which the
+playbook still completes with `llm_contract.fallback_used: true`. The old
+reference then turned out to 403 as well — so **both** projects fail, this is
+an IAM grant rather than a config choice, and the live planner has the same
+problem. Tracked as
+[#268](https://github.com/noetl/ai-meta/issues/268); see §8.
 
 ⚠ Note the second trap: the project is referenced **by number**, so a search
 for the project *ID* does not find these two lines.
