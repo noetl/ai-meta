@@ -3,7 +3,7 @@
 - **Status:** Phase 0 (plan) complete. Phase 1 shipped — both playbooks
   registered on prod and validated. Phase 2 determinate part shipped (vocab
   reconciled, corpus staged); render/ranking labels stop at the product line
-  in §5 and at the oracle gap in §8. **Results: §8.**
+  in §5. The oracle gap identified in §8 is now closed (§9). **Results: §8–§9.**
 - **Source:** operator-supplied archive `SLM-20260814T173426Z-1-001.zip`
   (10 files; 7 `.docx` converted with [`docx2md.py`](docx2md.py), a stdlib
   `word/document.xml` reader — no pandoc/python-docx on this host).
