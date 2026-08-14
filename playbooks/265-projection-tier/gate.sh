@@ -38,6 +38,10 @@ SERVER="${SERVER:-http://localhost:8082}"
 PROBE="${PROBE:-tests/gate_fast_probe}"
 NS=noetl
 ARM="${1:-shadow}"
+# The probe's authoritative event count. Overridable, because a different probe
+# has a different one and a stale constant would make the settle loop either
+# never finish or finish early.
+EXPECT_EVENTS="${EXPECT_EVENTS:-13}"
 
 PASS=0
 FAIL=0
@@ -77,11 +81,14 @@ gt0() {
 # Returns `__ABSENT__` when the series appears on NO replica — which is a
 # different fact from 0 and must not be collapsed into it.
 metric_sum() {
-  local needle="$1" total=0 seen=0 pod v
-  for pod in $(k get pods -l app=noetl-worker-rust -o name 2>/dev/null); do
-    v=$(k exec "$pod" -c worker -- sh -c \
-          "wget -q -O- http://127.0.0.1:9090/metrics 2>/dev/null | grep -F '$needle' | awk '{print \$NF}'" \
-        2>/dev/null | tr -d '\r' | head -1)
+  local needle="$1" total=0 seen=0 ip v
+  local wp; wp=$(k get pod -l app=noetl-cmdbus-writer -o name 2>/dev/null | head -1)
+  [ -n "$wp" ] || { printf '__ABSENT__'; return; }
+  for ip in "${PODIP[@]}"; do
+    # Scraped FROM the writer pod rather than by exec'ing into each worker: the
+    # writer is one known container, and the proven pattern from the #257 gate.
+    v=$(k exec "$wp" -- sh -c "wget -q -O - -T 15 'http://$ip:9090/metrics' 2>/dev/null" 2>/dev/null \
+        | grep -F "$needle" | awk '{print $NF}' | head -1 | tr -d '\r')
     if [ -n "$v" ]; then
       seen=1
       total=$(awk -v a="$total" -v b="$v" 'BEGIN{printf "%d", a+b}')
@@ -159,12 +166,78 @@ else
 fi
 ok "execution_id=$exec_id"
 
+# ---------------------------------------------------------------------------
+# 2b. Make the incumbent write its snapshot — and say why this is needed.
+#
+# MEASURED THIS SESSION, and it changes what "the projection tier mirrors"
+# means: a 13-event execution completes and `noetl.projection_snapshot` gets
+# NO ROW. The orchestrator's self-write is gated on
+# `total == Some(cache.applied_count)` — a throttled consistency COUNT having
+# run in the same pass — and on a short execution it never coincides. The rows
+# that do exist in kind came from the background reconcile poller revisiting
+# long-lived executions.
+#
+# So the gate drives `POST /api/internal/projection/advance`. That is NOT a test
+# hook: it is the endpoint the `system/projector` playbook calls in production,
+# and a real call site of the very chokepoint the mirror sits inside
+# (`events::advance_snapshot` -> `orch_snapshot::save`).
+#
+# The consequence is worth stating rather than working around: the projection
+# tier can only ever hold what the incumbent writes, and the incumbent writes
+# SPARSELY. That is a coverage fact a prod soak has to account for.
+# ---------------------------------------------------------------------------
+if [ -z "${EXEC_ID:-}" ]; then
+  TOKSEC=$(k get deploy noetl-server-rust -o json 2>/dev/null | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for e in d['spec']['template']['spec']['containers'][0].get('env',[]):
+    if e['name']=='NOETL_INTERNAL_API_TOKEN':
+        r=e['valueFrom']['secretKeyRef']; print(r['name'], r['key'])
+" 2>/dev/null)
+  if [ -n "$TOKSEC" ]; then
+    TN=$(printf '%s' "$TOKSEC" | awk '{print $1}'); TK=$(printf '%s' "$TOKSEC" | awk '{print $2}')
+    TOK=$(k get secret "$TN" -o jsonpath="{.data.$TK}" | base64 -d)
+    # Retried, because `projection_advance` is idempotent by construction (a
+    # monotonic upsert) and because a run started right after `deploy.sh arm`
+    # can reach a server that answers /api/health before its internal route is
+    # warm. That produced a whole arm of failures whose actual cause was one
+    # unretried call — the gate reporting a harness state as a platform finding.
+    n=0
+    for _ in $(seq 1 10); do
+      adv=$(curl -s --max-time 60 -X POST "$SERVER/api/internal/projection/advance" \
+              -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
+              -d "{\"execution_ids\":[$exec_id]}")
+      n=$(field "$adv" '.advanced | length')
+      [ "$n" = "1" ] && break
+      sleep 3
+    done
+    n=$(field "$adv" '.advanced | length')
+    f=$(field "$adv" '.failed | length')
+    info "projection/advance: advanced=$n failed=$f"
+    eq "the incumbent wrote its snapshot" "$n" "1"
+    eq "no advance failures" "$f" "0"
+  else
+    bad "could not resolve NOETL_INTERNAL_API_TOKEN — cannot drive the incumbent write"
+  fi
+else
+  info "reusing $exec_id: its snapshot was written by the arm that created it"
+fi
+
 # Settle on the AUTHORITATIVE snapshot version, not on `noetl.execution.status`
 # (a frozen Python-era column no Rust path writes — ai-meta#235) and not on a
 # wall-clock sleep. The orchestrator upserts the snapshot on each trigger, so a
 # comparison taken mid-flight compares against a revision that is about to move.
+# In the `demoted` arm the tier read fails by design, so the comparator returns
+# no report and this loop would spin to its limit and then fail section 3 on an
+# absent field — a harness artefact reported as a finding about the platform.
+if [ "$ARM" = "demoted" ]; then
+  info "skipping the settle loop: this arm makes the tier read fail by design"
+  sleep 20
+fi
 prev=-1; stable=0
+[ "$ARM" = "demoted" ] && stable=99
 for _ in $(seq 1 60); do
+  [ "$stable" -ge 4 ] && break
   sleep 2
   v=$(curl -s --max-time 15 "$SERVER/api/ehdb/projection-parity/executions/$exec_id" \
       | jq -r '.result.report.authoritative_version // 0' 2>/dev/null)
@@ -183,7 +256,20 @@ info "authoritative snapshot version settled at: $prev (stable for ${stable} pol
 # ---------------------------------------------------------------------------
 echo
 echo "-- 3. cross-store verdict --"
-rep=$(curl -s --max-time 30 "$SERVER/api/ehdb/projection-parity/executions/$exec_id")
+# One sample of a read that crosses server -> relay -> Service -> writer is a
+# flake in BOTH directions: the first run of this gate got `tier_unavailable` on
+# an execution that reads `match` a second later, because the relay landed on a
+# replica mid-rollout. Retry to a TERMINAL verdict (match / divergent) and
+# report how many attempts it took, so a slow path is visible rather than
+# silently smoothed over.
+attempts=0
+for attempts in $(seq 1 15); do
+  rep=$(curl -s --max-time 30 "$SERVER/api/ehdb/projection-parity/executions/$exec_id")
+  o=$(field "$rep" '.result.outcome')
+  case "$o" in match|divergent) break ;; esac
+  sleep 3
+done
+info "verdict settled after $attempts attempt(s)"
 outcome=$(field "$rep" '.result.outcome')
 auth_v=$(field "$rep" '.result.report.authoritative_version')
 tier_v=$(field "$rep" '.result.report.tier_version')
@@ -198,11 +284,24 @@ info "snapshot_age_seconds=$age tier_source=$src"
 # THE ANTI-VACUITY GUARD (design note §1.1). The wrong table is empty; a
 # comparator pointed at it agrees with itself forever. Before scoring anything,
 # prove the authoritative side is real.
-gt0 "authoritative side is NON-EMPTY (version > 0)" "$auth_v"
-
-# The read must have resolved through the tier service. `local` here would mean
-# one replica's fragment answered, and at N>1 that verdict is about a fragment.
-eq "tier read resolved through the SERVICE" "$src" "service"
+#
+# In the `demoted` arm there is deliberately no report, so the guard moves to the
+# field that survives: `snapshot_age_seconds` is populated from the incumbent row
+# BEFORE the relay is attempted, so its presence proves the authoritative side
+# was read even though nothing could be compared to it.
+if [ "$ARM" = "demoted" ]; then
+  if [ "$age" = "__ABSENT__" ]; then
+    bad "no snapshot_age_seconds — the incumbent row was never read, so this arm \
+proves nothing about the tier"
+  else
+    ok "authoritative side WAS read (snapshot_age_seconds=$age) — the failure is the tier's"
+  fi
+else
+  gt0 "authoritative side is NON-EMPTY (version > 0)" "$auth_v"
+  # The read must have resolved through the tier service. `local` here would mean
+  # one replica's fragment answered, and at N>1 that verdict is about a fragment.
+  eq "tier read resolved through the SERVICE" "$src" "service"
+fi
 
 case "$ARM" in
   shadow|primary)
@@ -322,10 +421,47 @@ fi
 # ---------------------------------------------------------------------------
 echo
 echo "-- 5. event-log tier unaffected --"
+# NOTE the different envelope: the event-log comparator answers FLAT
+# (`.outcome`, `.report`), the projection one nests under `.result`. Reading the
+# projection shape here returned `__ABSENT__` and scored it as "the verdict
+# moved" — a harness bug reported as the finding this section exists to catch,
+# which is the worst way to be wrong.
+# SETTLE FIRST. Read mid-flight this reported `divergent auth=4 ehdb=5` — the
+# execution was still emitting, and the tier was AHEAD of the log because the
+# mirror is fast. That is a harness artefact, and reporting it as "the tiers are
+# not separate" would be the worst possible way to be wrong here.
+#
+# Stability alone is not enough (the #257 gate learned this: a count sat at 6
+# for two polls against an execution that went on to write 14), so require a
+# plausible floor AND a quiet window.
+elprev=-1; elstable=0
+for _ in $(seq 1 45); do
+  elc=$(curl -s --max-time 20 "$SERVER/api/ehdb/parity/executions/$exec_id" \
+        | jq -r '.report.authoritative_count // 0' 2>/dev/null)
+  elc=${elc:-0}
+  # Floor is the probe's OWN event count, not a round number. A floor of 10
+  # against a 13-event probe let the loop settle at 11 while the execution was
+  # still writing, and the comparison then read `auth=11 ehdb=12` — the tier one
+  # ahead of the log, which is the mirror being fast, not a divergence. The
+  # #257 gate recorded the same trap at 6-vs-14 and it is easy to reintroduce by
+  # picking a floor that "looks safe".
+  if [ "$elc" -ge "$EXPECT_EVENTS" ] && [ "$elc" = "$elprev" ]; then
+    elstable=$((elstable+1)); [ "$elstable" -ge 6 ] && break
+  else
+    elstable=0
+  fi
+  elprev="$elc"
+  sleep 2
+done
+info "event-log settled at $elprev authoritative event(s)"
 elrep=$(curl -s --max-time 30 "$SERVER/api/ehdb/parity/executions/$exec_id")
-el_outcome=$(field "$elrep" '.result.outcome')
-el_holds=$(field "$elrep" '.result.report.holds')
-info "event-log outcome=$el_outcome holds=$el_holds"
+el_outcome=$(field "$elrep" '.outcome')
+el_holds=$(field "$elrep" '.report.holds')
+el_auth=$(field "$elrep" '.report.authoritative_count')
+el_ehdb=$(field "$elrep" '.report.ehdb_count')
+info "event-log outcome=$el_outcome holds=$el_holds auth=$el_auth ehdb=$el_ehdb"
+# Positive control: a `match` against an empty pair is not evidence.
+gt0 "the event-log comparison is over a NON-EMPTY log" "$el_auth"
 if [ "$ARM" = "demoted" ]; then
   info "skipped: this arm points every tier read at a black hole"
 elif [ "$el_outcome" = "match" ]; then

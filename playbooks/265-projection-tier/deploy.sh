@@ -145,25 +145,65 @@ point() {
   echo "tier-service address now: $addr"
 }
 
-# MUTATION 1 — corrupt the content of the newest projection record in the
-# writer's store, leaving its `version` intact.
+# MUTATION 1 — make the two stores disagree on CONTENT at the same version.
 #
 # This is the corruption the comparator exists for and the one a count-based
-# check cannot see: every record is present, the versions line up, and the tier
-# holds different bytes for the revision it claims. The expected verdict is
-# `checksum`, NOT `stale_version`.
+# check cannot see: every record is present, the versions line up, and the two
+# stores hold different content for the revision they both claim. Expected
+# verdict: `checksum`, NOT `stale_version`.
+#
+# ⚠ THE FIRST VERSION OF THIS MUTATION DID NOTHING, and it is worth recording
+# why. It ran `sed` over the tier store's JSONL looking for `"checksum":"..."`.
+# The store does not hold payloads as text — `LocalJsonlTransactionLog` writes
+# them as a JSON **byte array** (`"payload":[123,34,97,...]`), so the pattern
+# never matched, `sed` exited 0, and the gate reported `match` against an
+# unmutated store. A mutation that compiles is not the same as a mutation that
+# mutates, and only the store dump showed the difference.
+#
+# So the mutation moves to the INCUMBENT side, where the value is a plain
+# column: rewrite `noetl.projection_snapshot.checksum` for one execution. The
+# divergence is identical in shape (same version, different content) and the
+# mutation is one statement, reversible, and — critically — VERIFIED below.
+# `corrupt` now fails loudly if the value did not change.
 corrupt() {
-  local pod; pod=$(writer_pod)
-  k exec "$pod" -- sh -c "
-    f=$TIER_DIR/projection.jsonl
-    [ -s \"\$f\" ] || { echo 'NOTHING TO CORRUPT: projection store is empty or absent' >&2; exit 3; }
-    before=\$(wc -l < \"\$f\")
-    # Rewrite the checksum inside the LAST record's payload only.
-    sed -i '\$s/\"checksum\\\\\":\\\\\"[0-9a-f]*/\"checksum\\\\\":\\\\\"deadbeefdeadbeefdeadbeefdeadbeef/' \"\$f\"
-    after=\$(wc -l < \"\$f\")
-    [ \"\$before\" = \"\$after\" ] || { echo 'record count changed — this mutation must only rewrite content' >&2; exit 3; }
-    echo \"corrupted the newest of \$after record(s)\"
-  "
+  local e="${EXEC_ID:?EXEC_ID must name the execution to corrupt}"
+  local before after
+  before=$(kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "SELECT checksum FROM noetl.projection_snapshot WHERE aggregate_id='$e';" | tr -d '\r' | head -1)
+  [ -n "$before" ] || { echo "NOTHING TO CORRUPT: no snapshot row for $e" >&2; return 3; }
+  kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "UPDATE noetl.projection_snapshot SET checksum='deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' WHERE aggregate_id='$e';" >/dev/null
+  after=$(kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "SELECT checksum FROM noetl.projection_snapshot WHERE aggregate_id='$e';" | tr -d '\r' | head -1)
+  # THE GUARD THE FIRST VERSION LACKED. Without it a no-op mutation produces a
+  # green gate that proves nothing.
+  [ "$before" != "$after" ] || { echo "MUTATION DID NOT TAKE: checksum unchanged ($before)" >&2; return 3; }
+  echo "incumbent checksum for $e: ${before:0:16}… -> ${after:0:16}…"
+}
+
+# Undo MUTATION 1 by re-deriving the incumbent's row from the event log. The
+# projector's own endpoint recomputes and re-saves, so the restore uses the same
+# shipped path the gate uses to create the row.
+uncorrupt() {
+  local e="${EXEC_ID:?EXEC_ID required}"
+  local tn tk tok
+  read -r tn tk <<EOF
+$(kubectl --context kind-noetl -n noetl get deploy noetl-server-rust -o json | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for x in d['spec']['template']['spec']['containers'][0].get('env',[]):
+    if x['name']=='NOETL_INTERNAL_API_TOKEN':
+        r=x['valueFrom']['secretKeyRef']; print(r['name'], r['key'])
+")
+EOF
+  tok=$(kubectl --context kind-noetl -n noetl get secret "$tn" -o jsonpath="{.data.$tk}" | base64 -d)
+  curl -s --max-time 60 -X POST http://localhost:8082/api/internal/projection/advance \
+    -H "Authorization: Bearer $tok" -H 'content-type: application/json' \
+    -d "{\"execution_ids\":[$e]}" | head -c 200
+  echo
 }
 
 # MUTATION 2 — empty the projection store, leave the event-log store untouched.
@@ -217,6 +257,7 @@ case "$cmd" in
   arm) arm "$@" ;;
   point) point "$@" ;;
   corrupt) corrupt ;;
+  uncorrupt) uncorrupt ;;
   drop) drop ;;
   bypass) bypass ;;
   restore) restore ;;
