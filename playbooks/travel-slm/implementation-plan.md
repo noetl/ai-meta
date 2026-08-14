@@ -320,3 +320,121 @@ a one-line change rather than an archaeology exercise.
 - EHDB serve config untouched.
 - `repos/travel/playbooks/itinerary-planner.yaml` and catalog
   `muno/playbooks/itinerary-planner` belong to session `local_46d9207c`.
+
+---
+
+## 8. Results — Phases 1 and 2 (2026-08-14)
+
+### Phase 1a — `flight-planner`: registered + validated
+
+`muno/playbooks/flight-planner` v2 on prod, v6 on kind.
+`muno/playbooks/itinerary-planner` v67 untouched.
+
+v41 could not execute as written. Three runtime-contract changes and one
+graph defect had to be fixed, each found by **running** it, not reading it —
+registration accepts a playbook the runtime then refuses:
+
+| # | Symptom | Cause | Fix |
+| :-- | :-- | :-- | :-- |
+| 1 | `400 … untagged enum ToolDefinition` | `kind: agent` + `entrypoint:` is no longer a ToolKind ([#252](https://github.com/noetl/ai-meta/issues/252)) | 8 steps → `kind: playbook` + `path:`; `return_result`/`result_step`/`timeout` on the 4 whose result is consumed ([#136](https://github.com/noetl/ai-meta/issues/136)) |
+| 2 | `422 Workflow must have a step named 'start'` | runtime requires it | added a `noop` `start` |
+| 3 | all 4 routing arcs SKIPPED, turn wedged, re-drove `normalize_input` | step results are addressed **flat**; v41's `.context.` resolved to nothing so every `when` was false | stripped `.context` from 19 accessors |
+| 4 | `render_widget_chat` never entered after `normalize_tool_response` | exclusive-arc targets are skipped **terminally**, and it was both an arc target and the convergence point | added the `skip_tool_dispatch` noop the live planner uses for the same reason |
+
+Prod execution `346724338747056128` reaches `playbook.completed COMPLETED`
+through the full path: `start → normalize_input → load_slot_state →
+extract_turn → persist → append → call_google_places → normalize_tool_response
+→ render_widget_chat → append_render_events → final_result`. Google Places
+returned real data (`ok: true`, `isError: false`). `persist_render_docs` is
+skipped by design (`when: post_docs | length > 0`).
+
+Amadeus branch deleted (17 references). Two unreachable render-side remnants
+kept and **labelled** rather than left silent.
+
+### Phase 1b — `hotel-cards`: registered + validated against the sandbox
+
+`muno/playbooks/hotel-cards` v3 on prod. Real HotelBeds **TEST** data:
+
+```
+count: 4   hotelbeds_env: test   currency: EUR   provider_error: none
+  "Monterey Plaza Hotel & Spa"  stars 4  €675/night  €2700.84 total  4 nights
+  real GIATA photo URL, real rateKey
+```
+
+Two defects found by reading the result rather than the status:
+
+- First prod run returned `count: 0` with `provider_error: true` —
+  `could not resolve a geolocation`. The provider's city fallback table holds
+  **six** cities and "Monterey, California" is not one. Now coordinate-driven.
+- `rooms[].price` carried the **stay total** while sitting next to a per-night
+  `pricePerNight`, overstating it 4×. Now per-night, with `totalPrice` beside it.
+
+**Ranking placeholder location:** one function, `_product_placeholder(rating,
+stars, min_rate)` in the `map_cards` step, and nothing else. It computes only
+`ratingLabel` and `category`. Every result carries
+`"placeholder_fields": ["ratingLabel","category"]` so a consumer can tell
+machine-readably which fields are not product-decided. Answering §5 items 9–10
+is a single-function edit.
+
+### Phase 2 — vocab reconciled, corpus staged, oracle gap quantified
+
+- **F3 closed.** `oracle.py` and `slm.config.yaml` now agree exactly: **7
+  tools, 16 render intents**. The 45 existing seed rows still run with zero
+  vocab violations.
+- **Corpus staged.** `scenarios/build_seed_from_catalog.py` expands all **82
+  scenarios → 271 turn rows** (235 live, 36 roadmap) in the existing per-turn
+  schema. Every group A–K covered; all Group J rows eval-only.
+- **Divergence report** (`scenarios/check_oracle.py`) — the PO playbook §5
+  "divergence → spec update" step:
+
+```
+rows with a declared render_intent: 230
+  agree     :  89 (38.7%)
+  disagree  : 141 (61.3%)
+declared render intents the oracle CANNOT emit (8/16):
+  order_detail, hotel_confirmation, show_activities, show_transfers,
+  summary, trip_map, clarify, error
+declared tools the oracle CANNOT request (3/7):
+  hotelbeds.book_hotel, hotelbeds-activities.*, hotelbeds-transfers.*
+cells fully agreeing (20): A1-A6, C1-C6, D1-D6, I6, K2
+```
+
+**Reconciling the vocabulary was necessary but not sufficient.** The agreeing
+cells are exactly discovery + slot-collection + flights; everything hotels,
+activities, transfers, itinerary, safety and most CTAs diverges. Two structural
+causes, both in `oracle.py`, both determinate to fix:
+
+1. **A linear flight-first funnel.** `show_hotels` is gated behind
+   `picked_flight_offer_id`, so E/F/G scenarios resolve to `show_flights`. The
+   catalog and live v67 treat every provider as a direct first-turn intent.
+2. **`collect_missing` precedes place resolution.** `if not _ready(...)` is
+   tested before the region branch, so B-group "trip to Paris" asks for dates
+   instead of resolving the place.
+
+Plus no refusal path at all — `clarify` and `error` are unreachable, so all of
+Group J has zero derivable labels.
+
+**This is the honest stopping line for the determinate work.** Generating
+render labels now would bake a flight-funnel model the planner does not have
+into thousands of examples. The next concrete step is reshaping the oracle's
+decision chain to v67's routing — separate from, and prior to, the ranking
+decisions in §5.
+
+### Also found
+
+- **[#268](https://github.com/noetl/ai-meta/issues/268) — the live Muno
+  planner is running heuristic extraction in prod, silently.** Both LLM
+  keychain aliases 403 (`secretmanager.versions.access` denied) on **both**
+  candidate projects, so the alias is left undefined and extraction falls back
+  (`llm_contract.fallback_used: true`) while the execution reports COMPLETED.
+  Observed on live `itinerary-planner` executions at 17:22Z and 17:24Z,
+  ~an hour before any work here ran. Needs an IAM grant (human carve-out).
+  This also **supersedes** the #234 note that the LLM secrets were granted
+  cross-project — true on 2026-08-05, not true now.
+- **A pattern-based scan reported PASS while dropping 18 of 82 scenarios.**
+  The `.docx` conversion left Unicode private-use glyphs (U+EC02) in front of
+  18 headings; the parser's regex silently skipped them and every acceptance
+  gate still read green. Fixed by stripping U+E000–U+F8FF.
+- **The parallel session's Duffel repoint is no longer in its working tree and
+  is not in `repos/travel` HEAD** — that edit appears to have been discarded
+  rather than committed. Flagged, not acted on: that file is theirs.
