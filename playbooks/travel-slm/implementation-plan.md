@@ -450,3 +450,74 @@ decisions in §5.
 - **The parallel session's Duffel repoint is no longer in its working tree and
   is not in `repos/travel` HEAD** — that edit appears to have been discarded
   rather than committed. Flagged, not acted on: that file is theirs.
+
+---
+
+## 9. Oracle reshape (2026-08-14, same session)
+
+The §8 stopping line was the oracle's decision chain. Reshaped to the live
+planner's routing; the corpus was regenerated and the divergence gate re-run.
+
+| Measure | Before | After |
+| :-- | --: | --: |
+| Agreement with the catalog | 38.7% | **79.6%** |
+| Declared render intents the oracle cannot emit | 8 / 16 | **0 / 16** |
+| Declared tools the oracle cannot request | 3 / 7 | **0 / 7** |
+| Cells fully agreeing | 20 | **41** |
+
+Two ordering rules carry most of it, both taken from v67:
+
+1. `collect_missing` is the **fallback**, not the first gate.
+2. Place resolution runs **before** the completeness gate.
+
+Then, each closing a class the report identified rather than a single row:
+
+- a **refusal path** (`clarify` / `error`) — Group J is eval-only and exists to
+  assert negative constraints, but neither intent was reachable, so every
+  safety row was unlabelable;
+- **reference resolution** ("the second one") → `summarize` from context,
+  never a re-search;
+- **hotel pre-book** (checkrate) as distinct from the confirmed booking;
+- **region restatement** re-opens place resolution — and the extractor now
+  overwrites a stored region when the turn names a different place, which is
+  the spec's "prefer the newest user event" rule it was not honouring;
+- **POI discovery** (Google Places) split from **bookable activities**
+  (HotelBeds); one keyword set had collapsed them;
+- **transfers outrank hotels** — "airport transfer to my hotel" names both;
+- **`flight_detail` fires on a `view_offer:` CTA**, which carries no text, so a
+  text-only test left it permanently unreachable.
+
+One finding was not a routing bug at all: the gazetteer ended at **eight
+cities** while the catalog names dozens, so real destinations fell through to
+`collect_missing`. Extended, plus a region map for "somewhere in southeast
+asia".
+
+### The score is guarded
+
+`scenarios/test_oracle_guards.py` asserts **behaviourally** that deleting every
+provenance field from a row changes no oracle output — an oracle that peeked at
+`declared_render_intent` would score 100% and teach nothing.
+
+Positive control, because a check that has never failed is indistinguishable
+from one that cannot: injecting exactly that cheat makes all three guards fail
+and the score read **100.0%**. Removing it restores 79.6%.
+
+### The remaining 20% is mostly spec, not code
+
+Characterised rather than tuned away — tuning these would be fitting the
+oracle to individual rows:
+
+- **Catalog ambiguity.** "hate flying" and "terrified of bugs" appear in *both*
+  A5 (a constraint that shapes the search → `collect_missing`) and J6 (a
+  blocker → `clarify`). I-group siblings also disagree with each other: I2
+  declares `collect_missing` for a date change while I3 declares `show_flights`
+  for a budget change. These want the PO playbook's "sharpen the scenario" pass.
+- **Parse misses (excluded from scoring).** Three declared values are prose
+  fragments, not vocabulary: `I5 "per"`, `K3 "proceed"`, `K4 "show_"`. Scoring
+  them would have inflated divergence with a measurement artifact.
+- **Seeding artifacts.** Some D/E cells are preset with a region that the
+  prompt then contradicts by naming another city, so restatement legitimately
+  fires and the turn resolves the place first.
+
+**Ranking is still not baked in.** No render label depends on a sort order or
+on what "best" means; those remain behind `_product_placeholder` awaiting §5.
