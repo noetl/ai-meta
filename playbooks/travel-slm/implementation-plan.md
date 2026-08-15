@@ -529,3 +529,49 @@ oracle to individual rows:
 
 **Ranking is still not baked in.** No render label depends on a sort order or
 on what "best" means; those remain behind `_product_placeholder` awaiting §5.
+
+---
+
+## 10. The planner had no LLM arm — what that means for the corpus
+
+Found by the routing session's #268 investigation and confirmed here against
+**registered v67**: `fallback_used` was the literal `True`, there was no
+OpenAI/Anthropic endpoint anywhere in the playbook, and the two api-key inputs
+were bound but never read in any code body. The planner has been
+heuristic-only since inception.
+
+**This does not invalidate the oracle work, but it corrects its framing.**
+`oracle.py`'s docstring described itself as a reimplementation of "the steps
+that emit `llm_contract.fallback_used: true`". Since that value was a constant,
+the oracle has been a faithful reimplementation of **the heuristic** — which is
+exactly what a deterministic floor should be. What was wrong is the implied
+comparison: there was never an LLM arm above it. The §9 divergence numbers
+measure oracle-vs-catalog, not oracle-vs-LLM, and remain valid as such.
+
+The consequence for the SLM programme is that **the "teacher ceiling" the RFC
+assumes has never actually run in this playbook.** Any future claim that the
+SLM approaches or beats the planner's LLM extraction needs that arm working
+first — otherwise the comparison is SLM vs heuristic, which is the floor.
+
+### Shipped: v68 → v69
+
+A real extraction call, with the heuristic kept as a genuine fallback. Output is
+validated against the routing-arc vocabulary before acceptance — the arcs are
+exclusive and non-selected targets are skipped terminally, so a hallucinated
+tool id would wedge the turn silently.
+
+| run | `fallback_used` | reason |
+| :-- | :-- | :-- |
+| kind (no Workload Identity) | `true` | `openai_api_key unavailable` |
+| prod, model `gpt-4o-does-not-exist-xyz` | `true` | `HTTP 404` — clean fallback |
+| prod, real model | `true` | `HTTP 429 insufficient_quota` |
+
+⚠ **`fallback_used=False` is not yet demonstrated**, and the blocker is
+billing: OpenAI returns `credit_balance_exhausted`. A 429 `insufficient_quota`
+means the key *authenticated* (an invalid key returns 401), so the chain
+keychain → GSM → Workload Identity → HTTPS is proven. Adding credit should flip
+it with no code change.
+
+All three runs completed the turn normally on the heuristic, and each reports a
+*different, accurate* reason — where previously all three were indistinguishable
+from success.
