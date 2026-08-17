@@ -575,3 +575,83 @@ it with no code change.
 All three runs completed the turn normally on the heuristic, and each reports a
 *different, accurate* reason — where previously all three were indistinguishable
 from success.
+
+---
+
+## 11. "Complete travel" pass (2026-08-17)
+
+Every claim below is from a real prod execution, read off the **result** rather
+than the status — `COMPLETED` does not mean succeeded.
+
+### Proven working end-to-end in GKE
+
+| Surface | Proof |
+| :-- | :-- |
+| `flight-planner` v3 → Duffel | turn 2 enters `call_duffel_offers`; `ok: true`, **10 offers** from 105 raw, HTTP 201, USD; rendered `flight_list` |
+| `hotel-cards` v3 → HotelBeds sandbox | 4 hotels, `hotelbeds_env: test`, `provider_error: null`; **18/18 contract fields**, no extras, `rooms[]` complete |
+| Demo flow (`itinerary-planner` v70 — the only path the SPA calls) | flights → `flight_list` (ok); hotels → `hotel_list` (10, ok); activities → 10 activities (ok); transfers → 10 transfers (ok); place → `place_list` (ok) |
+
+All five providers are live: Google Places, Duffel, and the three HotelBeds
+products.
+
+### Two defects found and fixed
+
+1. **`flight-planner` could never reach Duffel.** The final slot-state doc was
+   only persisted when a tool summary existed, and the persist step is gated on
+   `post_docs | length > 0`, so `places_seen` was dropped every turn and the
+   thread re-resolved the place forever — while reporting COMPLETED. Fixing it
+   exposed a second-order graph bug (a convergence point that was also an arc
+   of an exclusive branch, hence terminally skipped). Both fixed; v3.
+2. **A transfer request returned hotels.** `"airport transfer from CDG to my
+   hotel"` names both providers and `wants_hotel` was tested first. Fixed by
+   precedence in the condition; v70.
+
+### Item 3 — wiring: already satisfied, with a product question
+
+The SPA calls **only** `muno/playbooks/itinerary-planner`
+(`src/components/shell/ChatThread.tsx`), and that playbook already owns the
+flight, hotel, activity and transfer branches — all proven above. So a user
+already gets flights and hotels in the demo.
+
+`flight-planner` and `hotel-cards` are standalone playbooks that **subset** that
+behaviour. Surfacing them as separate SPA entry points would duplicate the
+planner and is a UX decision, not a gap — **left for product**.
+
+### Item 4 — "No photo available": root-caused, fix is user-side
+
+Not a playbook bug. The chain, measured:
+
+| probe | result |
+| :-- | :-- |
+| photo URL as emitted (keyless, by design) | 403 |
+| + key, no Referer | 403 `referer <empty> blocked` |
+| + key, `Referer: https://mestumre.dev/` | **302 → 200, image/jpeg, 62,181 bytes** |
+| served bundle `index-DF9QHABw.js` (1,009,632 B) | **0** `AIza…` keys |
+| local build with a key / without | **4** / **0** |
+
+The backend, the key and its restrictions are all correct. The served bundle
+carries no key, so `withMapsKey()` returns the URL unchanged → 403 → the SPA's
+`onError` placeholder. The last Actions run *did* fetch and embed the key, so
+the served deployment did not come from Actions — the Cloudflare Pages native
+Git integration built a keyless bundle. Evidence added to
+[#177](https://github.com/noetl/ai-meta/issues/177); the fix is disabling that
+integration in the Cloudflare dashboard.
+
+### Item 5 — LLM extraction: code correct, blocked on credit
+
+v70 still reports the dynamic contract with the true cause:
+
+```
+"fallback_used": true,
+"fallback_reason": "HTTP 429: … insufficient_quota / credit_balance_exhausted"
+```
+
+The credential chain is proven (a 429 authenticates; an invalid key would 401).
+Heuristic extraction serves every turn meanwhile. Needs OpenAI credit —
+[#268](https://github.com/noetl/ai-meta/issues/268).
+
+⚠ One consequence worth naming: with the LLM inert, destination resolution uses
+the planner's **heuristic gazetteer**, which is small — `"trip to Lisbon"` does
+not resolve and falls back to the autocomplete prompt, while `"trip to Paris"`
+works. Adding credit fixes this class; widening the gazetteer would be the
+alternative.
