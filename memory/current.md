@@ -5,6 +5,37 @@ been compacted into `memory/compactions/` and archived under
 `memory/archive/`. Read the latest compaction
 (`memory/compactions/20260609-025209.md`) for the most recent batch.
 
+## Prod state — EHDB / latency (2026-08-20)
+
+Added ahead of the older snapshot below, which is dated **2026-06-09** and does
+not describe any of this. Where the two disagree, this section is current.
+
+- **Versions:** server **v3.83.1**, user-pool worker **v5.120.0**,
+  `cmdbus-writer` **v5.119.1** (held back deliberately — durable log + the
+  Option 1 runtime cache), system pools **v5.118.2**.
+- **Tiers:** eventlog **`primary` and serving**, projection / kv / object
+  `shadow`. ⚠ `NOETL_EHDB_VECTOR` is **not set at all**.
+- **Async mirror LIVE:** `NOETL_EHDB_EVENTLOG_MIRROR_ASYNC=true` with
+  `NOETL_EHDB_CROSSSTORE_PARITY_LAG_TOLERANCE_SECS=30`. Rollback is one flag —
+  **set both or neither**; async on with the window at 0 makes the comparator
+  judge a healthy tier on its own liveness.
+- **Measured:** `emit_mirror` 78.6 ms → **0.1 ms/call**; median warm Muno turn
+  **16.9 s → 13.0 s**, ~89 s → ~13 s across the arc. Parity `match` 268 /
+  `divergent` 0, conservation exact, `queue_full_inline` 0.
+- ⚠ **Option 2's batch flag is still OFF on prod** (`..._tier_append_records_total{path="batch"} 0`
+  on both replicas) — landed and now measurable, but inert. noetl/ai-meta#284.
+- ⚠ **Alerting works and delivery is PROVEN** — 14 alert policies, 0 without a
+  channel, verified by a real received email. The old "zero alerting on prod"
+  note was **stale for two weeks** and was acted on before being checked; prod
+  had 5 GMP Rules, 8 policies, 2 channels. ⚠ **Two paths, only one delivers:**
+  GMP `Rules` → managed Alertmanager is **inert** (its `configSecret` names a
+  secret absent from `gmp-public`); alertPolicies are what page.
+- **Blocked on the owner:** the `noetl.command (event_id)` index needs a
+  superuser `GRANT` (noetl/ai-meta#283).
+
+Runbooks: `ehdb.wiki/Runbook-Async-Event-Log-Mirror`,
+`ops/runbooks/noetl-ehdb-mirror-async.md`.
+
 ## Active Focus
 
 ### Cross-repo orchestration (durable)
