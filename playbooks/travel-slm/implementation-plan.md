@@ -1,9 +1,10 @@
 # Travel SLM + playbooks — consolidated implementation plan
 
-- **Status:** Phase 0 (plan) complete. Phase 1 shipped — both playbooks
-  registered on prod and validated. Phase 2 determinate part shipped (vocab
-  reconciled, corpus staged); render/ranking labels stop at the product line
-  in §5. The oracle gap identified in §8 is now closed (§9). **Results: §8–§9.**
+- **Status:** Phases 0–2 shipped. Both playbooks registered on prod and
+  validated; SLM vocab reconciled and corpus staged; oracle reshaped (§9).
+  Render/ranking labels still stop at the product line in §5. The LLM backend
+  moved OpenAI → **Vertex AI Gemini 2.5 Flash** and is live (§12).
+  **Results: §8–§12.**
 - **Source:** operator-supplied archive `SLM-20260814T173426Z-1-001.zip`
   (10 files; 7 `.docx` converted with [`docx2md.py`](docx2md.py), a stdlib
   `word/document.xml` reader — no pandoc/python-docx on this host).
@@ -11,7 +12,7 @@
   (SLM platform umbrella) · [#140](https://github.com/noetl/ai-meta/issues/140)
   (Phase A — prove the framework on travel) ·
   [#153](https://github.com/noetl/ai-meta/issues/153) (shadow rollout).
-- **Session date:** 2026-08-14.
+- **Sessions:** 2026-08-14 → 2026-08-18.
 
 This plan maps every archive document to a concrete deliverable and draws a
 hard line between work that is determinate today and work that is blocked on
@@ -655,3 +656,85 @@ the planner's **heuristic gazetteer**, which is small — `"trip to Lisbon"` doe
 not resolve and falls back to the autocomplete prompt, while `"trip to Paris"`
 works. Adding credit fixes this class; widening the gazetteer would be the
 alternative.
+
+---
+
+## 12. Vertex swap + the bugs it surfaced (2026-08-17 → 08-18)
+
+### The LLM backend moved off OpenAI
+
+`insufficient_quota` made the OpenAI path unactivatable, so extraction was
+swapped to **Vertex AI Gemini 2.5 Flash** in `noetl-demo-19700101`,
+authenticated by the pod's Workload Identity — no API key, no quota.
+[#268](https://github.com/noetl/ai-meta/issues/268) is **closed**.
+
+Two findings from that swap:
+
+- **The 2.0 and 1.5 generation returns 404** for this project in both
+  `us-central1` and `global`; only 2.5-flash and 2.5-pro resolve. Probed
+  directly. The `mcp/vertex-ai` provider still defaulted to `gemini-2.0-flash`
+  and was fixed in the same arc (noetl/ops#261), where it also turned out
+  `vertex_model` was **silently ignored** — a non-empty `model` default
+  shadowed it.
+- **The repo was behind what runs.** Registered `mcp/vertex-ai` v11 carried a
+  `start` step that was never committed, so registering from source produced a
+  playbook that 422'd. I hit exactly that and superseded it within a minute.
+
+### `fallback_used=false` is not evidence of a correct turn
+
+The first live Vertex turns had it while regressing real surfaces. Four
+defects, each found by running prod rather than reading:
+
+| symptom | cause |
+| :-- | :-- |
+| Lisbon "resolved" but rendered `bot_text` | model invented `{"destination": …}` — a key nothing reads |
+| `error_card` on a Places call | argument key non-deterministic: `query` vs `text` |
+| flights broke | city **names** passed to Duffel, which needs IATA |
+| hotels/transfers unusable | model cannot build geolocation / IATA / default dates |
+
+The fix was structural: **the model is a slot extractor, not a call builder.**
+It runs before the routing chain and contributes slots only; the heuristic
+routes and builds every provider call.
+
+### The date loop — a regression I introduced
+
+The reordering had the LLM block do `updates = _u`, replacing the heuristic's
+parsed widget slots wholesale. The model returns `{}` for a structured widget
+event, so `submit_dates` was discarded, never persisted, and the picker
+re-rendered forever — with `COMPLETED` and `fallback_used=false` on every turn.
+
+It affected **every** widget interaction, not just dates. Fixed by merging
+rather than replacing, and skipping the model on widget events entirely.
+
+**My verification missed it because I only ever tested free-text turns.** Every
+widget path went untested, which is exactly where the bug lived.
+
+### Latency: the ranked plan in §8 was wrong in its headline
+
+Profiling ([#155](https://github.com/noetl/ai-meta/issues/155)) showed the turn
+is **82% orchestration tax**. Inlining the Firestore read — billed as a "~14 s
+saving" — removed 14 s of *work* and moved wall clock by **nothing measurable**:
+
+| | before | after (9 execs) |
+| :-- | --: | --: |
+| `load_slot_state` | 15.1 s | median 1.3 s |
+| in-step total | 27.6 s | median 17.2 s |
+| **wall clock** | 88.3 s | **median 87 s** |
+| events/turn | 63 | 63 |
+
+Work reduction is not a latency lever here; only event-count reduction or the
+dispatch cadence is, and the remaining playbook-level lever is worth ~5 of 63
+events. [#286](https://github.com/noetl/ai-meta/issues/286) tracks inlining the
+four HotelBeds child hops — for **load**, not latency.
+
+### Deployment / routing, documented not changed
+
+- **"No photo available"** was a keyless Cloudflare bundle, not a playbook bug.
+  The served bundle is **keyed again** and carries `VITE_ALLOW_GUEST`.
+  [#177](https://github.com/noetl/ai-meta/issues/177) stays **open**: the
+  symptom is gone but the native-Git-integration race can only be confirmed
+  removed from the Cloudflare dashboard.
+- Apex `mestumre.dev` → the demo; `noetl.mestumre.dev` → console behind
+  Cloudflare Access + Auth0. Auth0 origins must include the **apex**, not just
+  the subdomain. Owned by the routing session; documented here and in the travel
+  wiki `deployment` page only.
