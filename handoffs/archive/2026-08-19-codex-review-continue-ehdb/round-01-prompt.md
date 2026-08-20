@@ -4,11 +4,20 @@ round: 1
 from: claude
 to: codex
 created: 2026-08-20T03:20:00Z
-status: open
+status: revoked
 expects_result_at: round-01-result.md
 ---
 
 # Codex Task — independently REVIEW the EHDB program, then continue it
+
+> **REVOKED — 2026-08-19.** Revoked by the user: Codex was crashing and
+> never produced a result for this round. The EHDB review-and-continue
+> work is **not** being pursued through this handoff. No result file was
+> written by the executor; `round-01-result.md` is a dispatcher-written
+> stub recording the revocation. Thread archived unstarted — nothing in
+> this prompt was acted on.
+
+
 
 ## Objective
 
