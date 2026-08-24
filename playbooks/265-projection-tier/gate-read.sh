@@ -205,8 +205,44 @@ inc_version="${inc0%%|*}"; inc_checksum="${inc0##*|}"
 info "incumbent: version=$inc_version checksum=${inc_checksum:0:16}…"
 maxev=$(max_event_id "$exec_id")
 info "event-log tip: max(event_id)=$maxev"
+
+# SETTLEDNESS. The content assertions below compare the incumbent's digest
+# before and after a rebuild, and that comparison is only meaningful on an
+# execution that is not still gaining events — a live one legitimately produces
+# a different (correct) state, which scores as a content failure.
+#
+# This is not hypothetical: the first `corrupt` run failed exactly here, on an
+# execution the kind cluster's command backlog was still advancing (36 -> 42
+# events between arms). The demote itself was correct; the harness was
+# measuring a moving target. Verified separately that the digest IS
+# deterministic — four advances of a settled execution produced one checksum.
+#
+# An unsettled execution makes the arm INCONCLUSIVE, which is a different
+# answer from failed and must not be reported as a platform finding.
+sleep 6
+maxev2=$(max_event_id "$exec_id")
+if [ "$maxev" != "$maxev2" ]; then
+  bad "execution $exec_id is STILL GAINING EVENTS ($maxev -> $maxev2). The content \
+assertions cannot be scored against a moving target — pick a settled execution. \
+This arm is INCONCLUSIVE, not failed."
+  exit 3
+fi
+ok "execution is settled (max event_id stable at $maxev)"
 tv=$(tier_newest_version "$exec_id")
 info "tier newest version: $tv"
+
+# Tier 1's verdict BEFORE this arm acts. §4 compares against this rather than
+# against the literal "match", because "the event-log tier did not move" is a
+# relative claim and a pre-existing divergence is not this arm's doing.
+#
+# Learned here: an execution from 2026-08-18 is legitimately `divergent` on tier
+# 1 (1 of 130 events absent, from before the event-log mirror was armed). An
+# absolute assertion scored that as "arming tier 2 moved tier 1" — the single
+# most alarming thing this gate can say, and it would have been false.
+el1_before=$(curl -s --max-time 30 "$SERVER/api/ehdb/parity/executions/$exec_id")
+el1_before_outcome=$(field "$el1_before" '.outcome')
+[ "$el1_before_outcome" = "__ABSENT__" ] && el1_before_outcome=$(field "$el1_before" '.result.outcome')
+info "event-log tier verdict before this arm: $el1_before_outcome"
 
 before_served=$(read_total served_tier)
 # Fault-class baselines, captured before the arm acts. Every fault assertion
@@ -319,7 +355,34 @@ corrupt)
 behind)
   echo
   echo "-- 3. the tier is BEHIND the incumbent --"
-  gt0 "incumbent is ahead of the tier" "$(awk -v a="$inc_version" -v b="${tv:-0}" 'BEGIN{print (a>b)?1:0}')"
+  # The mutation is an APPEND BELOW the incumbent's version, on a tier reset
+  # first. The obvious alternative — raise the incumbent with SQL — does not
+  # work here and it is worth saying why: the arm's own `advance` re-saves the
+  # incumbent and mirrors it, so the raised version lands in the TIER on the
+  # next pass and the condition flips from `stale_version` to `version_ahead`
+  # (the tier is then above the event-log tip). Measured: that is exactly what
+  # happened, and the read path was right both times.
+  lower=$(python3 -c "print(int('$inc_version') - 1)")
+  body='"{\"execution_id\":'"$exec_id"',\"version\":'"$lower"',\"checksum\":\"BEHINDCHK\",\"applied_count\":1,\"snapshot\":{\"BEHIND\":true},\"updated_at\":\"2026-01-01T00:00:00Z\",\"mirror_source\":\"server\"}"'
+  # A digest that DOES describe the body, so this arm tests the currency rule
+  # and not the checksum rule.
+  chk=$(python3 -c "
+import hashlib,json
+print(hashlib.sha256(json.dumps({'BEHIND':True},separators=(',',':')).encode()).hexdigest())")
+  body=${body/BEHINDCHK/$chk}
+  info "appending a record at version $lower (incumbent is $inc_version)"
+  tier_append "$exec_id" "$body" | head -c 200; echo
+  landed=$(tier_newest_version "$exec_id")
+  eq "the crafted record IS the tier's newest" "$landed" "$lower"
+  [ "$landed" = "$lower" ] || { bad "mutation did not land — reset the tier first (deploy.sh reset-tier)"; exit 3; }
+  # ⚠ NOT awk. These are 18-digit snowflake ids and awk converts to double, so
+  # 348221780836704257 > 348221780836704256 compares EQUAL — ~15-16 significant
+  # digits is not enough. The first version of this line reported "the incumbent
+  # is not ahead" on an incumbent that was ahead by exactly 1, while the demote
+  # it was supposed to corroborate had already fired correctly. Same family as
+  # `authoritative_sequence` not accepting a snowflake.
+  gt0 "incumbent is ahead of the tier" \
+      "$(python3 -c "print(1 if int('$inc_version') > int('${landed:-0}') else 0)")"
   b_st=$(read_total stale_version); [ "$b_st" = "__ABSENT__" ] && b_st=0
   advance "$exec_id" >/dev/null
   gt0 "the read DEMOTED with reason 'stale_version'" "$(delta "$b_st" "$(read_total stale_version)")"
@@ -402,10 +465,42 @@ esac
 # ---------------------------------------------------------------------------
 echo
 echo "-- 4. the event-log tier did not move --"
-el=$(curl -s --max-time 30 "$SERVER/api/ehdb/parity/execution/$exec_id")
-elo=$(field "$el" '.outcome')
-[ "$elo" = "__ABSENT__" ] && elo=$(field "$el" '.result.outcome')
-eq "event-log tier verdict" "$elo" "match"
+# `/executions/` — PLURAL. The first version of this section used the singular
+# and got a 404, whose empty body read as "no verdict" and scored a FAIL against
+# tier 1. A harness typo presenting as "the event-log tier moved" is the worst
+# way for this section to be wrong, so the route is checked before the verdict.
+elcode=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$SERVER/api/ehdb/parity/executions/$exec_id")
+if [ "$elcode" != "200" ]; then
+  bad "event-log parity endpoint answered HTTP $elcode — this section measured NOTHING; \
+fix the harness before reading anything into tier 1"
+else
+  el=$(curl -s --max-time 30 "$SERVER/api/ehdb/parity/executions/$exec_id")
+  # The two comparators answer in different envelopes — event-log FLAT
+  # (`.outcome`), projection nested under `.result`. Reading the wrong one
+  # returns __ABSENT__ and scores it as "the verdict moved".
+  elo=$(field "$el" '.outcome')
+  [ "$elo" = "__ABSENT__" ] && elo=$(field "$el" '.result.outcome')
+  eq "event-log tier verdict did not move" "$elo" "$el1_before_outcome"
+  # And the baseline itself must be a real verdict, or "did not move" is
+  # satisfied by two identical failures to measure.
+  case "$el1_before_outcome" in
+    match|divergent) ok "the tier-1 baseline is a real verdict ($el1_before_outcome)" ;;
+    *)
+      if [ "$ARM" = "unavailable" ]; then
+        # NOT a pass and NOT a failure. This arm black-holes the relay both
+        # comparators share, so tier 1 is unmeasurable here BY CONSTRUCTION and
+        # "it did not move" would be two identical non-measurements agreeing.
+        # Stated rather than scored: the tier-1 claim for this arm comes from
+        # the post-restore check the runbook requires, not from here.
+        info "tier-1 NOT ASSESSABLE in this arm ($el1_before_outcome) — the relay this \
+arm disables is the one its comparator reads. Re-check after restoring the relay."
+      else
+        bad "the tier-1 baseline is '$el1_before_outcome' — 'did not move' would be \
+satisfied by two identical non-measurements"
+      fi
+      ;;
+  esac
+fi
 
 echo
 echo "-- 5. projection comparator controls (after) --"

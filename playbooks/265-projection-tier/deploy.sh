@@ -27,8 +27,8 @@
 set -euo pipefail
 
 export KIND_EXPERIMENTAL_PROVIDER=podman
-SRV_IMG="${SRV_IMG:-localhost/noetl-server:265proj}"
-WK_IMG="${WK_IMG:-localhost/noetl-worker:265proj}"
+SRV_IMG="${SRV_IMG:-localhost/noetl-server:265b1}"
+WK_IMG="${WK_IMG:-localhost/noetl-worker:265b1}"
 
 NS=noetl
 WORKER_DEPLOY=noetl-worker-rust
@@ -72,9 +72,9 @@ load() {
   # the node did not end up with; a silent miss then presents as an unexplained
   # old-behaviour gate result rather than as a load failure.
   echo "-- present in the node --"
-  podman exec noetl-control-plane crictl images | grep 265proj || true
-  found=$(podman exec noetl-control-plane crictl images | grep -c 265proj || true)
-  [ "$found" -ge 2 ] || { echo "FAILED: expected 2 265proj images in the node, found $found" >&2; return 1; }
+  podman exec noetl-control-plane crictl images | grep -E '265proj|265b1' || true
+  found=$(podman exec noetl-control-plane crictl images | grep -cE '265b1' || true)
+  [ "$found" -ge 2 ] || { echo "FAILED: expected 2 265b1 images in the node, found $found" >&2; return 1; }
 }
 
 writer() {
@@ -272,6 +272,13 @@ readmode() {
 # which is the state a relay outage leaves. Expected verdict in `verify` mode:
 # `stale_version` — correct to serve (folding forward gives the same answer) and
 # still refused, because `verify`'s contract is agreement.
+# ⚠ STICKY. Measured: a bumped version SURVIVES a recompute. `advance` takes the
+# snapshot's own version as a floor, so `UPDATE ... version = version + 1`
+# followed by /api/internal/projection/advance returns the BUMPED value, not the
+# event-log tip — and the incumbent is then permanently above `max(event_id)`,
+# which turns every later arm into `version_ahead` instead of whatever it was
+# testing. Use `unbump` or `deploy.sh pin-incumbent` to put it back; do not
+# assume a recompute cleans up after this.
 bump_incumbent() {
   local e="${EXEC_ID:?EXEC_ID must name the execution}"
   local before after
@@ -289,12 +296,51 @@ bump_incumbent() {
   echo "incumbent version for $e: $before -> $after (tier now behind)"
 }
 
+# Force the incumbent's version back to the event-log tip. The honest undo for
+# `bump_incumbent`, since a recompute will not do it (see above).
+pin_incumbent() {
+  local e="${EXEC_ID:?EXEC_ID required}"
+  kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "UPDATE noetl.projection_snapshot s SET version = (SELECT MAX(event_id) FROM noetl.event WHERE execution_id = $e) WHERE s.aggregate_id='$e';" >/dev/null
+  kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "SELECT 'incumbent version now ' || version FROM noetl.projection_snapshot WHERE aggregate_id='$e';" | tr -d '\r'
+}
+
 unbump() {
   local e="${EXEC_ID:?EXEC_ID required}"
   kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
     psql -U noetl -d noetl -At -c \
     "UPDATE noetl.projection_snapshot SET version = version - 1 WHERE aggregate_id='$e';" >/dev/null
   echo "incumbent version restored"
+}
+
+
+# Empty the projection tier FOR REAL — truncate AND restart the writer.
+#
+# ⚠ TRUNCATING THE FILE IS NOT ENOUGH ANYMORE, and this invalidates the phase-A
+# `drop` arm on worker >= v5.121.0. worker#280 gave the tier store a runtime
+# cache; after `: > projection.jsonl` the file held 3 lines while the relay
+# still served 15 records for one execution, because the cache is not evicted by
+# someone truncating the file underneath it.
+#
+# Which is the theme of this whole issue arriving one level down: the store FILE
+# is a representation of what the tier serves, and nothing forces the two to
+# agree once a cache sits between them. A gate that emptied the file and scored
+# `missing_execution` would be reading the file, not the tier.
+#
+# Not a durability bug — the truncate is what desynchronised them. But any arm
+# that needs an empty tier must restart the writer, and any arm that reads the
+# file to decide what the tier holds is measuring the wrong thing.
+reset_tier() {
+  local pod
+  pod=$(writer_pod)
+  k exec "$pod" -- sh -c ": > $TIER_DIR/projection.jsonl"
+  k delete pod "${WRITER_STS}-0" --wait=true >/dev/null 2>&1 || true
+  k rollout status "sts/$WRITER_STS" --timeout=300s | tail -1
+  sleep 8
+  echo "projection tier emptied (file truncated AND writer restarted)"
 }
 
 restore() {
@@ -320,6 +366,8 @@ case "$cmd" in
   readmode) readmode "$@" ;;
   bump-incumbent) bump_incumbent ;;
   unbump) unbump ;;
+  pin-incumbent) pin_incumbent ;;
+  reset-tier) reset_tier ;;
   restore) restore ;;
   *) sed -n '2,20p' "$0"; exit 2 ;;
 esac
