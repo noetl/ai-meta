@@ -759,6 +759,97 @@ if run worktrees; then
   [ "$found" -eq 0 ] && ok "no submodule keeps core.worktree in the shared config alongside worktreeConfig"
 fi
 
+# ---------------------------------------------------------------- provider-inline
+# noetl/ai-meta#295.  The HotelBeds provider dispatch code exists in TWO places:
+# inlined in the travel planner (AUTHORITATIVE, and what production runs) and in
+# the standalone MCP playbooks under noetl/ops (a mirror, still used by
+# muno/playbooks/hotel-cards).  Nothing forces them to agree.
+#
+# This is not hypothetical.  On 2026-08-24 each copy held something the other
+# lacked: the ops mirror carried the #175 "do not leak the raw provider body to
+# the user" fix for activities+transfers that had NEVER been registered, while
+# the registered/live copy carried the prod project name the mirror still got
+# wrong (it named the retired noetl-demo-19700101).  Both looked fine in
+# isolation; the disagreement was only visible by comparing them.
+if run provider-inline; then
+  hdr "provider-inline — planner inline code vs the ops MCP mirror (#295)"
+  PL="$ROOT/repos/travel/playbooks/itinerary-planner.yaml"
+  if [ ! -f "$PL" ]; then
+    skip "repos/travel not checked out"
+  elif ! command -v python3 >/dev/null 2>&1; then
+    skip "python3 unavailable"
+  else
+    out=$(python3 - "$ROOT" <<'PYEOF'
+import sys, os
+try:
+    import yaml
+except Exception:
+    print("SKIP|pyyaml unavailable"); raise SystemExit
+root = sys.argv[1]
+PAIRS = {
+    "call_hotelbeds_hotels":     "hotelbeds",
+    "call_hotelbeds_book":       "hotelbeds",
+    "call_hotelbeds_activities": "hotelbeds-activities",
+    "call_hotelbeds_transfers":  "hotelbeds-transfers",
+}
+def dispatch_code(path):
+    with open(path, encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    for st in doc.get("workflow") or []:
+        tool = st.get("tool") or {}
+        if tool.get("kind") == "python" and tool.get("code"):
+            return tool["code"]
+    return None
+try:
+    planner = yaml.safe_load(open(os.path.join(root, "repos/travel/playbooks/itinerary-planner.yaml"), encoding="utf-8"))
+except Exception as exc:
+    print(f"SKIP|planner unreadable: {exc}"); raise SystemExit
+inline = {}
+for st in planner.get("workflow") or []:
+    tool = st.get("tool") or {}
+    if st.get("step") in PAIRS:
+        if tool.get("kind") != "python":
+            print(f"DRIFT|{st['step']} is kind={tool.get('kind')}, not the inlined python the decision requires")
+        inline[st["step"]] = tool.get("code") or ""
+for step, prov in PAIRS.items():
+    mirror = os.path.join(root, "repos/ops/automation/agents/mcp", prov + ".yaml")
+    if step not in inline:
+        print(f"DRIFT|{step} missing from the planner — the authoritative copy is gone"); continue
+    if not os.path.exists(mirror):
+        print(f"SKIP|{prov}: ops mirror not checked out"); continue
+    try:
+        mcode = dispatch_code(mirror)
+    except Exception as exc:
+        print(f"SKIP|{prov}: mirror unparseable ({exc})"); continue
+    if mcode is None:
+        print(f"DRIFT|{prov}: mirror has no python dispatch step"); continue
+    if mcode.strip() == inline[step].strip():
+        print(f"OK|{step} == {prov} mirror")
+    else:
+        a, b = inline[step], mcode
+        print(f"DRIFT|{step} differs from the {prov} mirror "
+              f"(planner {len(a)} chars vs mirror {len(b)}); "
+              f"175fix planner={'user_message' in a} mirror={'user_message' in b}; "
+              f"retired-project planner={'noetl-demo-19700101' in a} mirror={'noetl-demo-19700101' in b}")
+PYEOF
+    )
+    if [ -z "$out" ]; then
+      skip "no provider steps compared"
+    else
+      while IFS='|' read -r verdict msg; do
+        [ -z "$verdict" ] && continue
+        case "$verdict" in
+          OK)    ok "$msg" ;;
+          SKIP)  skip "$msg" ;;
+          DRIFT) drift "$msg"
+                 echo "         Authoritative copy is the PLANNER INLINE code (noetl/ai-meta#295)."
+                 echo "         Fix in the planner first, then mirror into repos/ops in the same change set." ;;
+        esac
+      done <<< "$out"
+    fi
+  fi
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
