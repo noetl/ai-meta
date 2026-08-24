@@ -1,0 +1,33 @@
+# Gate image for the ai-meta#265 phase-B1 (read-serve) kind validation.
+#
+# NOT a release Dockerfile. Two deviations from `Dockerfile`, both to keep the
+# gate image differing from a shipped one in exactly ONE file — the binary:
+#
+#  1. the runtime layer is `FROM` an image already in the node rather than
+#     `alpine` + `apk add`, so the released wasm plug-in and every runtime ENV
+#     come along unchanged. A behaviour difference in kind is then attributable
+#     to this change and not to a rebuilt base.
+#  2. no `wasmbuilder` stage — the base already carries the plug-in.
+#
+# The `cargo chef cook` layer is kept separate so a source-only change (a
+# mutation arm) rebuilds in minutes instead of redoing the dependency graph.
+ARG RUNTIME_BASE=localhost/noetl-server:265proj
+
+FROM lukemathwalker/cargo-chef:0.1.73-rust-1.91.1-alpine3.22 AS chef
+WORKDIR /app
+RUN apk update && \
+    apk add --no-cache clang lld llvm musl-dev make pkgconfig openssl-dev openssl-libs-static g++ libc-dev
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --bin noetl-control-plane
+
+FROM ${RUNTIME_BASE} AS runtime
+WORKDIR /app
+COPY --from=builder /app/target/release/noetl-control-plane ./noetl-control-plane

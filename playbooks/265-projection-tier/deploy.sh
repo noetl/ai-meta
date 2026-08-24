@@ -8,6 +8,9 @@
 #   deploy.sh corrupt               — rewrite the newest projection record in the store
 #   deploy.sh drop                  — empty the projection store, leave the event log
 #   deploy.sh bypass                — disarm the server's projection mirror only
+#   deploy.sh readmode <m>          — B1: NOETL_EHDB_PROJECTION_READ_SOURCE on the server
+#   deploy.sh bump-incumbent        — B1: raise the incumbent's version above the tier's
+#   deploy.sh unbump                — undo bump-incumbent
 #   deploy.sh restore               — released images, EHDB projection env cleared
 #
 # WHY MULTI-REPLICA. The projection tier has no pod-local write path at all
@@ -240,6 +243,60 @@ bypass() {
   echo "server projection mirror DISARMED (event-log mirror still armed)"
 }
 
+
+# --- ai-meta#265 phase B1 --------------------------------------------------
+
+# The read-serve mode. The ONLY variable the B1 serve arms move.
+#
+# `postgres` is not "unset": it is set explicitly so the arm is legible in
+# `kubectl get deploy -o yaml`, and so the difference between the baseline arm
+# and an un-armed cluster is visible rather than inferred.
+readmode() {
+  local m="$1"
+  case "$m" in postgres|verify|tier) ;; *) echo "readmode must be postgres|verify|tier" >&2; exit 2;; esac
+  k set env deploy/noetl-server-rust NOETL_EHDB_PROJECTION_READ_SOURCE="$m"
+  k rollout status deploy/noetl-server-rust --timeout=300s
+  wait_server
+  echo "read source: $m"
+}
+
+# MUTATION 4 (B1) — make the tier BEHIND the incumbent.
+#
+# On the incumbent side, for the same reason `corrupt` is: the tier store holds
+# payloads as a JSON byte array, so an edit there cannot be made reliably — and
+# the one attempt to do it with `sed` exited 0 having changed nothing. Here the
+# value is a plain column, the change is one statement, it is reversible, and it
+# is VERIFIED below.
+#
+# Shape-wise this is exactly "the mirror fell behind a newer incumbent save",
+# which is the state a relay outage leaves. Expected verdict in `verify` mode:
+# `stale_version` — correct to serve (folding forward gives the same answer) and
+# still refused, because `verify`'s contract is agreement.
+bump_incumbent() {
+  local e="${EXEC_ID:?EXEC_ID must name the execution}"
+  local before after
+  before=$(kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "SELECT version FROM noetl.projection_snapshot WHERE aggregate_id='$e';" | tr -d '\r' | head -1)
+  [ -n "$before" ] || { echo "NOTHING TO BUMP: no snapshot row for $e" >&2; return 3; }
+  kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "UPDATE noetl.projection_snapshot SET version = version + 1 WHERE aggregate_id='$e';" >/dev/null
+  after=$(kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "SELECT version FROM noetl.projection_snapshot WHERE aggregate_id='$e';" | tr -d '\r' | head -1)
+  [ "$before" != "$after" ] || { echo "MUTATION DID NOT TAKE: version unchanged ($before)" >&2; return 3; }
+  echo "incumbent version for $e: $before -> $after (tier now behind)"
+}
+
+unbump() {
+  local e="${EXEC_ID:?EXEC_ID required}"
+  kubectl --context kind-noetl -n postgres exec deploy/postgres -- \
+    psql -U noetl -d noetl -At -c \
+    "UPDATE noetl.projection_snapshot SET version = version - 1 WHERE aggregate_id='$e';" >/dev/null
+  echo "incumbent version restored"
+}
+
 restore() {
   k annotate scaledobject "$WORKER_DEPLOY" \
       "autoscaling.keda.sh/paused-replicas=0" --overwrite >/dev/null || true
@@ -260,6 +317,9 @@ case "$cmd" in
   uncorrupt) uncorrupt ;;
   drop) drop ;;
   bypass) bypass ;;
+  readmode) readmode "$@" ;;
+  bump-incumbent) bump_incumbent ;;
+  unbump) unbump ;;
   restore) restore ;;
   *) sed -n '2,20p' "$0"; exit 2 ;;
 esac

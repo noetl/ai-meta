@@ -1,0 +1,28 @@
+# Gate image for the ai-meta#265 phase-B1 kind validation. See the server twin
+# for why the runtime layer is FROM an image already in the node.
+#
+# ⚠ `--features duckdb-integration` is DROPPED. Nothing on the projection
+# mirror or read path touches DuckDB, so it is sound here — and it would not be
+# for a gate exercising a `duckdb` tool step. Said out loud because a silently
+# non-DuckDB worker is the kind of thing a later session inherits as a mystery.
+ARG RUNTIME_BASE=localhost/noetl-worker:265proj
+
+FROM lukemathwalker/cargo-chef:0.1.73-rust-1.91.1-alpine3.22 AS chef
+WORKDIR /app
+RUN apk update && \
+    apk add --no-cache clang lld llvm musl-dev make pkgconfig openssl-dev openssl-libs-static g++ libc-dev
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --bin noetl-worker --bin ehdb-selfcheck
+
+FROM ${RUNTIME_BASE} AS runtime
+WORKDIR /app
+COPY --from=builder /app/target/release/noetl-worker ./noetl-worker
+COPY --from=builder /app/target/release/ehdb-selfcheck ./ehdb-selfcheck
