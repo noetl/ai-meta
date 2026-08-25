@@ -11,6 +11,7 @@
 #   deploy.sh readmode <m>          — B1: NOETL_EHDB_PROJECTION_READ_SOURCE on the server
 #   deploy.sh bump-incumbent        — B1: raise the incumbent's version above the tier's
 #   deploy.sh unbump                — undo bump-incumbent
+#   deploy.sh async <on|off> <secs> — G3: the async mirror + its window, as a PAIR
 #   deploy.sh restore               — released images, EHDB projection env cleared
 #
 # WHY MULTI-REPLICA. The projection tier has no pod-local write path at all
@@ -343,6 +344,26 @@ reset_tier() {
   echo "projection tier emptied (file truncated AND writer restarted)"
 }
 
+
+# G3 — the async mirror and its tolerance window, set TOGETHER.
+#
+# Deliberately one command taking both. The two are a pair (#155, #265 G3) and
+# a helper that could set one without the other is a helper that invites the
+# misconfiguration the code refuses to arm on. The `refusal` arm is the one
+# place they are set apart, and it does so explicitly.
+async_pair() {
+  local mode="$1" secs="${2:-0}"
+  case "$mode" in on|off) ;; *) echo "async must be on|off" >&2; exit 2;; esac
+  local flag=false
+  [ "$mode" = "on" ] && flag=true
+  k set env deploy/noetl-server-rust \
+      NOETL_EHDB_PROJECTION_MIRROR_ASYNC="$flag" \
+      NOETL_EHDB_PROJECTION_PARITY_LAG_TOLERANCE_SECS="$secs"
+  k rollout status deploy/noetl-server-rust --timeout=300s | tail -1
+  wait_server
+  echo "async mirror: $flag, lag tolerance: ${secs}s"
+}
+
 restore() {
   k annotate scaledobject "$WORKER_DEPLOY" \
       "autoscaling.keda.sh/paused-replicas=0" --overwrite >/dev/null || true
@@ -368,6 +389,7 @@ case "$cmd" in
   unbump) unbump ;;
   pin-incumbent) pin_incumbent ;;
   reset-tier) reset_tier ;;
+  async) async_pair "$@" ;;
   restore) restore ;;
   *) sed -n '2,20p' "$0"; exit 2 ;;
 esac
