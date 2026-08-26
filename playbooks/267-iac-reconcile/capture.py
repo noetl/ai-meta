@@ -21,7 +21,23 @@ DROP_ANN = {
     "kubectl.kubernetes.io/last-applied-configuration",
     "deployment.kubernetes.io/revision",
 }
-SECRETISH = re.compile(r"(PASSWORD|TOKEN|SECRET|CREDENTIAL|APIKEY|API_KEY|PRIVATE_KEY|DSN|_PWD)", re.I)
+SECRETISH = re.compile(r"(PASSWORD|TOKEN|SECRET|CREDENTIAL|APIKEY|API_KEY|PRIVATE_KEY|DSN|_PWD|AUDIENCE|CLIENT_ID)", re.I)
+
+# Names the gate would flag, that have been CLASSIFIED public with evidence.
+# This is an allowlist of decided cases, not a relaxation: anything not named
+# here still fails closed, and each entry carries why it is safe.
+#
+#   NOETL_AUTH0_AUDIENCE — holds the Auth0 CLIENT ID, which is public by
+#   construction. Confirmed four independent ways: it is served to browsers in
+#   ci/manifests/gateway/configmap-ui-files.yaml (as `clientId` inside auth.js);
+#   it is VITE_AUTH0_CLIENT_ID in ci/manifests/gui/deployment-prod.yaml, a Vite
+#   var compiled into the shipped bundle; it is DEFAULT_AUTH0_CLIENT_ID in
+#   repos/travel/src/auth/authConfig.ts; and it is a committed plaintext default
+#   in the api_integration/auth0/get_auth0_token playbook. The Auth0 client
+#   SECRET is a different value and lives in the NoETL keychain as `auth0_client`
+#   — it is not, and must never be, a workload env literal.
+#   See docs/rfc/secret-manager-retrieval.md §1.4.
+CLASSIFIED_PUBLIC = {"NOETL_AUTH0_AUDIENCE"}
 
 def scrub_meta(m):
     for k in list(m):
@@ -40,7 +56,11 @@ def check_secrets(obj, where):
     if not t: return bad
     for c in (t["spec"].get("containers") or []) + (t["spec"].get("initContainers") or []):
         for e in c.get("env", []) or []:
-            if SECRETISH.search(e["name"]) and "value" in e:
+            if (
+                SECRETISH.search(e["name"])
+                and "value" in e
+                and e["name"] not in CLASSIFIED_PUBLIC
+            ):
                 bad.append("%s/%s/%s" % (where, c["name"], e["name"]))
     return bad
 

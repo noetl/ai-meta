@@ -263,22 +263,116 @@ gcloud iam service-accounts add-iam-policy-binding   noetl-system-pool@$PROJECT.
 The KSA annotation (`iam.gke.io/gcp-service-account`) is an ordinary manifest
 change and lands via the ops repo — held until approval.
 
-## 4. Staged, reversible rollout
+## 3a. Tier 1 — keychain provider-type inventory and re-registration plan
 
-The invariant throughout: **`secretKeyRef` is not removed until Secret Manager
-retrieval is proven for that workload.** Both paths are live simultaneously, so
-no workload can lose its secret mid-migration.
+**HELD. No re-registration has been executed.**
+
+### 3a.1 Inventory (names + provider type only; no value read)
+
+20 credential aliases in prod. **One is already Secret-Manager-backed.**
+
+| provider type | n | aliases |
+| :-- | --: | :-- |
+| **`secret_manager`** ✅ | 1 | `duffel_token` |
+| `postgres` | 9 | `pg_auth`, `pg_auth_user`, `pg_k8s`, `pg_noetl_k8s`, `pg_demo`, `pg_local`, `pg_trade`, `noetl_ducklake_catalog`, `pg_auth_backup_20260814` |
+| `gcs_service_account` | 3 | `gcs_service_account`, `tradetrend_noetl`, `tradetrend_noetl_sdavwe` |
+| `auth0` | 1 | **`auth0_client`** ← the owner's named case |
+| `gcs_hmac` | 1 | `gcs_hmac_local` |
+| `google_oauth` | 1 | `google_oauth` |
+| `interactive_brokers` | 1 | `ib_paper` |
+| `interactive_brokers_oauth` | 1 | `ib_gateway` |
+| `nats` | 1 | `nats_credential` |
+| `snowflake` | 1 | `sf_test` |
+
+### 3a.2 Not a blanket sweep — triage first
+
+Migrating all 19 uniformly would be wrong. Three of them want a *different*
+answer, and one wants deletion:
+
+| alias(es) | recommendation |
+| :-- | :-- |
+| **`auth0_client`** | **migrate first.** The owner's named case, one credential, proven path |
+| `gcs_service_account`, `tradetrend_noetl`, `tradetrend_noetl_sdavwe` | ⚠ **consider elimination, not migration.** These are long-lived SA keys. The cluster already has Workload Identity; a key that can be *removed* beats a key stored more safely. Moving them to Secret Manager would preserve a credential that should not exist |
+| `pg_auth_backup_20260814` | ⚠ **classify for deletion.** A dated backup alias from 2026-08-14. Migrating it teaches the new system a value nobody intends to use |
+| `pg_local`, `pg_demo` | confirm they are prod-relevant before migrating; they read as dev fixtures |
+| remaining `pg_*`, `nats_credential`, `sf_test`, `ib_*`, `google_oauth`, `gcs_hmac_local` | migrate, lowest-blast-radius first, once `auth0_client` has proven the runbook |
+
+### 3a.3 Per-credential runbook, with verify-before-flip
+
+Worked for `auth0_client`; identical in shape for the rest.
+
+**Step 1 — owner creates the secret and grants access** (§3, Tier 1). Nothing in
+NoETL changes.
+
+**Step 2 — verify the wallet resolves it, WITHOUT touching the live alias.**
+Register a *temporary* alias (`auth0_client_sm`) of type `secret_manager`
+pointing at the new SM secret, and exercise it by passing the playbook's existing
+parameter — `get_auth0_token` already takes `auth0_credential`, defaulting to
+`auth0_client`, so this needs **no playbook edit**:
+
+```
+auth0_credential=auth0_client_sm
+```
+
+Proof it resolved, by effect and telemetry, never by value:
+- `noetl_secret_resolve_duration_seconds_count{provider="gcp"}` **increments**;
+- `noetl_secret_residency_check_total` increments;
+- the Auth0 token call returns 200 — a wrong or unreadable secret returns 401,
+  which is unambiguous;
+- ⚠ **negative control:** point the temp alias at a non-existent SM secret and
+  confirm it *fails*. Without this arm, a passing run only proves *something*
+  supplied a secret — which is precisely the ambiguity that hid #297 for 36
+  hours.
+
+**Step 3 — flip the live alias.** Re-register `auth0_client` as type
+`secret_manager` against the same SM secret. Consumers are unchanged: they
+reference the alias, and the alias is the indirection that makes the backend
+swappable.
+
+**Step 4 — re-verify** with the default parameter (no override), then delete the
+temporary alias.
+
+### 3a.4 Reversibility — stated honestly
+
+Rollback is **re-register `auth0_client` back to type `auth0`**. That restores
+the previous behaviour, but ⚠ **it requires the owner to re-supply the secret
+value**, because the inline value is not retained once the record becomes
+Secret-Manager-backed. So this is reversible *with owner action*, not free.
+
+The gap is avoidable: keep the temporary `*_sm` alias until the flip has soaked,
+so a rollback can instead point consumers at the still-working original by
+parameter, with no value handling at all. **Recommended.**
+
+## 4. Tier 2 — staged, reversible rollout for the bootstrap secrets
+
+**HELD. Nothing shipped or applied.**
+
+The three that cannot use the wallet: `NOETL_ENCRYPTION_KEY`,
+`POSTGRES_PASSWORD`, `NOETL_INTERNAL_API_TOKEN`.
+
+⚠ The chicken-and-egg, restated because it is the whole justification for
+treating these differently: **the wallet reads the credential table over
+Postgres, and Postgres needs `POSTGRES_PASSWORD`.** `NOETL_ENCRYPTION_KEY`
+protects that table's contents. A credential the credential system depends on
+cannot be stored in the credential system. This is structural, not an oversight,
+and it is why Tier 2 gets CSI file-mounts rather than the Tier-1 answer.
+
+The invariant throughout: **`secretKeyRef` is not removed until file-based
+retrieval is proven for that workload.** Both paths live simultaneously, so no
+workload can lose its secret mid-migration.
 
 | stage | action | proof | rollback |
 | :-- | :-- | :-- | :-- |
-| **0** | Owner runs §3 | secrets exist, accessor bound | delete bindings |
-| **1** | Ship the `_FILE` helper in server + worker, `_FILE` unset everywhere | unit tests incl. "unset `_FILE` uses env"; kind e2e green | inert by construction — no behaviour change |
-| **2** | Kind: fake-GCP or a real secret, mount CSI, set `_FILE` on **one** workload | workload authenticates; internal API calls succeed | unset `_FILE` |
-| **3** | Prod, **`noetl-worker-system-pool` first** — one secret, one workload, and the pool with no user traffic | see §4.1 | unset `_FILE`; `secretKeyRef` still present |
-| **4** | Prod `shard1`, then `noetl-server-rust` (3 secrets — encryption key last, it is the highest-blast-radius) | as §4.1 per secret | as above |
-| **5** | Soak ≥1 week. Only then remove `secretKeyRef` and delete the K8s Secrets | a re-apply diff stays no-op | recreate the Secret from Secret Manager |
+| **0** | Owner runs §3 Tier 2 | secrets exist, accessor bound per secret | delete bindings |
+| **1** | Ship the `<VAR>_FILE` helper; `_FILE` unset everywhere | unit tests incl. "unset `_FILE` uses env"; kind e2e green | inert by construction |
+| **2** | Kind: mount CSI, set `_FILE` on **one** workload | §4.1 | unset `_FILE` |
+| **3** | Prod **`noetl-worker-system-pool` first** — one secret, and the pool with no user traffic | §4.1 | unset `_FILE`; `secretKeyRef` still present |
+| **4** | `shard1`, then `noetl-server-rust` — **`NOETL_ENCRYPTION_KEY` last**, highest blast radius | §4.1 per secret | as above |
+| **5** | Soak ≥1 week, then remove `secretKeyRef` and delete the K8s Secrets | a re-apply diff stays no-op | recreate the Secret from Secret Manager |
 
-Stage 5 is the only irreversible step and gets its own explicit approval.
+⚠ **Stage 5 is the only irreversible step** and gets its own explicit approval.
+⚠ Stages 2–4 change the pod spec, so each must **re-capture and re-prove the
+no-op diff in the same change set** (§5), or this undoes noetl/ai-meta#267.
 
 ### 4.1 Verifying authentication **without exposing a value**
 
