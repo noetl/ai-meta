@@ -598,7 +598,38 @@ does, and produced digest-identical state to the Postgres read on 6/6. The
 credential constraint is honoured by construction: no credential-bearing
 `context` is persisted into any tier store.
 
-### 9.7 Still open after this phase
+### 9.7 Status — Phase 3 re-scoped and **complete**
+
+| | |
+| :-- | :-- |
+| Recovery equivalence | **6/6**, digest-identical, live in-flight executions |
+| Fold equivalence (§8.2) | 8/8 |
+| Fold determinism (§8.1) | established |
+| Repair property (§9.4) | characterised, positive-control-proven |
+| Refusal arms | `stored_ahead_of_spine`, `spine_refused` — both exercised |
+| Postgres on the control-flow read path | **retired, including recovery** |
+| Landed | noetl/server#358 → **v3.88.0**, ai-meta@`0b6fba5a` |
+| Activation on prod | none — `NOETL_EHDB_PROJECTION_READ_SOURCE` undeclared |
+
+### 9.8 Three decisions held for the owner
+
+Recorded here so they do not evaporate between sessions. **None of these has
+been acted on.**
+
+1. **#297 fix location — (a) / (b) / (c).** The mechanism is named and corrected
+   (`ClaimClient::claim_next` → `read_frame` with no timeout, parking forever
+   while the worker holds the source mutex across the await). The fix is built
+   but not merged, pending the choice between (a) the ehdb-feed dependency fix
+   plus re-pin, (b) a worker-side timeout wrapper, (c) both.
+2. **Disposition of `noetl.projection_snapshot`.** §9.5 measured it empty by
+   construction on the off-server topology — a Postgres recovery on current prod
+   would find nothing. Whether to drop the table, restore a writer, or leave it
+   and treat §3.1's hazard as accepted is an owner call.
+3. **Whether any merged fix reaches prod.** Everything on this track is merged
+   inert and released but **not deployed**. A prod roll needs its own explicit
+   go, separately from the merges.
+
+### 9.9 Still open after this phase
 
 - **The credential limit.** No credential-exercising execution was run in kind,
   so whether the spine carries unmasked resolved `context` under a real provider
