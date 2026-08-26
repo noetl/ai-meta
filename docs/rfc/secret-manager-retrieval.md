@@ -72,148 +72,196 @@ service accounts, so this is an extension rather than a greenfield; and the two
 workloads that hold the token are exactly the two with **no** GSA, so they need
 bindings created.
 
-### 1.4 Classification summary
+### 1.4 Auth0 — corrected after the owner's clarification
 
-| class | items | destination |
-| :-- | :-- | :-- |
-| **True secret** | `NOETL_ENCRYPTION_KEY`, `NOETL_PASSWORD` (→ `POSTGRES_PASSWORD`), `noetl-internal-api-token/token` | Secret Manager |
-| **Public identifier** | `NOETL_AUTH0_AUDIENCE` (an Auth0 client id), `NOETL_AUTH0_DOMAIN` (a bare hostname) | stay literal, in the repo |
-| **Unclassified** | `noetl-secret/POSTGRES_PASSWORD` (bound by nothing) | decide before migrating |
+> *"Auth0 used for playbooks like travel service when they need it for app."*
 
-Business-logic third-party credentials (Duffel, HotelBeds, Amadeus, …) are **not
-in this inventory** and must not be moved here: per
-`agents/rules/execution-model.md` they live in the NoETL **keychain**, referenced
-by alias from playbook steps, and never in worker/gateway env. This RFC covers
-**platform** credentials only.
+Auth0 is **two flows**, and they have opposite secret postures.
+
+**Flow A — browser login (travel, GUI).** `repos/travel/src/auth/authConfig.ts`
+carries `DEFAULT_AUTH0_CLIENT_ID` and reads `VITE_AUTH0_CLIENT_ID` — a Vite
+variable, so it is compiled into the shipped bundle. Same value in the gateway's
+browser-served `auth.js` ConfigMap and the GUI deployment.
+
+**Flow B — machine-to-machine token minting.**
+`api_integration/auth0/get_auth0_token` (registered in prod, along with 8 more
+Auth0 playbooks) POSTs `https://<domain>/oauth/token`. Its own header says
+*"Retrieves Auth0 client secret from NoETL credential table"*, and it takes the
+secret by **keychain alias**:
+
+```yaml
+keychain:
+  - name: auth0_credentials
+    kind: credential
+    credential: "{{ auth0_credential }}"    # default: auth0_client
+...
+        client_secret: "{{ keychain.auth0_credentials.client_secret }}"
+```
+
+The client id appears there too, as a **committed plaintext default** — a fourth
+independent confirmation that it is public.
+
+### 1.4.1 The three buckets
+
+| bucket | material | where it lives | destination |
+| :-- | :-- | :-- | :-- |
+| **(a) public identifier** | `NOETL_AUTH0_AUDIENCE` (holds the **client id**), `NOETL_AUTH0_DOMAIN`, `VITE_AUTH0_*` | workload env literal; browser bundle; playbook defaults | **stay literal.** Already public in four places |
+| **(b) platform-auth secret** | `NOETL_ENCRYPTION_KEY`, `POSTGRES_PASSWORD`, `NOETL_INTERNAL_API_TOKEN` | workload env via `secretKeyRef` | **Secret Manager** — see §2 |
+| **(c) external-subsystem secret** | **`auth0_client`** (type `auth0`), plus genuine third-party creds (`duffel_token`, `gcs_*`, `sf_test`, `ib_*`) | **NoETL keychain**, alias-referenced at execution time | keychain — whose backend is **already Secret Manager**, see §1.5 |
+
+**Where the line falls, and why the Auth0 client secret is (c) not (b):** the test
+is not "whose authentication is it" but **who consumes the credential**. The
+Auth0 client secret is consumed by a *playbook step* calling an *external*
+endpoint (`https://<tenant>.auth0.com/oauth/token`).
+`agents/rules/data-access-boundary.md` names this exact case as the textbook
+external-subsystem exception. That the resulting token then authenticates a
+caller to the app does not move the *secret* — Auth0 is still the counterparty.
+
+⚠ Confirmed present in prod: `auth0_client`, type `auth0`. It was **not** missed
+by §1.1 — §1.1 scanned workload env, and this correctly is not there.
+
+⚠ `NOETL_AUTH0_AUDIENCE` is misnamed: it holds a client id. In
+`get_auth0_token` the *audience* is a URL (`https://<domain>/me/`), a different
+value. Worth a rename; tracked separately.
+
+### 1.5 ⚠⚠ The wallet already exists — and is already resolving from Secret Manager on prod
+
+The most important finding of this pass, and it reshapes the whole RFC.
+`repos/server/src/secrets/` is a full **Secrets Wallet** (noetl/ai-meta#61):
+
+```
+gcp.rs  gcp_iam.rs  aws.rs  aws_sts.rs  azure.rs  azure_oauth.rs  vault.rs  k8s.rs
+mod.rs (trait SecretProvider)  registry.rs  resolver.rs  broker.rs  residency.rs  dynamic.rs
+```
+
+It authenticates via **Workload Identity read from the GKE metadata server** — the
+mechanism §3 was about to propose building. It is reached in production code
+(`services/credential.rs` → `build_secret_provider`,
+`resolve_keychain_entry_with_meta`; `handlers/credentials.rs` → broker registry).
+
+And it is **live on prod right now**:
+
+```
+noetl_secret_resolve_duration_seconds_bucket{provider="gcp",le="0.5"}  36
+noetl_secret_residency_check_total{decision="allowed_no_policy"}       36
+```
+
+**36 GCP Secret Manager resolutions**, with residency checks. `duffel_token` is
+already registered as type **`secret_manager`**.
+
+So for keychain credentials the owner's directive is **already implemented and
+in use**. What remains is smaller and sharper than this RFC first assumed.
 
 ---
 
-## 2. Options
+## 2. Options — re-scoped around what already exists
 
-### (a) Secret Manager CSI driver — GKE add-on `secrets-store-csi-driver-provider-gcp`
+§1.5 changes the question. There are **two tiers**, and only one of them is an
+open problem.
 
-Secrets are mounted as **files** in the pod via Workload Identity.
+### Tier 1 — keychain credentials: **already solved, one migration left**
 
-| | |
+`auth0_client`, `duffel_token`, `gcs_*`, `sf_test`, `ib_*`, `pg_*` — resolved at
+execution time through the Secrets Wallet, which already speaks GCP Secret
+Manager over Workload Identity and has done so 36 times on prod.
+
+The only work here is **re-registering `auth0_client` from type `auth0` to type
+`secret_manager`**, exactly as `duffel_token` already is. No new infrastructure,
+no new code, no pod-spec change — a credential-record change plus an owner-run
+`gcloud secrets create`. The playbooks are untouched: they reference the alias,
+and the alias is the indirection that makes the backend swappable.
+
+### Tier 2 — bootstrap secrets: the genuine gap
+
+`NOETL_ENCRYPTION_KEY`, `POSTGRES_PASSWORD`, `NOETL_INTERNAL_API_TOKEN`.
+
+These cannot use the wallet, and the reason is structural rather than
+incidental: **the wallet needs Postgres to read the credential table, and
+Postgres needs `POSTGRES_PASSWORD`.** A credential that the credential system
+depends on cannot be stored in the credential system. Same for
+`NOETL_ENCRYPTION_KEY`, which protects the stored credentials themselves. This
+is a bootstrap problem, not an oversight.
+
+So Tier 2 needs delivery *before* the process can reach its own machinery:
+
+| option | verdict |
 | :-- | :-- |
-| ➕ | The only option that keeps the secret **out of etcd**, which is the actual security gain |
-| ➕ | Google-managed add-on on Autopilot; no operator to run or patch |
-| ➕ | Rotation by re-mount, no redeploy |
-| ➖ | Pod-spec change per workload (CSI volume + mount) |
-| ➖ | Delivers **files**; NoETL reads **env**, so it needs a small app-side read |
+| **(a) Secret Manager CSI add-on**, mounted as files | **recommended.** Keeps the secret out of etcd — the actual security gain. Delivered by the kubelet before the container starts, so no startup network call and nothing to time out |
+| **(b) External Secrets Operator** | rejected. Syncs SM → K8s Secret, so the secret **stays in etcd**; Secret Manager becomes the source of truth but not the storage boundary. An operator to run on a security-critical path for most of the benefit forgone |
+| **(c) app-level SM client at startup** | rejected **for Tier 2 specifically**. It is already the Tier-1 answer and works well there — but at boot it would put a blocking network dependency in front of Postgres connect. #297 is a fresh reminder of what an unbounded startup dependency costs. The CSI file is present or absent; there is no call to hang |
 
-### (b) External Secrets Operator — sync Secret Manager → K8s Secret
+### Recommendation
 
-| | |
-| :-- | :-- |
-| ➕ | Zero app change and zero pod-spec change — existing `secretKeyRef` keeps working |
-| ➕ | Very standard, large community |
-| ➖ | **The secret still lands in etcd.** Secret Manager becomes the source of truth but not the storage boundary — most of the security benefit is not realised |
-| ➖ | A third-party operator to run, upgrade and monitor on a security-critical path |
+- **Tier 1:** re-register `auth0_client` as `secret_manager`. Uses the proven path.
+- **Tier 2:** GKE Secret Manager CSI add-on + a small shared Rust helper honouring
+  `<VAR>_FILE` (`<VAR>_FILE` if set and readable → else `<VAR>` → else today's
+  error). The convention is well-trodden (Docker secrets, the official Postgres
+  images), and **both paths coexist**, which is what makes every stage
+  reversible: until `_FILE` is set, each workload behaves exactly as today.
 
-### (c) App-level retrieval in Rust via Workload Identity
-
-| | |
-| :-- | :-- |
-| ➕ | Strongest posture; no K8s Secret at all |
-| ➕ | Matches the house preference for Rust libraries |
-| ➖ | Every binary takes an SM client, retry, caching and rotation policy |
-| ➖ | Adds a **hard startup dependency on Secret Manager availability** to the dispatch path. #297 is a fresh reminder of what a blocking dependency at startup costs when it is unreachable |
-| ➖ | Most code, most surface, on the most sensitive path |
-
-### Recommendation — **(a), with a ~20-line shared Rust helper**
-
-Take the GKE-native CSI add-on and add one shared helper honouring a
-`<VAR>_FILE` convention:
-
-```
-NOETL_INTERNAL_API_TOKEN_FILE=/var/secrets/internal-api-token   # preferred if set
-NOETL_INTERNAL_API_TOKEN=<from secretKeyRef>                    # existing fallback
-```
-
-Resolution order: `<VAR>_FILE` if set and readable → else `<VAR>` → else the
-existing error. The `_FILE` convention is well-trodden (Docker secrets, the
-official Postgres images), so this is not a bespoke mechanism.
-
-Why this rather than (b) or pure (c):
-
-- It realises the **actual** security goal — the secret stops living in etcd,
-  which (b) does not deliver.
-- It gets there with one shared helper instead of an SM SDK, retry policy and
-  rotation logic in every binary, so it honours the Rust preference **without**
-  putting a network dependency on Secret Manager in front of startup. The pod
-  either has the file or it does not; there is no call to time out.
-- **Both paths coexist**, which is what makes the rollout reversible: until
-  `_FILE` is set, every workload behaves exactly as it does today.
-
----
+The revised migration set is therefore **3 workload-env secrets + 1 credential
+re-registration** — not the wholesale re-plumbing the first draft implied.
 
 ## 3. Workload Identity + IAM — commands **for the owner to run**
 
-Not run by me. Per the standing boundary I do not create or modify IAM,
-service accounts, or grants.
+Not run by me. I do not create or modify IAM, service accounts, or grants.
 
-⚠ Use the right account — `shastaratech@gmail.com` for `shastaratech-noetl-prod`
-(a two-session "permission gate" once turned out to be the wrong gcloud account).
+⚠ Use `--account=shastaratech@gmail.com` for `shastaratech-noetl-prod`. A
+two-session "permission gate" once turned out to be the wrong gcloud account.
+
+⚠ Never pass a secret value as a command-line argument — arguments reach shell
+history and Cloud Audit Logs argument capture. Pipe from a file and shred it.
 
 ```bash
 PROJECT=shastaratech-noetl-prod
 ACCOUNT=shastaratech@gmail.com
 NS=noetl
-
-# 0. Enable the API and the GKE add-on (one-time, cluster-wide).
-gcloud services enable secretmanager.googleapis.com \
-  --project=$PROJECT --account=$ACCOUNT
-
-gcloud container clusters update noetl-prod-autopilot \
-  --region=us-central1 --project=$PROJECT --account=$ACCOUNT \
-  --enable-secret-manager
-
-# 1. Create the secrets in Secret Manager.
-#    ⚠ Do NOT paste values on a command line — they land in shell history and in
-#    Cloud Audit Logs argument capture. Pipe from a file and shred it.
-for S in noetl-internal-api-token noetl-encryption-key noetl-postgres-password; do
-  gcloud secrets create $S --replication-policy=automatic \
-    --project=$PROJECT --account=$ACCOUNT
-done
-# then, per secret:
-#   gcloud secrets versions add <name> --data-file=<path> --project=$PROJECT --account=$ACCOUNT
-#   shred -u <path>
-
-# 2. Service accounts for the two workloads that have none.
-gcloud iam service-accounts create noetl-system-pool \
-  --display-name="NoETL system pool (Secret Manager reader)" \
-  --project=$PROJECT --account=$ACCOUNT
-
-# 3. Grant accessor PER SECRET — never project-wide secretmanager.admin.
-for S in noetl-internal-api-token noetl-encryption-key noetl-postgres-password; do
-  gcloud secrets add-iam-policy-binding $S \
-    --member="serviceAccount:noetl-result-tier@$PROJECT.iam.gserviceaccount.com" \
-    --role="roles/secretmanager.secretAccessor" \
-    --project=$PROJECT --account=$ACCOUNT
-done
-# the system pool needs ONLY the internal API token
-gcloud secrets add-iam-policy-binding noetl-internal-api-token \
-  --member="serviceAccount:noetl-system-pool@$PROJECT.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor" \
-  --project=$PROJECT --account=$ACCOUNT
-
-# 4. Bind KSA -> GSA (Workload Identity).
-gcloud iam service-accounts add-iam-policy-binding \
-  noetl-system-pool@$PROJECT.iam.gserviceaccount.com \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="serviceAccount:$PROJECT.svc.id.goog[$NS/noetl-worker-system-pool]" \
-  --project=$PROJECT --account=$ACCOUNT
 ```
 
-`noetl-server-rust` already has `noetl-result-tier@` bound to its KSA, so it
-needs step 3 only.
+### Tier 1 — the Auth0 client secret (one credential, proven path)
 
-After the owner's grants, the KSA annotation
-(`iam.gke.io/gcp-service-account`) is an ordinary manifest change and lands via
-the ops repo like any other — held until approval.
+`noetl-server-rust` already runs as `noetl-result-tier@…` via Workload Identity,
+and that identity already resolves `duffel_token` from Secret Manager 36 times
+over. So this is a secret plus one grant.
 
----
+```bash
+gcloud secrets create noetl-auth0-client-secret --replication-policy=automatic   --project=$PROJECT --account=$ACCOUNT
+# value added from a file, never inline:
+#   gcloud secrets versions add noetl-auth0-client-secret --data-file=<path> #     --project=$PROJECT --account=$ACCOUNT && shred -u <path>
+
+gcloud secrets add-iam-policy-binding noetl-auth0-client-secret   --member="serviceAccount:noetl-result-tier@$PROJECT.iam.gserviceaccount.com"   --role="roles/secretmanager.secretAccessor"   --project=$PROJECT --account=$ACCOUNT
+```
+
+Then `auth0_client` is re-registered as type `secret_manager` pointing at that
+secret — a NoETL credential-record change, held until approval.
+
+### Tier 2 — bootstrap secrets (new plumbing)
+
+```bash
+# cluster add-on, one-time
+gcloud services enable secretmanager.googleapis.com   --project=$PROJECT --account=$ACCOUNT
+gcloud container clusters update noetl-prod-autopilot   --region=us-central1 --project=$PROJECT --account=$ACCOUNT   --enable-secret-manager
+
+# the three bootstrap secrets
+for S in noetl-internal-api-token noetl-encryption-key noetl-postgres-password; do
+  gcloud secrets create $S --replication-policy=automatic     --project=$PROJECT --account=$ACCOUNT
+done
+
+# the system pool has no GSA today (§1.3)
+gcloud iam service-accounts create noetl-system-pool   --display-name="NoETL system pool (Secret Manager reader)"   --project=$PROJECT --account=$ACCOUNT
+
+# accessor PER SECRET — never project-wide secretmanager.admin
+for S in noetl-internal-api-token noetl-encryption-key noetl-postgres-password; do
+  gcloud secrets add-iam-policy-binding $S     --member="serviceAccount:noetl-result-tier@$PROJECT.iam.gserviceaccount.com"     --role="roles/secretmanager.secretAccessor"     --project=$PROJECT --account=$ACCOUNT
+done
+gcloud secrets add-iam-policy-binding noetl-internal-api-token   --member="serviceAccount:noetl-system-pool@$PROJECT.iam.gserviceaccount.com"   --role="roles/secretmanager.secretAccessor"   --project=$PROJECT --account=$ACCOUNT
+
+# bind KSA -> GSA
+gcloud iam service-accounts add-iam-policy-binding   noetl-system-pool@$PROJECT.iam.gserviceaccount.com   --role="roles/iam.workloadIdentityUser"   --member="serviceAccount:$PROJECT.svc.id.goog[$NS/noetl-worker-system-pool]"   --project=$PROJECT --account=$ACCOUNT
+```
+
+The KSA annotation (`iam.gke.io/gcp-service-account`) is an ordinary manifest
+change and lands via the ops repo — held until approval.
 
 ## 4. Staged, reversible rollout
 
@@ -255,27 +303,34 @@ Never `echo` the file. Prove it by *effect* and by *shape*:
 
 ## 5. Scope, sequencing, and interaction with the item-3 reconcile
 
-**Order matters.** The ops manifests were just reconciled so a `kubectl apply` is
-a proven no-op (`noetl/ops#272`, `#273`). Every stage here changes the pod spec
-(CSI volume, mount, `_FILE` env, KSA annotation), so **each stage must re-capture
-and re-prove the no-op diff in the same change set**, or this RFC reintroduces
-precisely the #267 drift that work removed.
+**The item-3 fold is still correct.** `NOETL_AUTH0_AUDIENCE` is a public Auth0
+client id, confirmed four independent ways (browser-served `auth.js` ConfigMap;
+`VITE_AUTH0_CLIENT_ID` compiled into the GUI bundle; `DEFAULT_AUTH0_CLIENT_ID` in
+travel's `authConfig.ts`; a committed plaintext default in the
+`get_auth0_token` playbook). `server-rust-deployment-prod.yaml` can be folded
+into the reconcile **as a literal**, matching the ConfigMap. That closes item 3
+and needs no Secret Manager work.
 
-`server-rust-deployment-prod.yaml` is still excluded from the reconcile pending
-classification of `NOETL_AUTH0_AUDIENCE`. §1.2 resolves that: it is a **public
-Auth0 client id**, so the server manifest can be folded in **as a literal**,
-matching the browser-served ConfigMap. That closes item 3 and is independent of
-this RFC — it needs no Secret Manager work.
+**Order matters.** ops#272 / #273 made a `kubectl apply` a proven no-op. Tier 2
+changes the pod spec (CSI volume, mount, `_FILE` env, KSA annotation), so **each
+stage must re-capture and re-prove the no-op diff in the same change set**, or
+this RFC reintroduces the #267 drift that work removed. Tier 1 touches no
+manifest at all.
 
-**Explicitly out of scope:** business-logic third-party credentials. They belong
-to the NoETL keychain by `execution-model.md`, and pulling them into platform
-Secret Manager plumbing would violate that boundary.
+**Sequencing.** Tier 1 first — it is one credential record on a proven path, and
+it delivers the owner's directive for the Auth0 secret immediately. Tier 2
+second, staged per §4.
 
-**Not established.** Rotation cadence, whether `noetl-secret/POSTGRES_PASSWORD`
-is live or orphaned, and whether the user pool and writer *should* carry an
-internal API token (§1.3 shows they do not). Each is a decision, not a finding.
+**Out of scope.** Genuine third-party business credentials stay keychain-resolved
+per `execution-model.md`; their *backend* is already Secret Manager where
+registered as `secret_manager`, which is the correct shape — the alias is the
+boundary, the backend is an implementation detail.
 
----
+**Not established.** Rotation cadence; whether `noetl-secret/POSTGRES_PASSWORD`
+is live or orphaned (§1.1); whether the user pool and writer should carry an
+internal API token at all (§1.3); and whether the other 18 keychain credentials
+should also move to `secret_manager` type, which is a per-credential decision
+rather than a blanket one.
 
 ## Related
 
