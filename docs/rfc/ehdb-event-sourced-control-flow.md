@@ -335,3 +335,112 @@ Not scheduled, not designed in detail here, and deliberately so.
 
 The honest summary: **A3 is the piece the reframing supersedes.** Everything else
 either carries over or becomes more important.
+
+---
+
+## 8. What the kind build actually established (2026-08-26)
+
+Everything in this section is measured. Where something was **not** established,
+it says so.
+
+### 8.1 Three findings that changed the design
+
+**A. The fold was not deterministic — and the cause was a loader bug, not the fold.**
+`noetl.event.created_at` is a Postgres `timestamp` (tz-less); the loader read it
+as `timestamptz`, failed on **every row**, and substituted `Utc::now()`. Since
+`apply_event` propagates `event.timestamp` into `started_at` / `completed_at` /
+`entered_at`, every rebuild embedded *the moment of the rebuild*. Folding the
+same in-memory events twice was byte-identical; folding two reads of the same
+rows was not. Fixed in server#357; two replicas diverging on those timestamps is
+tracked independently as [#296](https://github.com/noetl/ai-meta/issues/296).
+
+**B. The WAL spine is a LIVE-execution structure.** The index evicts a chain on a
+terminal event, by design — a completed execution never needs driving again. So
+a completed execution has **no spine** and correctly reads `incomplete`.
+Anything folded from the spine must be folded **while the execution is in
+flight**, which is the right shape for control flow: it reads state to decide
+the *next* step, and a completed execution has none.
+
+**C. The spine relay must target the pool that runs the drain.**
+`NOETL_EHDB_WORKER_QUERY_URL` feeds both tier reads and the spine read, but only
+the system pool runs the state-builder. Pointed at the user pool every spine read
+returns `incomplete` — silently, because an empty index answers `incomplete`, not
+`unavailable`. Measured two-sided on one live execution: system `[ok n=6]`, user
+`[incomplete n=0]`.
+
+### 8.2 §4.2's correctness definition survives — after one correction
+
+The equivalence arm (WAL-spine fold vs incumbent fold, same execution, same
+version, same event count) **failed** on exactly one field:
+
+```
+/started_at: "2026-08-26T05:01:33.645451Z" != "2026-08-26T05:01:33.645451448Z"
+                          └ µs (Postgres)              └ ns (WAL envelope)
+```
+
+Postgres `timestamp` stores microseconds; the event-bus envelope carries
+nanoseconds. Normalised on the fold's **input** — not inside the digest, because
+that would leave the states genuinely different while agreeing on a hash, and
+the drive reads those fields directly.
+
+⚠ The first attempt **truncated** and got 1 of 4. Postgres **rounds half-up**;
+the residual was exactly one microsecond. With rounding: **8 / 8 MATCH,
+diffs=0**, controls green before and after.
+
+### 8.3 Option 3 stands — the WAL spine IS a sufficient source
+
+The check that mattered, since the event-log tier failed exactly here. Input
+field presence, both sides, same execution:
+
+| | Postgres | WAL spine |
+| :-- | --: | --: |
+| events | 4 | 4 |
+| **with_context** | **2** | **2** |
+| with_result | 2 | 2 |
+| with_meta | 4 | 4 |
+| with_attempt | 1 | 1 |
+| distinct_created_at | 4 | 4 |
+
+Identical on every field the fold reads, **including `context`** — the field the
+event-log tier lacks and which `apply_event` reads in six places (that tier
+diverged 12/12). **§4.4's source question is settled: the WAL spine.**
+
+And the worker does **not** fold. `WorkflowState` lives in the server's
+`orchestrate-core`; the worker serves the ordered spine and the server folds it.
+A second fold implementation is the one thing an event-sourced read model must
+not have.
+
+### 8.4 Fail-closed vocabulary — every verdict fired for real
+
+One fresh **live** execution per arm (a crafted record shadows the next arm
+otherwise — newest-by-version wins):
+
+| arm | verdict | fault? |
+| :-- | :-- | :-- |
+| agreement | `match` | no |
+| same version, different content | `digest_mismatch` | **yes** |
+| claims an event the log lacks | `stored_ahead_of_spine` | **yes** |
+| materialiser lagging | `stored_behind_spine` | no |
+| nothing materialised | `no_stored_record` | no |
+| terminal execution, no spine | `spine_refused` | no |
+
+**6 / 6 pinned labels reachable** — confirmed on `/metrics`, not inferred. A
+verdict that has never fired is indistinguishable from one that cannot.
+
+### 8.5 NOT established
+
+- **Identical command streams, flag OFF vs ON.** Control flow is not yet wired
+  to read the WAL-sourced projection — the materialiser that writes folded
+  records into the tier is not built — so there is no "ON" to compare. The
+  equivalence result (§8.2) is the input to that claim, not the claim.
+- **The credential limit is not closed.** Redone on the rebuilt kind population:
+  374 events, 89 with context, **0** credential-shaped, 0 bearer-shaped, 0
+  PEM-shaped. That zero is **vacuous** — the rebuilt population contains no
+  credential-using executions, so the check had nothing to find and no positive
+  control. The substantive measurement remains the pre-truncation one: 25,653
+  events, 8 credential-shaped rows, **every one a bare 26-character alias**, not
+  resolved material. Closing this properly needs a population that exercises
+  credentials.
+- **The `unavailable` branch is unreachable** in the normal worker shape
+  (`worker.rs` always passes `Some(index)`), so an empty index answers
+  `incomplete`. Measured, not assumed.
