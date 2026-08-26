@@ -287,6 +287,13 @@ healthy case must also be shown, or a comparator that always defers passes).
 
 ### Phase 3 — control flow reads it, in kind, behind a flag
 
+> **Re-scoped 2026-08-26.** The flag-OFF/flag-ON command-stream gate below does
+> not fit the topology this actually runs on, and §9 replaces it. The short
+> version: on the off-server topology the drive is *already* WAL-sourced and
+> never calls `load_latest`, so turning the flag on changes nothing to compare.
+> The read that was still on Postgres is **recovery**. Read §9 instead of this
+> section; it is kept for the record of what was originally planned.
+
 `NOETL_STATE_SOURCE=projection`, default off. The drive obtains state from the
 tier; on any §4.3 condition it **defers**.
 
@@ -433,6 +440,10 @@ verdict that has never fired is indistinguishable from one that cannot.
   to read the WAL-sourced projection — the materialiser that writes folded
   records into the tier is not built — so there is no "ON" to compare. The
   equivalence result (§8.2) is the input to that claim, not the claim.
+  *(Superseded 2026-08-26: the materialiser now exists, and §9.1 explains why
+  this comparison cannot be constructed on the off-server topology at all —
+  arm A never calls `load_latest`, so both sides of an OFF/ON gate would miss
+  the code under test. §9.3 is the gate that replaces it.)*
 - **The credential limit is not closed.** Redone on the rebuilt kind population:
   374 events, 89 with context, **0** credential-shaped, 0 bearer-shaped, 0
   PEM-shaped. That zero is **vacuous** — the rebuilt population contains no
@@ -444,3 +455,161 @@ verdict that has never fired is indistinguishable from one that cannot.
 - **The `unavailable` branch is unreachable** in the normal worker shape
   (`worker.rs` always passes `Some(index)`), so an empty index answers
   `incomplete`. Measured, not assumed.
+
+---
+
+## 9. Phase 3, re-anchored — recovery is the read that was left (2026-08-26)
+
+Owner decision, and the reason the section above is superseded:
+
+> Go with Option 3 — re-scope Phase 3. Since control flow is already
+> WAL-sourced on the off-server topology, the remaining work is to make the
+> durable EHDB read model also the source for the **recovery** path
+> (`load_latest`), retiring the Postgres projection from the control-flow read
+> path entirely, including recovery.
+
+### 9.1 Why the original gate could not be run
+
+Phase 3 as written asks for the same executions under flag OFF and flag ON, with
+identical command streams. Building it revealed that on the topology in question
+there is no OFF/ON distinction to make.
+
+`trigger_orchestrator_inner` has two arms. Arm A — the stateless off-server drive
+— walks the spine and **never calls `load_latest`**. Arm B is the server-built
+fallback, and `load_latest` is *its* read. With
+`NOETL_STATE_BUILDER=offserver` + `SOURCE=ehdb`, kind takes arm A on every
+execution:
+
+```
+orchestrate_drive_total{stage="applied"} 1
+orchestrate_drive_total{stage="applied_stateless"}   ← absent
+```
+
+Flipping `READ_SOURCE` therefore moved nothing, and a gate showing "identical
+command streams" would have passed because **neither** side exercised the code
+under test. That is the shape this repo has been bitten by repeatedly: a check
+that cannot fire is indistinguishable from a check that passes.
+
+### 9.2 What was actually left on Postgres
+
+Recovery. When the stateless drive is unavailable — replica restart, spine
+eviction, arm-B fallback — control flow reloads state via `load_latest`, and that
+read went to `noetl.projection_snapshot`. Retiring the Postgres projection from
+the control-flow read path *entirely* means retiring it there too.
+
+`ReadSource::Wal` is the fourth mode. The Wal branch of `load_latest`:
+
+1. `materialize_from_wal` folds the spine into a projection record;
+2. `wal_projection_state` verifies the stored record against the spine;
+3. on **any** non-`Match` verdict it returns `Ok(None)` — and **never** reads
+   Postgres as a fallback.
+
+So recovery either returns state just verified against the event log, or returns
+nothing and the execution does not advance. There is no path from a doubtful
+record to a drive decision. Guarded by
+`the_wal_mode_never_reaches_for_the_incumbent`.
+
+### 9.3 The gate that fits — recovery equivalence, 6/6
+
+Same execution, same version, both sources, digest-compared, on live in-flight
+executions. `recovery_read_comparison` runs `load_incumbent` (the pre-#265
+Postgres read) and `wal_projection_state` side by side and reports `agree` only
+when both are present and equal.
+
+```
+run1: AGREE pg=91714aea046d wal=91714aea046d verdict=match
+run2: AGREE pg=7cba69b4050a wal=7cba69b4050a verdict=match
+run3: AGREE pg=25f5903f6dde wal=25f5903f6dde verdict=match
+run4: AGREE pg=34cca1d3dc08 wal=34cca1d3dc08 verdict=match
+run5: AGREE pg=27b97f6a37f1 wal=27b97f6a37f1 verdict=match
+run6: AGREE pg=be85a4c8baa6 wal=be85a4c8baa6 verdict=match
+============ RECOVERY EQUIVALENCE: 6 / 6 comparable ============
+```
+
+Controls green before (`controls_ok=true expected=9 unexpected=0`) and after.
+Together with the 8/8 fold equivalence (§8.2) and fold determinism (§8.1), this
+is the equivalence evidence the owner asked to lean on.
+
+### 9.4 The fault arms — and the one that inverted
+
+Three of four behaved as designed; two "failures" turned out to be a **design
+property that had not been stated**, and finding out which required a positive
+control rather than a re-run.
+
+Because `wal_projection_state` **materialises before it verifies**, an injected
+stale or divergent record is overwritten by a fresh correct fold *before* the
+read happens. Newest-by-version wins, so the bad record is simply gone. Recovery
+reports `match` — which is exactly what a test that failed to inject anything
+would also report.
+
+The control that separates those two explanations: one injected-bad execution,
+two endpoints, one of which does not materialise.
+
+| endpoint | materialises? | verdict |
+| :-- | :-- | :-- |
+| `/api/ehdb/projection-refold/executions/{id}` | no | `digest_mismatch` |
+| `/api/ehdb/projection-recovery/{id}` | **yes** | `match` |
+
+The fault was present and was detected. It was **corrected, not missed**.
+
+That makes the honest statement about this path: it **repairs** on stale and
+divergent, and **refuses** on what a re-fold cannot fix. Both refusals were
+exercised:
+
+```
+PASS ahead of the log   verdict=stored_ahead_of_spine  REFUSED (wal_present=false)
+PASS spine_refused                                     REFUSED (wal_present=false)
+```
+
+`stored_ahead_of_spine` survives repair precisely because it claims a higher
+version than the log can justify — the one case where the stored record is not
+merely behind the truth but asserts something the event log does not contain.
+Refusing there is the correct and non-negotiable behaviour.
+
+Repair is a **stronger** property than refusal — control flow gets correct state
+instead of stalling — but it changes which verdicts are reachable on this path,
+and that had to be recorded rather than left as two red lines in a gate log.
+
+### 9.5 The finding that matters most
+
+The Postgres recovery source is **empty by construction** on this topology:
+
+```
+noetl_ehdb_projection_snapshot_gate_total{outcome="written"} 0
+noetl_projection_advanced_total                             0
+```
+
+Nothing on the off-server path writes `noetl.projection_snapshot`. The rows that
+existed came from manual `POST /api/internal/projection/advance` calls made to
+populate the comparison side of the gate. Without them, the gate's first run was
+`0/6` with `pg=-` on every execution.
+
+So the durable EHDB read model is not merely *equivalent* for recovery — it is
+the **only source with data in it**. A recovery on the current prod topology
+would find nothing in Postgres. This is the same hazard §3.1 flagged from the
+other direction, now measured: the Postgres projection is not a working fallback
+being kept warm, it is an empty table being kept.
+
+### 9.6 Option 3 still stands
+
+Nothing in this phase argued for widening the tier's `mirror_payload` to carry
+`context`. The recovery fold reads the same `SLIM_EVENT_KEYS` spine the drive
+does, and produced digest-identical state to the Postgres read on 6/6. The
+credential constraint is honoured by construction: no credential-bearing
+`context` is persisted into any tier store.
+
+### 9.7 Still open after this phase
+
+- **The credential limit.** No credential-exercising execution was run in kind,
+  so whether the spine carries unmasked resolved `context` under a real provider
+  call is **unestablished**. The standing evidence remains the pre-truncation
+  scan: 25,653 events, 8 credential-shaped rows, every one a bare 26-character
+  alias rather than resolved material. Closing it needs a population that
+  exercises credentials — deliberately not driven here, since that means a real
+  provider call.
+- **Disposition of `noetl.projection_snapshot`.** §9.5 makes it an empty table on
+  the live topology. Dropping it, or restoring a writer, is an owner call and is
+  not made here.
+- **Phase 4 (prod shadow) and Phase 5 (cutover)** are unchanged and untouched.
+  `NOETL_EHDB_PROJECTION_READ_SOURCE` is undeclared on prod; server#358 is inert
+  on merge.
