@@ -6,57 +6,125 @@ grants, or secret values, and I never see the values.
 Two independent blocks. **Block A** unblocks the `auth0_client` migration.
 **Block B** unblocks Tier 2. They can be run in either order, or A alone.
 
+## The project — determined from the live setup, not assumed
+
+**All prod secrets go in `shastaratech-noetl-prod`** (project number
+`986938120811`). Everything already colocates there:
+
+| thing | project | how established |
+| :-- | :-- | :-- |
+| GKE cluster | `shastaratech-noetl-prod` | context `gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot` |
+| `noetl-result-tier@…` (server GSA) | `shastaratech-noetl-prod` | KSA annotation `iam.gke.io/gcp-service-account` |
+| `noetl-worker-mcp@…` (worker GSA) | `shastaratech-noetl-prod` | same |
+| the secrets the wallet already resolves | `shastaratech-noetl-prod` | `duffel-api-test` = `projects/986938120811/secrets/duffel-api-test` |
+
+So this **extends the proven path** — no cross-project IAM, and the Workload
+Identity pool (`shastaratech-noetl-prod.svc.id.goog`) already matches.
+
+⚠⚠ **The ops mirror disagrees, and it is wrong.**
+`repos/ops/automation/agents/mcp/duffel.yaml` defaults `google_project` to
+`noetl-demo-19700101` — the **retired** project (noetl/ai-meta#234). The **live
+registered** playbook `automation/agents/mcp/duffel` **v19** uses
+`shastaratech-noetl-prod`. This is the noetl/ai-meta#295 pattern again: the
+inline/live copy is authoritative and the mirror has drifted. Do not take the
+project from the ops repo.
+
+⚠ The retired project still holds secrets with **colliding names**, including a
+`NOETL_ENCRYPTION_KEY`. A grant or reference aimed at the wrong project fails in
+the worst way available — it resolves *something*, or nothing, without saying
+which project it looked in.
+
+**Do not scatter prod secrets** into `shastaratech-sandbox`, `-ai-lab`,
+`-obs-prod`, `-youtube-prod`, `-web-*` or `-dns-prod`. Those are different
+trust and blast-radius domains. Dev/kind secrets belong in
+`shastaratech-noetl-dev`, kept separate from prod.
+
 ## Before you start
 
 ```bash
-export PROJECT=shastaratech-noetl-prod
+export PROJECT=shastaratech-noetl-prod      # <- determined above; do not change
 export ACCOUNT=shastaratech@gmail.com
 export NS=noetl
 export REGION=us-central1
 export CLUSTER=noetl-prod-autopilot
 
-gcloud config list account --format='value(core.account)'   # sanity-check WHO you are
+gcloud config list account --format='value(core.account)'   # WHO am I
+gcloud projects describe $PROJECT --account=$ACCOUNT --format='value(projectNumber)'
+# expect: 986938120811
 ```
+
+⚠ **Every command below carries `--project=$PROJECT` explicitly.** A secret
+created in the wrong project does not error — it simply never resolves, and the
+failure surfaces far from its cause.
 
 ⚠ **Use `--account=$ACCOUNT`.** A two-session "permission gate" on
 noetl/ai-meta#204 turned out to be the wrong gcloud account, not a missing
 permission.
 
 ⚠ **Never pass a secret value as a command-line argument.** Arguments land in
-shell history and in Cloud Audit Logs argument capture. Every command below
-reads from a file, and shreds it afterwards.
+shell history and in Cloud Audit Logs argument capture. Every command reads from
+a file and shreds it.
 
-⚠ **Do not paste any secret value into chat.** Nothing below asks you to, and I
-have no need for any of these values at any point.
+⚠ **Do not paste any secret value into chat.** Nothing below asks you to.
 
----
+## Block A — `auth0_client`
 
-## Block A — `auth0_client` (the narrow migration)
+### ⚠ Most of this is already done
 
-### A1. Enable the API (idempotent; skip if already on)
+Checked against Secret Manager: **the secret already exists** in
+`shastaratech-noetl-prod`.
+
+```
+NAME           CREATED
+auth0_client   2026-08-27T01:59:45     version 1, state=enabled
+```
+
+So **A1 and A2 below are already satisfied** — and note the name is
+`auth0_client` (underscore), not the `noetl-auth0-client-secret` this document
+originally proposed. **Use the existing name.** Creating a second secret for the
+same material would leave two sources of truth and a rotation that only updates
+one.
+
+**One thing is missing, and it is the thing that makes it work:**
+
+```
+$ gcloud secrets get-iam-policy auth0_client --project=$PROJECT
+ROLE  MEMBERS
+              <- empty. Nothing can read it.
+```
+
+### A3. Grant accessor on that secret to the server's existing GSA — **the only step needed**
 
 ```bash
-gcloud services enable secretmanager.googleapis.com \
+gcloud secrets add-iam-policy-binding auth0_client \
+  --member="serviceAccount:noetl-result-tier@$PROJECT.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
   --project=$PROJECT --account=$ACCOUNT
 ```
 
-### A2. Create the secret and add the value from a file
+⚠ Per-secret grant, deliberately. Never `roles/secretmanager.admin`, never
+project-wide `secretAccessor`.
 
-The value is the **Auth0 application client secret** — the same value currently
-stored inline in the NoETL credential alias `auth0_client`. Retrieve it from your
-Auth0 dashboard (Applications → the app whose client id ends `…hbhbDN` → Client
-Secret), or from wherever you hold it today.
+### A4. Confirm (safe — metadata only, never the value)
 
 ```bash
-gcloud secrets create noetl-auth0-client-secret \
-  --replication-policy=automatic \
-  --project=$PROJECT --account=$ACCOUNT
+gcloud secrets get-iam-policy auth0_client \
+  --project=$PROJECT --account=$ACCOUNT \
+  --format='table(bindings.role,bindings.members)'
+# expect: roles/secretmanager.secretAccessor  serviceAccount:noetl-result-tier@...
 
-# write the value to a file — do NOT echo it, do NOT pass it with --data=
+gcloud secrets versions list auth0_client \
+  --project=$PROJECT --account=$ACCOUNT \
+  --format='table(name,state,createTime)'
+# expect: 1  enabled
+```
+
+### If A2 was NOT in fact done (a new secret, or a rotation)
+
+```bash
 umask 077
 cat > /tmp/a0.secret          # paste the value, then Ctrl-D
-gcloud secrets versions add noetl-auth0-client-secret \
-  --data-file=/tmp/a0.secret \
+gcloud secrets versions add auth0_client --data-file=/tmp/a0.secret \
   --project=$PROJECT --account=$ACCOUNT
 shred -u /tmp/a0.secret       # macOS: rm -P /tmp/a0.secret
 ```
@@ -64,41 +132,9 @@ shred -u /tmp/a0.secret       # macOS: rm -P /tmp/a0.secret
 ⚠ `cat > file` then Ctrl-D keeps the value out of shell history. `echo "$V" >`
 does not.
 
-### A3. Grant accessor on **just this secret** to the server's existing GSA
-
-`noetl-server-rust` already runs as `noetl-result-tier@…` via Workload Identity
-and already resolves `duffel_token` from Secret Manager, so no new service
-account or binding is needed — only this grant.
-
-```bash
-gcloud secrets add-iam-policy-binding noetl-auth0-client-secret \
-  --member="serviceAccount:noetl-result-tier@$PROJECT.iam.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor" \
-  --project=$PROJECT --account=$ACCOUNT
-```
-
-⚠ Per-secret grant, deliberately. Never `roles/secretmanager.admin`, and never
-project-wide `secretAccessor`.
-
-### A4. Confirm (safe — prints metadata, never the value)
-
-```bash
-gcloud secrets describe noetl-auth0-client-secret \
-  --project=$PROJECT --account=$ACCOUNT --format='value(name,createTime)'
-
-gcloud secrets versions list noetl-auth0-client-secret \
-  --project=$PROJECT --account=$ACCOUNT --format='table(name,state,createTime)'
-
-gcloud secrets get-iam-policy noetl-auth0-client-secret \
-  --project=$PROJECT --account=$ACCOUNT \
-  --format='table(bindings.role,bindings.members)'
-```
-
-**Then tell me "Block A done."** I will run the verify-before-flip (temporary
-`auth0_client_sm` alias, live resolve check, negative control) and only flip
-`auth0_client` if it passes.
-
----
+**Then tell me "Block A done."** I run verify-before-flip: a temporary
+`auth0_client_sm` alias, a live resolve check, and a negative control — and flip
+`auth0_client` only if it passes.
 
 ## Block B — Tier 2 bootstrap secrets (CSI + `_FILE`)
 
