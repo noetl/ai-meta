@@ -138,10 +138,14 @@ does not.
 
 ## Block B — Tier 2 bootstrap secrets (CSI + `_FILE`)
 
-Unblocks prod stages 3–5 only. Stages 1–2 (inert helper, kind proof) need none
-of this.
+Unblocks prod stages 3–5 only. Stages 1–2 (inert helper, kind proof) need none of
+this and are already done.
 
-### B1. Enable the GKE Secret Manager add-on
+⚠ Every command carries `--project=$PROJECT` (`shastaratech-noetl-prod`) — the
+project established in §"The project". A secret created elsewhere does not error;
+it simply never resolves.
+
+### B1. Enable the GKE Secret Manager CSI add-on
 
 ```bash
 gcloud container clusters update $CLUSTER \
@@ -149,15 +153,13 @@ gcloud container clusters update $CLUSTER \
   --enable-secret-manager
 ```
 
-⚠ This is a **cluster-level** change and may trigger a control-plane update. It
-adds the CSI driver; it changes no workload. Safe to run ahead of everything
-else.
+⚠ Cluster-level; may trigger a control-plane update. It adds the CSI driver and
+changes no workload, so it is safe to run well ahead of everything else.
 
-### B2. Create the three secrets (values from files)
+### B2. Create the three secrets (values from files, never CLI args)
 
 Each value is what the matching Kubernetes Secret holds **today** — copy it from
-there, so the two agree during the dual-run. Read it out yourself; I do not need
-to see it.
+there so the two agree during the dual-run.
 
 ```bash
 for S in noetl-internal-api-token noetl-encryption-key noetl-postgres-password; do
@@ -167,10 +169,10 @@ done
 
 # per secret, one at a time:
 umask 077
-cat > /tmp/v.secret           # paste, Ctrl-D
+cat > /tmp/v.secret            # paste the value, then Ctrl-D
 gcloud secrets versions add <SECRET_NAME> --data-file=/tmp/v.secret \
   --project=$PROJECT --account=$ACCOUNT
-shred -u /tmp/v.secret
+shred -u /tmp/v.secret         # macOS: rm -P /tmp/v.secret
 ```
 
 Mapping from the live Kubernetes Secrets (**by reference**):
@@ -179,17 +181,22 @@ Mapping from the live Kubernetes Secrets (**by reference**):
 | :-- | :-- |
 | `noetl-internal-api-token` | `noetl-internal-api-token` / key `token` |
 | `noetl-encryption-key` | `noetl-secret` / key `NOETL_ENCRYPTION_KEY` |
-| `noetl-postgres-password` | `noetl-secret` / key `NOETL_PASSWORD` |
+| `noetl-postgres-password` | `noetl-secret` / key **`NOETL_PASSWORD`** |
 
-⚠ Note the third: the env var is `POSTGRES_PASSWORD` but the **key** is
-`NOETL_PASSWORD`. `noetl-secret` also holds an unused key literally named
-`POSTGRES_PASSWORD` that nothing binds — do **not** copy that one. See
+⚠⚠ **The third is a trap.** The env var is `POSTGRES_PASSWORD` but the **key** is
+`NOETL_PASSWORD`. `noetl-secret` *also* holds an orphan key literally named
+`POSTGRES_PASSWORD` that **nothing binds** — copying that one produces a secret
+that passes every structural check and fails only on connect. See
 noetl/ai-meta#300.
+
+ℹ️ Plain text is fine for all three — the `_FILE` helper reads a file, not JSON.
+(Unlike a *credential*, which must be a JSON object: that is why
+`auth0-test-user-password` cannot back one as-is.)
 
 ### B3. Service account for the system pool
 
 `noetl-worker-system-pool` and `-shard1` have **no** GSA today, and they are the
-two workloads that hold the internal API token.
+two workloads holding the internal API token.
 
 ```bash
 gcloud iam service-accounts create noetl-system-pool \
@@ -215,29 +222,38 @@ gcloud secrets add-iam-policy-binding noetl-internal-api-token \
   --project=$PROJECT --account=$ACCOUNT
 ```
 
+⚠ Per-secret, never `roles/secretmanager.admin`, never project-wide
+`secretAccessor`.
+
 ### B5. Bind KSA → GSA (Workload Identity)
 
 **Confirmed against the live cluster: both system pools share one Kubernetes
-service account**, `noetl-worker-system-pool`. So this is a single binding, not
-two.
+service account**, so this is a single binding.
 
 ```
 noetl-worker-system-pool          KSA=noetl-worker-system-pool
 noetl-worker-system-pool-shard1   KSA=noetl-worker-system-pool   <- same KSA
+noetl-server-rust                 KSA=noetl-server-rust  -> noetl-result-tier@ (already bound)
 ```
+
+The Workload Identity pool is the cluster's project domain,
+`shastaratech-noetl-prod.svc.id.goog`:
 
 ```bash
-gcloud iam service-accounts add-iam-policy-binding   noetl-system-pool@$PROJECT.iam.gserviceaccount.com   --role="roles/iam.workloadIdentityUser"   --member="serviceAccount:$PROJECT.svc.id.goog[$NS/noetl-worker-system-pool]"   --project=$PROJECT --account=$ACCOUNT
+gcloud iam service-accounts add-iam-policy-binding \
+  noetl-system-pool@$PROJECT.iam.gserviceaccount.com \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="serviceAccount:$PROJECT.svc.id.goog[$NS/noetl-worker-system-pool]" \
+  --project=$PROJECT --account=$ACCOUNT
 ```
 
-⚠ One consequence worth knowing before you run it: because the KSA is shared,
-this grant reaches **both** system pools at once. There is no way to give the
-main pool Secret Manager access without also giving it to shard1 unless they are
-split onto separate KSAs first. For these two — same image, same role, same
-secret — sharing is appropriate.
+⚠ Because the KSA is shared, this grant reaches **both** system pools at once.
+There is no way to give the main pool access without shard1 unless they are split
+onto separate KSAs first. For these two — same image, same role, same secret —
+sharing is appropriate.
 
-ℹ️ `noetl-cmdbus-writer` has **no** service account set (it runs as `default`)
-and needs none here: it holds no secret-sourced env.
+ℹ️ `noetl-cmdbus-writer` runs as `default` and needs nothing here: it holds no
+secret-sourced env.
 
 ### B6. Confirm
 
@@ -247,14 +263,16 @@ for S in noetl-internal-api-token noetl-encryption-key noetl-postgres-password; 
   gcloud secrets get-iam-policy $S --project=$PROJECT --account=$ACCOUNT \
     --format='table(bindings.role,bindings.members)'
 done
+
 gcloud container clusters describe $CLUSTER --region=$REGION \
   --project=$PROJECT --account=$ACCOUNT \
   --format='value(secretManagerConfig.enabled)'
 ```
 
-**Then tell me "Block B done."**
-
----
+**Then tell me "Block B done."** I then run prod stages 3–4 (mount CSI + set
+`_FILE` on the system pool first, re-proving the no-op manifest diff in the same
+change set). **Stage 5 — removing `secretKeyRef` — keeps its own separate
+approval and is the only irreversible step.**
 
 ## Rollback of these commands
 
