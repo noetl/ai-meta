@@ -37,7 +37,17 @@ SECRETISH = re.compile(r"(PASSWORD|TOKEN|SECRET|CREDENTIAL|APIKEY|API_KEY|PRIVAT
 #   SECRET is a different value and lives in the NoETL keychain as `auth0_client`
 #   — it is not, and must never be, a workload env literal.
 #   See docs/rfc/secret-manager-retrieval.md §1.4.
-CLASSIFIED_PUBLIC = {"NOETL_AUTH0_AUDIENCE"}
+#   GATEWAY_AUTH0_CLIENT_ID — the same value, under its honest name. Verified by
+#   sha256 on 2026-08-27 to be byte-identical to three things already public: the
+#   `clientId` in ci/manifests/gateway/configmap-ui-files.yaml (served to
+#   browsers), VITE_AUTH0_CLIENT_ID in ci/manifests/gui/deployment-prod.yaml
+#   (compiled into the shipped bundle), and the prod server's
+#   NOETL_AUTH0_AUDIENCE. That last identity is also standing proof of
+#   noetl/ai-meta#299: the "audience" variable holds a client id.
+#   Allowlisted on the VALUE (digest-matched against already-published copies),
+#   not on the name — a different value under this name would still fail closed
+#   via the entropy rule.
+CLASSIFIED_PUBLIC = {"NOETL_AUTH0_AUDIENCE", "GATEWAY_AUTH0_CLIENT_ID"}
 
 def scrub_meta(m):
     for k in list(m):
