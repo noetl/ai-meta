@@ -49,18 +49,68 @@ def scrub_meta(m):
     else: m.pop("annotations", None)
     return m
 
+
+def _looks_high_entropy(v):
+    """A literal that looks like a resolved secret regardless of its name.
+
+    Deliberately conservative: alphanumeric, long, and high-entropy. A filesystem
+    path fails this on the `/` alone, which is what lets the `_FILE` exemption
+    above be safe.
+    """
+    import math, collections
+    if not isinstance(v, str) or len(v) < 24 or not v.isalnum():
+        return False
+    c = collections.Counter(v)
+    n = len(v)
+    ent = -sum(x / n * math.log2(x / n) for x in c.values())
+    return ent > 3.7
+
+def pod_specs(obj):
+    """Every pod spec inside a workload, whatever its kind.
+
+    A CronJob nests its pod spec one level deeper than everything else
+    (``spec.jobTemplate.spec.template.spec``), and the original version of this
+    function looked only at ``spec.template``.  The effect was not a crash but
+    silence: ``check_secrets`` returned clean for every CronJob because it found
+    no containers to check, and the summary line printed ``env=0`` for a CronJob
+    that plainly sets env vars.  A gate that exists to fail closed was failing
+    open on a whole resource kind.
+    """
+    s = obj.get("spec") or {}
+    out = []
+    t = s.get("template")                      # Deployment / StatefulSet / DaemonSet / ReplicaSet
+    if t and t.get("spec"): out.append(t["spec"])
+    jt = s.get("jobTemplate")                  # CronJob
+    if jt:
+        jts = ((jt.get("spec") or {}).get("template") or {}).get("spec")
+        if jts: out.append(jts)
+    if not out and s.get("containers"): out.append(s)   # bare Pod
+    return out
+
+def containers_of(obj):
+    for ps in pod_specs(obj):
+        for c in (ps.get("containers") or []) + (ps.get("initContainers") or []):
+            yield c
+
 def check_secrets(obj, where):
     """Fail closed on any literal value for a credential-shaped name."""
     bad = []
-    t = obj.get("spec", {}).get("template")
-    if not t: return bad
-    for c in (t["spec"].get("containers") or []) + (t["spec"].get("initContainers") or []):
+    for c in containers_of(obj):
         for e in c.get("env", []) or []:
-            if (
-                SECRETISH.search(e["name"])
-                and "value" in e
-                and e["name"] not in CLASSIFIED_PUBLIC
-            ):
+            if "value" not in e or e["name"] in CLASSIFIED_PUBLIC:
+                continue
+            # A `<VAR>_FILE` variable holds a PATH by construction — that is the
+            # whole point of the convention (noetl/ai-meta#267). The name rule
+            # necessarily matches it, because the path names the credential it
+            # points at, so exempting the name rule here removes a false
+            # positive rather than a check.
+            #
+            # The entropy rule still applies to it: a `_FILE` variable that
+            # somehow held a high-entropy blob instead of a path is exactly the
+            # mistake worth catching, and this exemption does not hide it.
+            name_flag = SECRETISH.search(e["name"]) and not e["name"].endswith("_FILE")
+            entropy_flag = _looks_high_entropy(e["value"])
+            if name_flag or entropy_flag:
                 bad.append("%s/%s/%s" % (where, c["name"], e["name"]))
     return bad
 
@@ -73,6 +123,11 @@ def main():
     scrub_meta(o["metadata"])
     if o["spec"].get("template"):
         scrub_meta(o["spec"]["template"].setdefault("metadata", {}))
+    _jt = o["spec"].get("jobTemplate")
+    if _jt:
+        scrub_meta(_jt.setdefault("metadata", {}))
+        _jtt = (_jt.get("spec") or {}).get("template")
+        if _jtt: scrub_meta(_jtt.setdefault("metadata", {}))
     for vct in o["spec"].get("volumeClaimTemplates", []) or []:
         scrub_meta(vct.setdefault("metadata", {}))
         vct.pop("status", None)
@@ -81,8 +136,7 @@ def main():
         print("SECRET LEAK RISK — literal value on credential-shaped env: %s" % bad, file=sys.stderr)
         sys.exit(2)
     json.dump(o, open(sys.argv[5], "w"), indent=2)
-    t = o["spec"].get("template")
-    cs = (t["spec"].get("containers") or []) if t else []
+    cs = list(containers_of(o))
     refs = sum(1 for c in cs for e in (c.get("env") or []) if "valueFrom" in e)
     envs = sum(len(c.get("env") or []) for c in cs)
     print("  %-34s env=%-3s secretKeyRef/valueFrom=%-3s  -> %s" % (name, envs, refs, sys.argv[5]))
