@@ -121,18 +121,78 @@ kubectl -n noetl exec deploy/noetl-server-rust -c noetl-server -- sh -c \
 # then poll /api/executions for that id — expect COMPLETED, 13 events
 ```
 
-### pgbouncer — the most likely surprise
+### ⚠ pgbouncer — THIS IS THE STEP THAT BREAKS THE ROTATION
 
-`pgbouncer` runs `AUTH_TYPE=scram-sha-256` with **no** mounted secret and **no**
-auth file, which means it should pass client credentials through to Postgres rather
-than storing its own copy. That is inference, not proof — so check it explicitly:
+**Correcting this section, which was wrong and cost a live incident on 2026-08-28.**
 
-```bash
-kubectl -n postgres logs deploy/pgbouncer --since=10m | grep -iE 'auth|password|error' | tail -20
-kubectl -n postgres get pod -l app=pgbouncer
+It previously said pgbouncer "should pass client credentials through to Postgres
+rather than storing its own copy". **That is false.** The inference came from
+finding no auth file — while the `kubectl exec` had silently landed in the
+`cloud-sql-proxy` sidecar instead of the `pgbouncer` container, because no `-c` was
+given. Wrong container, absent file, confident wrong conclusion.
+
+What is actually running in `deploy/pgbouncer`:
+
+```ini
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt      # PLAINTEXT entries, not SCRAM verifiers
 ```
 
-If pgbouncer is rejecting auth, restart it: `kubectl -n postgres rollout restart deploy/pgbouncer`.
+`userlist.txt` holds one line per user — `"noetl" "<password>"` — and the
+`edoburu` entrypoint **generates it from the `DATABASE_URLS` env var** at
+container start.
+
+**Consequence: pgbouncer authenticates the client itself.** Change the password in
+Cloud SQL and Secret Manager only, and the new pod presents the new value,
+pgbouncer rejects it against the stale userlist, and Postgres never sees the
+attempt. The error is `SASL authentication failed`, which reads exactly like a
+Cloud SQL mismatch and sends you to the wrong place. On 2026-08-28 that cost two
+successful `UPDATE_USER` operations and ~80 minutes of a crashlooping control plane
+before the real cause was found.
+
+**So step 3 is not complete until the userlist is updated too.** Do this right
+after `set-password`, before or alongside the pod roll:
+
+```bash
+kubectl -n postgres exec deploy/pgbouncer -c pgbouncer -- \
+  cp /etc/pgbouncer/userlist.txt /etc/pgbouncer/userlist.txt.bak
+
+# rewrite ONLY the target user's line; value arrives on stdin, never on argv
+kubectl -n postgres exec -i deploy/pgbouncer -c pgbouncer -- sh -c '
+  read -r NEW
+  awk -v p="$NEW" '"'"'$1=="\"noetl\"" {print "\"noetl\" \"" p "\""; next} {print}'"'"' \
+    /etc/pgbouncer/userlist.txt > /tmp/ul.new &&
+  cat /tmp/ul.new > /etc/pgbouncer/userlist.txt && rm -f /tmp/ul.new
+' < "$NEWPW"
+
+# confirm the OTHER users are untouched (names + short prefixes only)
+kubectl -n postgres exec deploy/pgbouncer -c pgbouncer -- \
+  awk '{printf "%s %s...\n", $1, substr($2,1,6)}' /etc/pgbouncer/userlist.txt
+
+# RELOAD — re-reads auth_file and does NOT drop pooled connections
+kubectl -n postgres exec deploy/pgbouncer -c pgbouncer -- kill -HUP 1
+```
+
+Prefer **SIGHUP over a restart**: a restart drops the pool *and* regenerates the
+userlist from the unchanged `DATABASE_URLS`, i.e. it puts the stale password back.
+A restart is not a fix here — it is a regression plus an outage.
+
+**⚠ The reload is ephemeral.** Any later pgbouncer restart regenerates
+`userlist.txt` from `DATABASE_URLS`. The durable fix is to update `DATABASE_URLS`
+on the Deployment — which *does* restart pgbouncer and drop the pool, so schedule
+it as a planned change once the server is already on the new value. Better still,
+move those credentials out of Deployment env entirely; they are plaintext there
+today, for every user.
+
+Verify pgbouncer is not the one rejecting:
+
+```bash
+kubectl -n postgres logs deploy/pgbouncer -c pgbouncer --since=10m | grep -iE 'auth|password|error' | tail -20
+```
+
+⚠ Pass `-c pgbouncer`. Without it you get the `cloud-sql-proxy` sidecar, whose
+logs look healthy no matter what pgbouncer is doing — the exact mistake that
+produced the wrong conclusion above.
 
 ## 6. Rollback — only possible by setting the old password back
 
