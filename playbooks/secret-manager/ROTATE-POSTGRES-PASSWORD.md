@@ -19,9 +19,16 @@ the exposure — git history is public and stays public. **Only this rotation do
 2. **The window is between step 3 and pods becoming Ready** (~1–2 min). Existing
    pooled connections through pgbouncer are already authenticated and may survive;
    *new* connections fail until the roll completes.
-3. **The same string is also the NATS password and the Jupyter token** in the repo.
-   NATS is deleted, so nothing is broken by rotating — but do not assume this
-   password is only Postgres's.
+3. **The same string was also the NATS password and the Jupyter token** in the
+   repo. Verified in the cluster: **neither NATS nor Jupyter is deployed** (checked
+   across all 20 namespaces), so there is nothing to rotate for them and nothing
+   breaks. Their exposure is latent, not live.
+   ⚠ The residual this leaves is **reuse outside this cluster** — a laptop, another
+   cluster, a personal NATS or Jupyter. Rotation here does not touch those. Before
+   calling this closed, answer: *where else was this string used?*
+   ⚠ And note the wording: rotation means "the published value no longer works for
+   Postgres", **not** "the exposure is closed". The string stays public permanently
+   — the ecosystem is public by design and visibility is not a lever.
 
 ## Value safety
 
