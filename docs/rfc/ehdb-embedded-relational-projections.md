@@ -1,344 +1,255 @@
-# RFC — an embedded relational-projection layer inside EHDB, for NoETL's internal data only
+# RFC — code-defined, versioned relations inside EHDB (get / put / filter, no SQL)
 
-**Status:** design exploration. No code, no prod change, no cutover.
-**Date:** 2026-08-29
-**Companion to:** `docs/rfc/postgres-to-ehdb-internal-data.md`
+**Status:** design exploration. No code, no dependency, no prod change.
+**Date:** 2026-08-29 · **Revision 2** — supersedes the SQL/SQLite proposal in rev 1.
+**Companion:** `docs/rfc/postgres-to-ehdb-internal-data.md`
 
-**Owner direction:** *"A dedicated relational model support for noetl relations only
-in EHDB — concept inspired by Spanner Omni (a downloadable, self-managed,
-PostgreSQL-dialect, distributed database that runs outside Google Cloud). But ONLY
-for NoETL internal projections, distributed AND embedded into noetl core, with very
-limited functionality covering only noetl's needs — NOT a general relational
-database."*
+**Owner direction (rev 2):** *"We don't need PG dialect at all. We query only the
+relations we have. A new relation = a new version of EHDB. Support only the query
+types we need — it can be simple get / put / and some filters, exposed as an API."*
 
-This RFC **directly revisits** the companion RFC's §4 claim that the catalog and
-credential store should stay in Postgres "because they're relational". That claim
-was weaker than it sounded. §1 below is the evidence.
-
----
-
-## 1. Requirements — what NoETL's internal relational surface *actually* is
-
-Read out of the code, not assumed. Counts are from the `noetl/server` crate.
-
-### 1.1 Catalog — `src/db/queries/catalog.rs`
-
-The whole access pattern:
-
-```sql
--- latest version of a path
-SELECT <cols> FROM noetl.catalog
- WHERE path = $1 [AND archived_at IS NULL]
- ORDER BY version DESC LIMIT 1;
-
--- a specific version
-SELECT <cols> FROM noetl.catalog WHERE path = $1 AND version = $2 [AND archived_at IS NULL];
-
--- list, optionally by kind
-SELECT <cols> FROM noetl.catalog [WHERE kind = $1] [AND archived_at IS NULL]
- ORDER BY created_at DESC;
-
--- next version on register
-SELECT (COALESCE(MAX(version), 0)::smallint + 1)::smallint FROM noetl.catalog WHERE path = $1;
-
-DELETE FROM noetl.catalog WHERE ...;
-```
-
-**"Latest version per path" is `ORDER BY version DESC LIMIT 1`, not a window
-function.** The companion RFC implied a `DISTINCT ON`/`ROW_NUMBER` shape. It is an
-equality predicate, a sort, a limit, one `MAX`, and a nullable-column filter — over
-**1,469 rows**. That is not a relational workload; it is a keyed lookup with an
-ordering.
-
-⚠ One real dialect dependency: the code introspects `information_schema.columns` to
-feature-detect `archived_at`. Any replacement must answer that or the soft-delete
-feature-flag logic breaks.
-
-### 1.2 Credential / keychain — `src/db/queries/credential.rs`
-
-```sql
-SELECT id, name, type, data_encrypted AS data, ... FROM noetl.credential WHERE name = $1;   -- by alias
-SELECT ... FROM noetl.credential WHERE name ILIKE $1 OR description ILIKE $1;               -- search
-SELECT ... FROM noetl.credential;                                                            -- list
-```
-
-Point lookup by key, a substring search, a list. **21 rows.** `keychain` is 806 rows
-with the same shape.
-
-### 1.3 Runtime (worker registration) — `src/services/runtime.rs`
-
-```sql
-SELECT runtime_id FROM noetl.runtime WHERE kind = $1 AND name = $2;
-UPDATE noetl.runtime SET ... ; INSERT INTO noetl.runtime (...) ; DELETE FROM noetl.runtime WHERE kind = $1 AND name = $2;
-SELECT name FROM noetl.runtime WHERE ...;   -- sweeps
-```
-
-Compound-key upsert + delete. **127 rows.**
-
-### 1.4 Projection snapshot — `src/services/orch_snapshot.rs`
-
-Exactly **one** `INSERT INTO noetl.projection_snapshot` site (guarded by a test that
-counts it), read back by `execution_id`. Append + keyed read.
-
-### 1.5 What genuinely needs more
-
-The crate as a whole uses `JOIN` ×54, CTEs ×614, window functions ×9, `GROUP BY`
-×10, `HAVING` ×8, `ON CONFLICT` ×28, `RETURNING` ×31.
-
-**But that complexity is overwhelmingly in the event/execution/dashboard paths, not
-in the four stores above.** And transactions are narrower still:
-
-```
-explicit begin()/commit() sites: 6 — ALL in src/handlers/events.rs
-```
-
-**Transactions are used for event writes only.** The catalog, credential, keychain
-and runtime stores do **no** multi-statement transactions today. That is the single
-most important requirement finding in this RFC.
-
-### 1.6 The minimal surface
-
-| needed | not needed (for these stores) |
-| :-- | :-- |
-| `SELECT` with equality + `AND`/`OR` predicates | JOINs across internal tables |
-| `ORDER BY … LIMIT` | window functions, CTEs |
-| `MAX()` over one column | `GROUP BY` / `HAVING` |
-| `INSERT`, `UPDATE`, `DELETE` by key | multi-statement transactions |
-| `IS NULL` / `IS NOT NULL` | `ON CONFLICT` (used elsewhere, not here) |
-| `ILIKE` substring match | subqueries, `UNION` |
-| types: text, smallint, bigint, timestamptz, jsonb | full PG type system |
-| minimal `information_schema.columns` | the rest of the catalog |
-
-That is perhaps **fifteen** SQL constructs. The owner's "very limited functionality
-covering only noetl's needs" is not hand-waving — it is a genuinely small target.
+This removes the largest cost and the largest risk in rev 1. Recorded plainly
+because it matters: **rev 1 recommended embedding SQLite and treating
+"PostgreSQL-dialect" as the compatibility target. That is now dropped entirely.**
+No query language, no parser, no planner, no dialect surface. The `::` cast
+appearing 7,520 times crate-wide was the warning sign that "PG-dialect compatible"
+is unbounded; rev 2 does not attempt it.
 
 ---
 
-## 2. The key architectural insight — does fold-based distribution hold?
+## 1. The constraint is the design
 
-**The claim:** distribution comes from the event-sourcing itself. Every node
-deterministically folds the shared, already-ordered EHDB event log into its own
-local relational projection. You get distributed relational *reads* without
-distributed consensus, because **ordering was already established by the event-log
-tier** — which is exactly what Spanner spends Paxos-per-transaction achieving.
+Three rules, and each one deletes a category of work:
 
-**Assessment: the insight holds, for reads, and it is the strongest part of this
-proposal.** Three reasons it is credible here specifically:
+1. **Relations are defined in EHDB's own code.** A fixed, typed set. No runtime
+   DDL, no user-defined tables, no schema catalogue to interpret.
+2. **A new or changed relation is a new version of EHDB.** Schema evolution is
+   software release, reviewed and deployed like any other change.
+3. **Each relation exposes a small typed API** — `get` by key, `put`, and a named
+   filter or two — not a query language.
 
-1. **The ordering primitive already exists and is proven.** The event-log tier is
-   `primary` and serving, with `global_sequence` as a total order and a
-   cross-store comparator showing 8,476 events compared, 0 divergence.
-2. **Determinism is already tested.** `canonical_state_digest` and the 6-verdict
-   `ReFoldVerdict` vocabulary exist precisely to assert that two independent folds
-   of the same events agree. That machinery is the correctness proof this design
-   needs, and it was built for a different reason.
-3. **The read-mostly stores dominate.** Catalog 1,469 rows, credential 21, keychain
-   806, runtime 127. A full local fold is milliseconds and megabytes.
+This is deliberately **not a general database**, and the constraint is what makes
+it tractable: there is no optimiser because there are no ad-hoc queries; no type
+coercion because the types are Rust types; no dialect because there is no dialect.
 
-### 2.1 Where it does **not** hold: the writes
+⚠ The honest cost of rule 2: **anything not anticipated requires a release.** For a
+product's own internal schema that is a reasonable trade — it is how the event
+envelope is already versioned. It would be an unreasonable trade for user data,
+which is exactly why `result_store` stays out of scope.
 
-The four stores are **not** all read-mostly, and this is the crux:
+---
 
-| store | write shape | fits fold-to-local? |
+## 2. The per-relation API surface — from the real code
+
+Derived from the public functions in `noetl/server`'s query modules, which *are*
+the existing API. This is the whole surface.
+
+### 2.1 `catalog` — 1,469 rows
+
+| operation | key / filter | today |
 | :-- | :-- | :-- |
-| `projection_snapshot` | derived from events | ✅ **perfectly** — it already *is* a fold |
-| `catalog` | operator registers a playbook | ⚠ mutable, but low-rate and naturally an event (`catalog.registered`, `catalog.archived`) |
-| `runtime` | worker heartbeat/registration | ⚠ high-rate, ephemeral, TTL-ish — an event log is a poor fit for heartbeats |
-| `credential` / `keychain` | operator rotates a secret | 🔴 **worst fit** — see §4.4 |
+| `get_latest(path)` | by `path`, highest `version`, non-archived | `ORDER BY version DESC LIMIT 1` |
+| `get(path, version)` | composite key | equality |
+| `get_by_id(catalog_id)` | surrogate key | equality |
+| `list_versions(path)` | by `path`, ordered | equality + sort |
+| `list(kind?)` | filter on `kind`, ordered by `created_at` | equality on an indexed field |
+| `next_version(path)` | `MAX(version)` for a path | trivially the latest key |
+| `put(entry)` | append a new version | insert |
+| `archive(paths)` / `restore(paths)` | set/clear a marker | soft delete |
+| `delete(paths)` | hard delete | delete |
 
-**Writes must go through the event log**, or the local projections diverge and the
-whole determinism argument collapses. That is fine for catalog (a registration *is*
-an event) and natural for projection_snapshot. It is questionable for `runtime`
-(heartbeats as durable log entries is a write-amplification problem — 127 workers ×
-heartbeat interval, forever) and it is actively wrong for credentials (§4.4).
+**Indexes needed: `path` (primary, with `version`), `kind` (secondary), plus an
+`archived` flag.** No joins, no aggregates beyond "highest version for a key" —
+which in a key-ordered store is just *"last entry in the `path` prefix"*, i.e. free.
 
-### 2.2 The consistency model you actually get
+### 2.2 `projection` — 1,981 rows
 
-**Read-your-writes is not free.** A node that registers a playbook and immediately
-reads it back must either block until its own fold catches up, or read through to
-the log. This is the same lifetime/coverage problem as noetl/ai-meta#307, one layer
-up — and #307 is currently *unsolved*, which is a warning about how easy this class
-of thing is to get subtly wrong.
+| operation | key |
+| :-- | :-- |
+| `get(execution_id)` | primary key |
+| `put(execution_id, snapshot)` | written **by the fold**, one site today |
 
-Practically: catalog registration → execute is exactly that pattern, and it happens
-constantly.
+The smallest possible surface, and already a fold by construction.
 
----
+### 2.3 Explicitly out of scope
 
-## 3. Build options
+| relation | why |
+| :-- | :-- |
+| `credential`, `keychain` | §5.3 — event-sourcing secrets is wrong regardless of storage |
+| `runtime` | §5.4 — heartbeat write-amplification; its API is also the largest (9 methods incl. `heartbeat`, `cleanup_stale`) |
+| `result_store` | business data, out of scope by the vision |
+| `event`, `command` | already EHDB concerns, not relations |
 
-### (a) Minimal SQL/PG-dialect layer in Rust over the projection tier
-
-Fold events → local relational store → hand-written query surface (§1.6).
-
-- ➕ Exactly the owner's brief; no external dependency; composes directly with the
-  tier/fold/comparator machinery already built.
-- ➖ You are writing a query engine. Even fifteen constructs means a parser, a
-  planner (however trivial), predicate evaluation, type coercion, NULL semantics,
-  and `information_schema` shims. And every future need re-opens it.
-- ➖ **The dialect trap:** "PostgreSQL-dialect" is not a bounded target. `::` casts
-  appear 7,520 times in this crate, `AT TIME ZONE` 15 times, `jsonb` 30.
-
-### (b) Embed an existing engine as the local projection store, fed by folds ⭐
-
-Fold events → **SQLite** (or DuckDB) → query with real SQL.
-
-| engine | PG-dialect fit | embeddable in Rust | licence | verdict |
-| :-- | :-- | :-- | :-- | :-- |
-| **SQLite** (`rusqlite`/`libsql`) | *not* PG dialect, but covers §1.6 entirely | ✅ excellent, in-process, single file or `:memory:` | public domain | **recommended** |
-| **DuckDB** | analytic; OLTP-ish point lookups weaker | ✅ good Rust bindings | MIT | good if analytics matter |
-| **pglite / PG-wire embedded** | true PG dialect | ⚠ WASM/Postgres-in-process is heavy and immature in Rust | varies | not yet |
-| **`gluesql`/`datafusion`** | partial SQL, Rust-native | ✅ | Apache-2 | plausible middle ground |
-
-- ➕ Zero query-engine code. Transactions, indexes, NULL semantics, `LIKE` all free.
-- ➕ A local file per node is *exactly* the fold-to-local model.
-- ➖ Not PG dialect — the ~15 constructs port trivially, but the
-  `information_schema` introspection and `::`/`AT TIME ZONE` usages need a shim or
-  rewriting at the call sites.
-- ➖ Adds a C dependency to the worker/server image.
-
-### (c) Run Spanner Omni as a backend
-
-- ➕ Real PG dialect, real distributed transactions.
-- ➖ It is a *distributed database you operate* — the opposite of "embedded into
-  noetl core". It would replace Postgres with something heavier, and re-introduce
-  the external dependency the vision is trying to remove.
-- **Not recommended.** Useful as the *conceptual* reference (self-managed,
-  PG-dialect, runs outside Google Cloud) rather than as the component.
-
-### Recommendation: **(b) with SQLite**, folded from the EHDB event log
-
-The owner's requirement is "limited functionality covering only noetl's needs".
-Option (b) delivers that by *borrowing* a proven engine rather than writing one, and
-the dialect gap is ~15 constructs over four small tables. Option (a) is the same
-outcome with a query engine you now own forever; option (c) is not embedded.
-
-The interesting work is then the **fold → relational materialiser** and the
-**determinism guarantee**, not SQL parsing — which is where the value actually is,
-and where the existing comparator machinery already applies.
+**So the initial target is two relations with roughly a dozen operations between
+them.** That is the true size of this project.
 
 ---
 
-## 4. Feasibility, effort, risk — the honest parts
+## 3. Storage — the recommendation changes, and gets smaller
 
-### 4.1 The dialect scope is the hidden cost
+Rev 1 recommended embedding SQLite. **Without SQL, SQLite's query engine is the
+entire reason to take the dependency — so the recommendation no longer holds.**
 
-`::` cast syntax appears 7,520 times crate-wide. Most is not in these four stores,
-but "PG-dialect compatible" invites unbounded scope. **Bound it explicitly to §1.6
-and treat anything else as a call-site rewrite**, or this becomes a
-Postgres-reimplementation project.
+| option | assessment |
+| :-- | :-- |
+| **(a) Build on the existing EHDB tier primitives** ⭐ | **Recommended.** `ehdb-l0` already describes itself as a *"replicated object-store layer: immutable parts + ClickHouse-style meta-catalog + hot-local/durable-async tiering… **noetl-internal only (fixed datasets)**"*. That is this RFC's philosophy, already written down and shipped. `StoreTier` is already a code-defined enum (`Eventlog`, `Projection`) — **adding a relation is adding a variant, which is literally "a new version of EHDB"**. There is also an existing KV tier (`ehdb/kv.rs`) with `mirror_put` / `serve_primary_cycle`. **Zero new dependencies.** |
+| (b) Embedded KV crate — `redb` / `sled` / `fjall` | Sound, and `redb` in particular is a good fit (pure Rust, single file, typed tables, secondary indexes by convention). But none is in the dependency tree today, and it duplicates tiering, replication and the fold/comparator machinery that `ehdb-l0` already provides. Take this only if (a) proves structurally unable to carry keyed reads. |
+| (c) SQLite / DuckDB | **Withdrawn.** Justified only by a query engine that is no longer required. |
+| (d) Spanner Omni | Still not embedded; still a database you operate. Conceptual reference only. |
 
-### 4.2 Consistency: catalog registration is the sharp edge
-
-Register-then-execute needs read-your-writes. Options: block on fold catch-up
-(latency on a hot path), read-through to the log for catalog specifically, or accept
-a bounded staleness window and make it visible. **This must be designed, not
-discovered** — noetl/ai-meta#307 is a live example of a fold-vs-lifetime mismatch
-that shipped and served nothing for weeks without anyone noticing.
-
-### 4.3 Transactions: better news than expected
-
-Only 6 explicit transaction sites, **all** in the event-write path. The four stores
-need none today. So a local engine with single-statement atomicity is sufficient —
-**provided** that stays true. Worth a guard test asserting no transaction is opened
-against these stores.
-
-### 4.4 ⚠ The credential store — my earlier concern **persists**, and an embedded engine does not resolve it
-
-I raised this in the companion RFC and the owner's direction does not dissolve it,
-so I will restate it plainly rather than let it pass:
-
-- **Event-sourcing a secret store means the history *is* the log.** Every rotation
-  appends; nothing is ever truly deleted. Revocation becomes "append a tombstone",
-  and the superseded ciphertext lives forever in the replicated log. That is the
-  opposite of what a credential store should do — and tonight's incident is a live
-  demonstration of why permanence of credential material matters.
-- **Distribution makes it worse**, not better: fold-to-local means every node holds
-  a full local copy of the credential projection.
-- **The bootstrap cycle stays.** The wallet needs a credential to read credentials.
-  Today that is broken by `POSTGRES_PASSWORD` + CSI files
-  (noetl/ai-meta#267 stage 5). An embedded store changes where the cycle lands, not
-  whether it exists.
-
-**Recommendation: exclude `credential`/`keychain` from this design.** They are 21 +
-806 rows — the smallest stores in the inventory and the least worth moving. Keep
-them in Postgres, or move them to a secret manager directly, but do not event-source
-them. This should be an explicit, stated exception in the vision rather than an
-unexamined omission.
-
-### 4.5 `runtime` is a poor fit for different reasons
-
-Heartbeats are high-rate, ephemeral, and TTL-shaped. Appending every heartbeat to a
-durable replicated log is write amplification for data whose value expires in
-seconds. Either keep it out, or model it as node-local state that is never folded.
-
-### 4.6 Where Postgres remains pragmatic even under this vision
-
-- **Ad-hoc operator SQL during incidents.** Tonight's diagnosis used exactly that.
-  Whatever remains must stay queryable by a human with `psql`, or the migration buys
-  data locality at the cost of a much worse debugging story.
-- **`result_store`** — business data, explicitly out of scope, and genuinely
-  relational.
-- **`credential`/`keychain`** — §4.4.
-
-### 4.7 Effort, honestly
-
-Option (b) is not small. Fold→materialiser, schema definition per store, the
-read-your-writes design, a determinism guarantee equal to the existing
-`ReFoldVerdict` work, call-site rewrites for dialect gaps, and a shadow-then-compare
-rollout per store. This is a **multi-month programme**, not a sprint — and its first
-prerequisite is not code (§5).
+**Recommendation: (a).** `StoreTier` becomes the code-defined relation registry; each
+relation gets a typed accessor module; the existing tier service, mirror, and
+comparator carry replication and verification unchanged.
 
 ---
 
-## 5. Sequencing against #307 and the migration roadmap
+## 4. Distribution — unchanged, and the strongest part
 
-**This is a parallel *design* track but a strictly *downstream* build track.**
+Each relation is a **deterministic fold of the shared, already-ordered event log
+into a per-node local projection**. Reads are local. No consensus.
+
+This works here specifically because ordering is *already solved*: the event-log
+tier is `primary` and serving, `global_sequence` is a total order, and the
+cross-store comparator reports 8,476 events compared with 0 divergence. Spanner
+spends per-transaction Paxos establishing what the event log has already
+established — so the expensive part is simply absent.
+
+The correctness proof also already exists: `canonical_state_digest` and the
+6-verdict `ReFoldVerdict` vocabulary were built to assert that two independent folds
+of the same events agree. That is precisely the guarantee a relation-per-fold design
+needs.
+
+### 4.1 ⭐ The elegant consequence: adding a relation needs no data migration
+
+Because a relation is **only** a fold of the log, a new EHDB version that introduces
+a relation simply **folds the existing log into it on boot**. There is no backfill
+job, no dual-write window, no migration script, no schema-change downtime.
+
+The log is the source of truth; relations are disposable derived state. A relation
+can be dropped and rebuilt, its shape changed in a release, or a bug in its fold
+fixed and the relation simply recomputed — none of which is a data migration.
+
+⚠ Two honest caveats on that elegance:
+
+- **Rebuild cost is bounded by log length, not relation size.** A 1,469-row catalog
+  folded from a multi-GB log is cheap only if the fold can seek or the log is
+  compacted. Worth measuring before relying on boot-time rebuilds.
+- **It only holds for relations whose entire content is derivable from the log.**
+  If any relation accepts a write that is not an event, the property is lost — which
+  is precisely why §5.1 insists writes go through the log.
+
+---
+
+## 5. Writes, and the hard parts that remain
+
+### 5.1 Writes go through the event log
+
+`put` → append event → fold → local relation. Any direct write to a local relation
+breaks determinism, and with it §4.1's no-migration property. This must be an
+enforced invariant, not a convention — a guard test asserting a single write path
+per relation, in the same spirit as the existing test that counts
+`INSERT INTO noetl.projection_snapshot` sites.
+
+### 5.2 ⚠ Read-your-writes — still the sharpest edge
+
+Register a playbook, then immediately execute it. That is a constant pattern, and
+under fold-based writes the local relation may not yet reflect the write.
+
+Options, none free:
+
+1. **Block until the local fold reaches the write's `global_sequence`.** Simple,
+   correct, adds latency to registration.
+2. **Read-through to the log for the catalog specifically** when a sequence newer
+   than the local fold is requested.
+3. **Return the write's sequence to the caller** and let the caller pass it on the
+   subsequent read (a read barrier / "read at ≥ N").
+
+Option 3 is the most honest — it makes the consistency contract explicit at the API
+rather than hiding it — and it composes with the typed API since `put` can simply
+return a sequence.
+
+⚠ This must be **designed**, not discovered. noetl/ai-meta#307 is a live example of
+a fold-vs-lifetime mismatch that shipped, served nothing for weeks, and was found
+only by reading metrics that happened to be zero.
+
+### 5.3 Credentials and keychain — the exclusion stands
+
+The owner's clarification does not touch this objection, so restating it rather than
+letting it lapse:
+
+- **Event-sourcing a secret store makes the history *be* the log.** Rotation
+  appends; revocation becomes a tombstone; superseded ciphertext persists forever,
+  and fold-based distribution replicates it to **every node**.
+- **The bootstrap cycle moves rather than disappears.** The wallet needs a
+  credential to read credentials; today that is broken by `POSTGRES_PASSWORD` +
+  CSI files (noetl/ai-meta#267 stage 5).
+- They are also the *least* worth moving: 21 and 806 rows.
+
+**Recommendation: exclude them explicitly and state the exception in the vision.**
+
+### 5.4 `runtime` — excluded for a different reason
+
+Heartbeats are high-rate, ephemeral and TTL-shaped. Appending each to a durable
+replicated log is write amplification for data whose value expires in seconds. Its
+API is also the largest of the candidates (9 methods including `heartbeat`,
+`cleanup_stale`, `update_status`). Either keep it in Postgres or model it as
+node-local state that is never folded.
+
+### 5.5 What is genuinely hard, in order
+
+1. **Read-your-writes semantics** (§5.2) — the real design work.
+2. **Fold determinism across versions.** If v2 of EHDB changes a relation's shape,
+   two nodes on different versions fold the same log into *different* relations
+   during a rolling upgrade. The event envelope has versioning discipline; relations
+   will need the same, and it is not automatic.
+3. **Boot-time rebuild cost** (§4.1 caveat).
+4. **Losing ad-hoc SQL.** Operators query these tables during incidents — tonight
+   included. A typed get/put/filter API is not a substitute for `psql` when
+   something is wrong. **Mitigation should be designed in**: a read-only debug
+   endpoint that can dump a relation, or keep a Postgres mirror for humans.
+
+---
+
+## 6. Sequencing — unchanged
 
 ```
-#307 recovery serves            ← PREREQUISITE for everything below
+#307 recovery serves            ← PREREQUISITE
    └── projection tier proven with real comparator coverage
-          └── fold→relational materialiser (this RFC), shadowed
-                 └── catalog on EHDB relational projection
-                        └── runtime / small tables (if at all)
-                               └── (credential/keychain: excluded, §4.4)
+          └── relation-fold materialiser (this RFC), shadowed
+                 └── catalog as the first relation
+                        └── (projection second — it is already a fold)
+                               └── credential / keychain / runtime: EXCLUDED
 ```
 
-**Why #307 gates it:** this entire design rests on "deterministic folds of an
-ordered log produce agreeing local state". Today the projection recovery fold
-**serves nothing** — every read is `spine_refused`, comparator coverage is zero. You
-cannot build a relational layer on a fold whose correctness you currently cannot
-measure.
+This design rests entirely on "deterministic folds of an ordered log produce
+agreeing local state". Today the projection recovery fold **serves nothing** — every
+read is `spine_refused`, comparator coverage is zero. **You cannot build relations on
+a fold whose correctness you cannot currently measure.**
 
-That also sharpens the #307 choice further than the companion RFC did:
-
-- **Option 3** (accept in-flight-only recovery) does not merely fail to align — it
-  **forecloses this RFC entirely**, because there would be no working fold to
-  materialise from.
-- **Option 2** (comparator reads the WAL/tier directly) is the one that yields the
-  measurement infrastructure this design needs.
-
-**Recommended immediate step: none of this. Resolve #307 first**, then prototype the
-fold→SQLite materialiser for `catalog` alone, behind a shadow comparator, and
-measure divergence before proposing a cutover.
+That sharpens #307 again: **option 3 (accept in-flight-only recovery) forecloses
+this design**, because there would be no working fold to materialise from. Option 2
+yields the measurement infrastructure this needs.
 
 ---
 
-## 6. Summary
+## 7. Summary
 
-- The **requirements are genuinely small** — ~15 SQL constructs over four tables,
-  and the catalog is a keyed lookup, not a relational workload. My earlier
-  "it's relational, leave it in Postgres" was overstated for the catalog.
-- The **fold-based distribution insight holds for reads** and is well supported by
-  machinery that already exists. It does **not** hold uniformly for writes.
-- **Recommended build: embed SQLite as the local projection store, fed by
-  deterministic folds** — borrow the engine, own the materialiser.
-- **Exclude credentials/keychain** and probably `runtime`; say so explicitly.
-- **#307 is the prerequisite**, and option 3 would foreclose this design.
+- **No SQL, no dialect, no parser.** Rev 1's SQLite recommendation is withdrawn —
+  without a query language its query engine has no purpose.
+- **Two relations, ~a dozen operations**, is the real initial scope.
+- **Build on the existing `ehdb-l0` tier primitives** — it already describes itself
+  as "noetl-internal only (fixed datasets)", and `StoreTier` is already the
+  code-defined registry the owner's "new relation = new EHDB version" implies. Zero
+  new dependencies.
+- **Fold-based distribution holds for reads**, and yields the no-migration property:
+  a new version folds the existing log into the new relation on boot.
+- **Remaining hard parts:** read-your-writes, cross-version fold determinism during
+  rolling upgrades, boot rebuild cost, and losing `psql` for incident work.
+- **Excluded and stated:** credentials/keychain, runtime, result_store.
 
-## 7. Not done
+## 8. Not done
 
-No code, no dependency added, no prod change. Tactical items remain parked pending
-the owner: the #307 option choice, the weak-credential rotation
+No code, no dependency, no prod change. Parked pending the owner: the
+noetl/ai-meta#307 option choice, the weak-credential rotation
 (`playbooks/secret-manager/ROTATE-WEAK-DB-CREDENTIALS.md`), and the dead-data
-cleanup (`outbox`, `projection`).
+cleanup (`outbox` 247 MB dead since 2026-06-11; `projection` 0 rows).
