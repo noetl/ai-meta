@@ -23,6 +23,53 @@ DROP_ANN = {
 }
 SECRETISH = re.compile(r"(PASSWORD|TOKEN|SECRET|CREDENTIAL|APIKEY|API_KEY|PRIVATE_KEY|DSN|_PWD|AUDIENCE|CLIENT_ID)", re.I)
 
+# A credential embedded in a connection URL — `postgres://user:pass@host`.
+#
+# This shape defeated the name rule entirely: the env var is called
+# DATABASE_URLS, which matches nothing in SECRETISH, and the value is a URL
+# rather than a bare secret, so the entropy rule did not fire either. The
+# 2026-08-28 sanitization pass therefore reported that file clean while it
+# carried plaintext passwords for four database users, one of them the postgres
+# SUPERUSER (noetl/ai-meta#310).
+#
+# A placeholder or a template expression is not a finding; a literal is.
+URL_CRED = re.compile(
+    r"(?:postgres|postgresql|mysql|amqp|amqps|redis|rediss|mongodb|nats|http|https)"
+    r"://[^:/\s\"']+:([^@\s\"']+)@"
+)
+# Not a finding: anything that is plainly a substitution rather than a value.
+# Covers `{}` / `{name}` format slots, `{{jinja}}`, `$VAR`, `${VAR}`, `$(cmd)`,
+# `%s` / `%(name)s`, angle-bracket placeholders, and the usual literals.
+#
+# The first version of this missed `{}` and `$(...)` and flagged both as real —
+# caught by the truth-table control below rather than in review, which is the
+# reason the control exists.
+URL_CRED_PLACEHOLDER = re.compile(
+    r"""(?ix)
+    ^(?:
+        \$\{ | \$\( | \$[A-Za-z_] |     # $VAR  ${VAR}  $(cmd)
+        \{ |                             # {}  {name}  {{jinja}}
+        % |                               # %s  %(name)s
+        < |                               # <password>
+        REPLACE_ME | CHANGEME | PLACEHOLDER | TODO |
+        x{3,} | \*+ |
+        password | pass | user
+    )"""
+)
+
+
+def url_embedded_credentials(value):
+    """Literal passwords inside connection URLs in `value`.
+
+    Returns the offending user-visible spans, never the secret itself.
+    """
+    out = []
+    for pw in URL_CRED.findall(value or ""):
+        if URL_CRED_PLACEHOLDER.match(pw):
+            continue
+        out.append(len(pw))
+    return out
+
 # Names the gate would flag, that have been CLASSIFIED public with evidence.
 # This is an allowlist of decided cases, not a relaxation: anything not named
 # here still fails closed, and each entry carries why it is safe.
@@ -120,7 +167,11 @@ def check_secrets(obj, where):
             # mistake worth catching, and this exemption does not hide it.
             name_flag = SECRETISH.search(e["name"]) and not e["name"].endswith("_FILE")
             entropy_flag = _looks_high_entropy(e["value"])
-            if name_flag or entropy_flag:
+            # A URL-embedded credential passes BOTH rules above: the variable is
+            # named for the URL (DATABASE_URLS), not the secret, and the value is
+            # a URL rather than a high-entropy blob.
+            url_flag = bool(url_embedded_credentials(e["value"]))
+            if name_flag or entropy_flag or url_flag:
                 bad.append("%s/%s/%s" % (where, c["name"], e["name"]))
     return bad
 

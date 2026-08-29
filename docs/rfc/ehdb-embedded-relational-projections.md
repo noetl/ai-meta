@@ -1,7 +1,7 @@
 # RFC — code-defined, versioned relations inside EHDB (get / put / filter, no SQL)
 
 **Status:** design exploration. No code, no dependency, no prod change.
-**Date:** 2026-08-29 · **Revision 2** — supersedes the SQL/SQLite proposal in rev 1.
+**Date:** 2026-08-28 · **Revision 2** — supersedes the SQL/SQLite proposal in rev 1.
 **Companion:** `docs/rfc/postgres-to-ehdb-internal-data.md`
 
 **Owner direction (rev 2):** *"We don't need PG dialect at all. We query only the
