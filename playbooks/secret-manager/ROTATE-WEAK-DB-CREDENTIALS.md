@@ -18,6 +18,44 @@ of them are also published:
 
 Both properties hold independently: these need rotating even ignoring the exposure.
 
+## Current state — measured on prod 2026-08-29 (lengths only, no values read)
+
+```
+pgbouncer /etc/pgbouncer/userlist.txt
+  "noetl"    -> 44 chars   ← already rotated; Secret Manager is 44 bytes
+  "demo"     ->  4 chars
+  "auth"     ->  4 chars
+  "postgres" ->  4 chars   ← SUPERUSER
+```
+
+That is the evidence, not an inference: three four-character passwords, one of
+them on the superuser. The `noetl` app password is done and is **not** in scope
+here.
+
+## ⚠⚠ What changed since this runbook was written — the pgbouncer step is now DIFFERENT
+
+The 2026-08-28 rotation was completed with an **ephemeral SIGHUP reload** of the
+userlist. On 2026-08-29 Autopilot rescheduled the pod, the entrypoint regenerated
+the userlist from the stale inline `DATABASE_URLS`, and **the whole platform lost
+database auth for ~12 hours** ([#311](https://github.com/noetl/ai-meta/issues/311)).
+
+pgbouncer now seeds the **`noetl`** entry from a Secret Manager CSI mount before
+the image entrypoint runs, so that user survives a reschedule. **The other three
+still come from the inline `DATABASE_URLS` literal**, which means:
+
+- rotating `demo` / `auth` / `postgres` still requires the userlist step below, **and**
+- a SIGHUP reload for those three is **still ephemeral** — the next reschedule
+  reverts them exactly as it did on 2026-08-29.
+
+**So for these three the durable fix is to update `DATABASE_URLS` itself** (a
+Deployment change, which restarts pgbouncer and drops the pool — schedule it),
+or to extend the CSI seeding to cover them. A reload alone will be undone by the
+next Autopilot move, and this time you will know why.
+
+⚠ Verify the `noetl` entry still reads **44 chars** after any pgbouncer change.
+If it reads 4, the CSI seeding has been lost and prod is minutes from the #311
+outage again.
+
 ## ⚠ THE STEP THAT BREAKS ROTATIONS — read before starting
 
 On 2026-08-28 the `noetl` rotation appeared to fail against Cloud SQL. It had not.
