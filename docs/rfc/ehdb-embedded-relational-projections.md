@@ -62,14 +62,23 @@ the existing API. This is the whole surface.
 `archived` flag.** No joins, no aggregates beyond "highest version for a key" —
 which in a key-ordered store is just *"last entry in the `path` prefix"*, i.e. free.
 
-### 2.2 `projection` — 1,981 rows
+### 2.2 `projection_snapshot` — 1,981 rows
+
+⚠ **The relation is `noetl.projection_snapshot`, not `noetl.projection`.** The
+latter has 0 rows and no Rust writer at all — it is the dead table that
+noetl/ai-meta#265 found a comparator pointed at, where it agreed with itself
+forever. Naming the wrong one here would reproduce that bug in the design.
 
 | operation | key |
 | :-- | :-- |
 | `get(execution_id)` | primary key |
-| `put(execution_id, snapshot)` | written **by the fold**, one site today |
+| `put(execution_id, snapshot)` | written **by the fold**, exactly one INSERT site today (`src/services/orch_snapshot.rs:97`) |
 
 The smallest possible surface, and already a fold by construction.
+
+⚠ It is also **sparse**: a 13-event execution gets no snapshot row (#265). So a
+relation built on it inherits partial coverage, and any verification must measure
+*coverage* — not only divergence — or an empty relation reads as a clean one.
 
 ### 2.3 Explicitly out of scope
 
