@@ -1,5 +1,17 @@
 # Current Memory
 
+> ## ▶ START HERE — session handoff, 2026-08-29
+>
+> **[`docs/handoff/HANDOFF-2026-08-29.md`](../docs/handoff/HANDOFF-2026-08-29.md)**
+> is the current state snapshot: prod recovered (#311 pgbouncer fixed durably via
+> Secret Manager CSI), the catalog programme (steps 1–3 + backfill, PRs
+> `noetl/worker#289` + `noetl/server#371` open and inert), open decisions, and the
+> traps that will bite. Read it before touching prod or the catalog work.
+>
+> Pointer lives here because `CLAUDE.md` step 4 makes a fresh session read
+> `memory/current.md` — a handoff nothing loads is a document, not a handoff.
+
+
 Snapshot of the working state as of **2026-06-09**. Older detail has
 been compacted into `memory/compactions/` and archived under
 `memory/archive/`. Read the latest compaction
