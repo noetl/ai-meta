@@ -1,0 +1,51 @@
+# Strategic-merge patch for deploy/pgbouncer in namespace `postgres`.
+#
+# What it does: builds pgbouncer's userlist from the Secret Manager CSI mount at
+# container start, BEFORE handing off to the image's own entrypoint.
+#
+# What it deliberately does NOT do: touch DATABASE_URLS. The edoburu entrypoint's
+# `generate_userlist_if_needed` only appends a user that is **not already in the
+# auth file**, so a pre-populated `noetl` entry is never overwritten — the stale
+# password still sitting in DATABASE_URLS becomes inert rather than needing to be
+# edited out. That keeps this change free of any credential handling, and it
+# leaves the demo/auth/postgres entries behaving exactly as they do today (their
+# cleanup is the separate, parked weak-credential work).
+spec:
+  template:
+    spec:
+      containers:
+        - name: pgbouncer
+          # ⚠ The image CMD is discarded by a `command:` override and
+          # /entrypoint.sh ends in `exec "$@"` — so the original argv MUST be
+          # passed explicitly or the container exits 0 with no pgbouncer running.
+          # Verified against the live pod: /proc/1/cmdline is
+          #   /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /etc/pgbouncer
+              # file -> file. The value is never echoed and never enters argv.
+              printf '"%s" "%s"\n' "noetl" "$(cat /mnt/db-secrets/postgres-password)" \
+                > /etc/pgbouncer/userlist.txt
+              chmod 600 /etc/pgbouncer/userlist.txt
+              echo "userlist seeded from CSI mount: $(wc -l < /etc/pgbouncer/userlist.txt) line(s)"
+              exec /entrypoint.sh /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+          env:
+            - name: AUTH_FILE
+              value: /etc/pgbouncer/userlist.txt
+          volumeMounts:
+            - name: db-secrets
+              mountPath: /mnt/db-secrets
+              readOnly: true
+            - name: pgbouncer-conf
+              mountPath: /etc/pgbouncer
+      volumes:
+        - name: db-secrets
+          csi:
+            driver: secrets-store-gke.csi.k8s.io  # GKE add-on driver, NOT the upstream name — verified against the live server pod
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: pgbouncer-db-secrets
+        - name: pgbouncer-conf
+          emptyDir: {}
