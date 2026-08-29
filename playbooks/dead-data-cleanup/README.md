@@ -28,6 +28,34 @@ Counts and sizes only; no row contents leave the database. ⚠ Deliberately **no
 ([#312](https://github.com/noetl/ai-meta/issues/312)), and a cleanup that started
 by reaching for it would be using the thing this work should make unnecessary.
 
+### Measured on prod, 2026-08-29 (read-only)
+
+```
+noetl.outbox       rows=32,387   size=247 MB   unpublished=0     <- genuinely dead
+noetl.projection   rows=0        size=32 kB                      <- dead
+noetl.execution    rows=4,647    size=107 MB                     <- survey only
+```
+
+`unpublished = 0` is the load-bearing number for outbox: it is what makes the
+table dead rather than merely idle.
+
+### Rehearsal result, same day
+
+```
+archive_path_writable = true
+round_trip_verified   = true   (byte-identical)
+scratch_removed       = true
+touched_live_rows     = false
+```
+
+So the server's role **can** create, write, read back and drop a table in the
+`noetl` schema. The archive-before-drop mechanism is proven on the actual
+database, not assumed — which mattered, because that role demonstrably lacks
+ownership on `noetl.event` and `noetl.command`.
+
+⚠ Re-run the rehearsal before the real archive. It is cheap, and a grant can
+change between now and then.
+
 ### What the three tables actually are
 
 | table | status | evidence |
