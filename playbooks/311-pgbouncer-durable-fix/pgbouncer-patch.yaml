@@ -25,11 +25,34 @@ spec:
             - |
               set -eu
               mkdir -p /etc/pgbouncer
-              # file -> file. The value is never echoed and never enters argv.
-              printf '"%s" "%s"\n' "noetl" "$(cat /mnt/db-secrets/postgres-password)" \
-                > /etc/pgbouncer/userlist.txt
+              : > /etc/pgbouncer/userlist.txt
               chmod 600 /etc/pgbouncer/userlist.txt
-              echo "userlist seeded from CSI mount: $(wc -l < /etc/pgbouncer/userlist.txt) line(s)"
+              # Seed a user ONLY when its mounted file exists.
+              #
+              # That conditional is what makes extending this safe: with only
+              # `postgres-password` mounted -- all the live SecretProviderClass
+              # provides today -- `noetl` is seeded exactly as before and the
+              # other three are simply not written, so the image entrypoint
+              # appends them from DATABASE_URLS as it always has. Behaviour is
+              # unchanged until the owner provisions the remaining secrets.
+              # Verified in kind: with one file present the userlist reads
+              # noetl(mount) + demo/auth(DATABASE_URLS); with four it reads all
+              # four from the mount, and the mount wins over the inline value.
+              #
+              # Values flow file -> file: never echoed, never in argv.
+              seed() {
+                u="$1"; f="$2"
+                if [ -s "$f" ]; then
+                  printf '"%s" "%s"\n' "$u" "$(cat "$f")" >> /etc/pgbouncer/userlist.txt
+                  echo "userlist: seeded $u from CSI mount"
+                else
+                  echo "userlist: no mount for $u -- entrypoint will use DATABASE_URLS"
+                fi
+              }
+              seed noetl    /mnt/db-secrets/postgres-password
+              seed demo     /mnt/db-secrets/demo-password
+              seed auth     /mnt/db-secrets/auth-password
+              seed postgres /mnt/db-secrets/superuser-password
               exec /entrypoint.sh /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
           env:
             - name: AUTH_FILE
