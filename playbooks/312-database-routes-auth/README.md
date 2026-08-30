@@ -1,6 +1,66 @@
 # #312 — gating the database routes
 
-## Current state (2026-08-29, prod)
+## Current state (2026-08-29, prod) — the write hole is CLOSED
+
+```
+server                                v3.96.0
+NOETL_DATABASE_ROUTES_AUTH            disable_execute   <- LIVE, closes the write hole
+NOETL_INTERNAL_AUTH_MODE              (unset -> shadow) <- deliberately NOT enforce
+```
+
+### What actually closed it
+
+`disable_execute`, **not** `gate_all`. The handler refuses before the SQL is
+looked at, regardless of the gate's mode — which is the whole reason it works
+while `gate_all` did not.
+
+Verified unauthenticated **from another pod** (the worker), which is the real
+threat model:
+
+```
+POST /api/postgres/execute  {}                              -> 422
+POST /api/postgres/execute  {"query":"SELECT 1","schema":"noetl"} -> 422
+body (both): {"error":"/api/postgres/execute is disabled by
+              NOETL_DATABASE_ROUTES_AUTH=disable_execute (noetl/ai-meta#312)"}
+```
+
+⚠ The **status alone proves nothing** — 422 was also the pre-existing
+"no query supplied" response. The body is the evidence, and the fact that a
+*well-formed* `SELECT 1` gets the identical refusal is what shows the query is
+never reached.
+
+### ⚠ `noetl query` is disabled on prod
+
+`noetl query "<SQL>"` posts to this endpoint, so it now fails:
+
+```
+$ noetl query "SELECT 1"
+Failed to execute query: 422 - {"error":"/api/postgres/execute is disabled ..."}
+```
+
+Immediate, non-zero exit, no retry loop, no hang — and the message names the flag
+and the issue, so the next person to hit it is not left guessing.
+
+**This is a deliberate removal pending a properly-authenticated reintroduction.**
+The command was arbitrary SQL over an unauthenticated endpoint against the
+database holding `noetl.event`; reinstating it needs an auth story, not just the
+flag turned back. Options: route it through the gateway (already
+session-authenticated) rather than direct; have the CLI send
+`NOETL_INTERNAL_API_TOKEN` and pair it with `gate_execute` + `enforce`; or replace
+it with typed read endpoints of the kind the dead-data survey uses.
+
+It still works against any server that does not set the flag, so local and kind
+workflows are unaffected.
+
+### Still open, deliberately
+
+`GET /api/db/validate` remains unauthenticated and returns the **full production
+schema listing (58 tables)**. Lower severity than unauthenticated writes and left
+as-is: closing it needs either the global `enforce` flip or a code change.
+
+## Prior state, for the record
+
+## Prior state (before disable_execute)
 
 ```
 server                                v3.96.0
