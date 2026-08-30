@@ -24,6 +24,47 @@ This is the same shape as an earlier finding on this platform: *a saturating
 burst measures the pool, not the bus.* The load shape decides the answer more
 than the rate does.
 
+## ✅ It is runnable — and it has been run
+
+```bash
+# BEFORE: today's prod behaviour (no age trigger)
+cargo run -p ehdb-l0 --example durability_soak -- --seconds 30
+
+# AFTER: what ehdb#329 would enable
+cargo run -p ehdb-l0 --example durability_soak -- --seconds 30 --seal-max-age-ms 5000
+```
+
+Entirely in-process — temp dirs and a `LocalFsSubstrate`. **No cluster, no
+prod.** Landed as [ehdb#340](https://github.com/noetl/ehdb/pull/340).
+
+### Measured, 20 s, four shards
+
+| arm | age trigger OFF | `seal_max_age = 5 s` |
+| :-- | --: | --: |
+| A saturating | 5.5 s | 4.8 s |
+| **B quiet** | **20.0 s** (whole run, unbounded) | **5.0 s** |
+| **C trickle** | **20.0 s** | **5.1 s** |
+| D bursty | 20.0 s | 5.1 s |
+| seals | 4 | 10 |
+
+The age trigger bounds every arm, and the part-count cost is **measured**: 4 → 10
+seals.
+
+### ⚠⚠ The number that settles the metric question
+
+Same instant, same engine:
+
+```
+mean append→durable            4.869 s   ← the real window
+seal-relative upload_lag mean  0.042 s   ← what upload_lag_micros_total reports
+```
+
+**116× apart.** `upload_lag` starts at the seal and is structurally blind to the
+term that dominates on a quiet shard. That is not a calibration difference; it is
+a different quantity.
+
+---
+
 ## Arms
 
 Run all four concurrently, on one writer, on distinct shards:
