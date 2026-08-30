@@ -1,32 +1,62 @@
 # Risk-classified rename map
 
-Companion to [`naming-conventions.md`](naming-conventions.md). **Phase 1 —
-nothing has been renamed.** Measured 2026-08-30 against the running cluster.
+Companion to [`naming-conventions.md`](naming-conventions.md). **Phase 2 applied 2026-08-30** — see
+*Phase 2 outcome* below. Measured 2026-08-30 against the running cluster.
 
 ## The headline numbers
 
 | class | size | meaning |
 | :-- | --: | :-- |
-| **SAFE-INTERNAL** | **~198 env vars + ~all Rust symbols + docs** | no external contract; rename freely |
+| **SAFE-INTERNAL** | ~~~198 env vars~~ **0 env vars** + Rust symbols + docs | no external contract — but see the S2 correction |
 | **LIVE-CONTRACT** | **109 env vars, 3 known-scraped metrics, 161 route paths** | renaming can break prod, or worse, **silently revert a flag to its default** |
 
-⚠ The ratio is the useful part: **the overwhelming majority of the churn is
-free.** The dangerous set is small and enumerable, which means the owner can take
-the whole SAFE tier now and decide the LIVE tier separately.
+⚠⚠ **The headline ratio above was wrong, and applying the tier is what found
+it.** "Free" was measured as *not set on the six prod workloads*. Re-measured
+against **every** config surface — 3,322 files across `ops`, all submodules, CI,
+kind manifests, and ai-meta's own docs and playbooks — **457** distinct `NOETL_*`
+names appear *somewhere*, leaving only **117** truly code-only. Both `_SECONDS`
+outliers are among the 457, so **the SAFE tier contains no env-var rename at
+all**. The set that needs care was never 109; it was 457, and the map understated
+it four-fold.
+
+This is the map own S2 caveat coming true. It named the right check
+(`grep -r VAR repos/ops` **plus** kind) and then published a headline computed
+without it. A caveat printed under a number does not correct the number —
+readers take the number.
 
 ---
 
 ## SAFE-INTERNAL — no external contract
 
-### S1. Rust type/variant casing — 1 rename
-`StoreTier::Eventlog` → `StoreTier::EventLog`
-(`worker/src/ehdb/store_tier.rs`). The codebase writes the type as
-`EventLog`/`D1EventLog` 15 times; this variant alone lowercases the L.
+### S1. Rust type/variant casing — ✅ APPLIED (worker#303)
+`Eventlog` → `EventLog`, **42 identifier occurrences across 8 worker files** —
+not the 1 estimated here. The variant is re-spelled at every match site and in
+`QueryTier`, `MirrorSource`, and the metrics renderers.
 
-### S2. Env vars **declared but not set on any prod workload** — ~198
-Includes the two `_SECONDS` outliers, both confirmed **code-only**:
-- `NOETL_EHDB_READINESS_TIMEOUT_SECONDS` → `..._SECS`
-- `NOETL_SECRET_PROVIDER_TTL_SECONDS` → `..._SECS`
+⚠ The "15 competing uses" figure was also wrong. It came from a `\bEventLog\b`
+pattern, whose trailing boundary excludes `EventLogOutcome`, `D1EventLogPart`,
+and every other prefixed form. Comment-stripped and prefix-inclusive, the real
+counts are **`EventLog` 560 vs `Eventlog` 39** — the same conclusion, from a
+number off by 37×. A word-boundary pattern is a claim about the boundary as much
+as about the word.
+
+Safety was proven rather than asserted: the multiset of string literals removed
+by the diff is **identical** to the multiset added, so the adjacent live literals
+`"eventlog"` (the tier label in metrics and config) and `"eventlog.jsonl"` (the
+on-disk store name, whose rename would present a populated store as empty on the
+component serving primary) are untouched. `StoreTier` derives no `Serialize`, so
+the variant has no serialised form.
+
+### S2. Env vars — ~~198~~ **0 renames** (retracted)
+Both `_SECONDS` outliers were listed here as "confirmed code-only". Under the
+stricter check **neither is**:
+- `NOETL_EHDB_READINESS_TIMEOUT_SECONDS` → ❌ appears in config surfaces
+- `NOETL_SECRET_PROVIDER_TTL_SECONDS` → ❌ appears in config surfaces
+
+Of the 117 names that *are* genuinely code-only, **zero violate the standard** —
+they were already `NOETL_<AREA>_<THING>_<UNIT>`. The env-var component of the
+SAFE tier is therefore empty on both counts: the candidates are not safe, and the
+safe ones are not candidates.
 
 ⚠ **Caveat before treating all 198 as free:** "not set on the six prod workloads"
 is not "set nowhere". Kind manifests, CI, `ops/ci/manifests/**` and developer
@@ -40,12 +70,46 @@ which the standard explicitly permits.
 ### S4. Crate names — 0 renames
 All 11 `ehdb-*` crates already comply.
 
-### S5. Domain vocabulary in prose/docs — mechanical
-`eventlog` is already unanimous in code (231 vs **0**). Only prose needs
-normalising, and prose has no contract.
+### S5. Domain vocabulary in prose/docs — no action
+`eventlog` is already unanimous in code. Prose uses hyphenated *event-log* as a
+compound adjective, which is correct English rather than drift. Nothing to
+normalise.
 
 ### S6. Git commit prefix — 1
-`playbooks:` (1 use) → `playbook:` (26 uses). Affects future commits only.
+`playbooks:` (1 use) → `playbook:` (26 uses). Affects future commits only;
+history is not rewritten.
+
+---
+
+## Phase 2 outcome — what applying the tier actually produced
+
+| set | planned | applied | why |
+| :-- | --: | --: | :-- |
+| S1 Rust casing | 1 | **42** (worker#303) | the estimate counted the declaration, not the uses |
+| S2 env vars | ~198 | **0** | 457 of 574 appear in some config surface; the 117 that do not already comply |
+| S3 modules | 0 | 0 | already compliant |
+| S4 crates | 0 | 0 | already compliant |
+| S5 prose | "mechanical" | 0 | the hyphenation was correct English, not drift |
+| S6 commit prefix | 1 | future-only | no code change |
+
+**One PR, 42 symbols, no release, nothing deployed.** `refactor:` is not a
+release-triggering type, so no image was built — verified by reading the tag back
+after the run rather than assuming it.
+
+### Found while applying, not renamed — two dead types
+
+`GCPTokenRequest` and `GCPTokenResponse`
+(`server/src/db/models/credential.rs:139,183`) are the only remaining
+non-idiomatic acronym casings in any repo (`GCP`, against the `Gcp` form used
+43×). **Both are unreachable**: declared, and referenced by nothing anywhere in
+the server repo.
+
+They are deliberately not renamed. Renaming dead code is churn; the real question
+is removal, and that is the owner call. The part worth keeping is *why nothing
+flagged them*: `db/models/mod.rs` does `pub use credential::*`, and a `pub` item
+re-exported from a `pub` module is never dead-code-linted. **A glob re-export
+silences the one check that would have caught this** — the same
+existence-versus-reachability shape as the F-feature sweep.
 
 ---
 
