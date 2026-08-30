@@ -44,6 +44,47 @@ They are **not** independent, and the order is not a preference:
   and is independent of G1–G3.
 - **G1 is independent of all of them** and is the cheapest real durability win.
 
+## ⚠⚠ A prerequisite discovered 2026-08-30 that blocks G2 and G4
+
+**Both fencing (G2) and the replica-domain observation (G4's verify-before) live
+inside `build_durable_stack`, and prod never calls it.**
+
+`build_durable_stack` runs only when
+`NOETL_EHDB_EVENTLOG_BACKEND=durable_segment`. Prod leaves it **unset**, so
+`selected_backend` returns `LocalReference` and the durable-segment stack is
+never constructed. Verified on the running writer: `ehdb_replica_domains_observed`
+reads **0**.
+
+Consequences:
+
+- **G2's verify-before is still unsatisfiable on prod.** Setting
+  `NOETL_EHDB_FENCING=shadow` alone changes nothing, because the decorator it
+  configures is inside a stack that is never built. It needs
+  `NOETL_EHDB_EVENTLOG_BACKEND=durable_segment` as well.
+- **G4's verify-before cannot be answered from prod** for the same reason.
+
+⚠⚠ **And that second flag is not an observability toggle — it is a storage
+backend switch.** It changes which store serves the event log on a tier that is
+already `primary`. It therefore belongs in the gated set, not in the inert set,
+and it is a **new prerequisite the original plan did not name**.
+
+So the honest dependency is:
+
+```
+  G0  observability            ← done
+       │
+  G-pre  NOETL_EHDB_EVENTLOG_BACKEND=durable_segment   🔴 OWNER GATE (storage switch)
+       │
+       ├──────────────┐
+       ▼              ▼
+  G2  fencing     G4  replica-set validation
+```
+
+Nothing about G1 or G3 changes: G1's seal-age knob is read by the writers
+directly, and G3's election is blocked on the `kube` dependency decision instead.
+
+---
+
 ## Recommended order
 
 **G1 → G3 → G2 → G4.** G1 first because it is independent, reversible by one
