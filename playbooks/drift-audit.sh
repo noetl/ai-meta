@@ -850,6 +850,53 @@ PYEOF
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# 12. The platform schema exists in TWO repos and nothing forces them to agree.
+#
+# The Rust server does not create its own schema; it expects one to be
+# provisioned, and its query modules describe these columns as owned by
+# schema_ddl.sql.  That file historically lived only in noetl/noetl (the legacy
+# Python repo being retired), so repos/server now carries the destination copy
+# at db/ddl/postgres/schema_ddl.sql.
+#
+# Ownership has NOT transferred: every deploy path still loads noetl/noetl's
+# copy, because no ops playbook defines a server_repo_dir.  So there are two
+# copies of a 1,060-line schema, and the deploy uses the one the server does NOT
+# ship.  If they diverge, the cluster gets a schema the running binary was not
+# built against -- and nothing anywhere would say so.
+#
+# This check IS the forcing function.  It compares content only, ignoring the
+# transitional header on the server copy and trailing whitespace.
+# ---------------------------------------------------------------------------
+if run schema-copies; then
+  hdr "schema: the two platform-DDL copies"
+  A="$ROOT/repos/noetl/noetl/database/ddl/postgres/schema_ddl.sql"
+  B="$ROOT/repos/server/db/ddl/postgres/schema_ddl.sql"
+  if [ ! -f "$A" ]; then
+    skip "noetl/noetl copy not checked out"
+  elif [ ! -f "$B" ]; then
+    skip "repos/server copy not present (ownership move not started)"
+  else
+    # Drop the leading '-- ' header block from the server copy: everything up to
+    # and including the provenance line.  Compare the SQL bodies.
+    strip() { sed 's/[[:space:]]*$//' "$1"; }
+    body_b=$(awk 'f{print} /^-- +noetl\/database\/ddl\/postgres\/schema_ddl\.sql$/{f=1}' "$B" | sed 's/[[:space:]]*$//')
+    body_a=$(strip "$A")
+    if [ -z "$body_b" ]; then
+      drift "server copy header marker missing — cannot compare bodies"
+      echo "         Expected the provenance line naming the source path."
+    elif [ "$body_a" = "$body_b" ]; then
+      ok "the two schema_ddl.sql copies agree ($(printf '%s' "$body_a" | wc -l | tr -d ' ') lines)"
+    else
+      drift "schema_ddl.sql differs between noetl/noetl and repos/server"
+      echo "         $(diff <(printf '%s' "$body_a") <(printf '%s' "$body_b") | grep -c '^[<>]') differing line(s)."
+      echo "         The DEPLOY uses noetl/noetl's copy; the server was built against its own."
+      echo "         Edit both in the same change set until ops repoints (ai-meta#201)."
+    fi
+  fi
+fi
+
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
