@@ -24,6 +24,47 @@ from manifests.
 | `NOETL_CATALOG_LOG` / `_SNAPSHOT` | server | `shadow` / `digest` — **already live** |
 | `ehdb_replica_domains_observed` | writer scrape | **0** — the durable stack is never opened |
 
+## ✅ OWNER DECISION 2026-08-30 — item 1 is **(d) single-writer by construction**
+
+**No election. No lease backend. No Kubernetes dependency.**
+
+The reasoning that carried it, from the code and the cluster rather than the
+design doc:
+
+- All three writer PVCs are **`ReadWriteOnce`** on `premium-rwo` (GCE PD). The
+  storage layer enforces at-most-one attachment, so a second writer physically
+  cannot mount the data. That is an infrastructure primitive, not the
+  orchestration preference `replicas: 1` was characterised as.
+- Per F5, the "shared" substrate lives **inside the writer's own PVC**. There is
+  therefore **no store shared across nodes**, and the two-writers-corrupting-a-
+  shared-object scenario the fencing spec is built around **cannot occur on this
+  topology**.
+- Every alternative carried a new dependency the writer does not have today: it
+  runs as the **`default` ServiceAccount with no annotations**, no Workload
+  Identity, no Secret Manager mount, no DB credentials — and **no ehdb crate
+  speaks Postgres or GCS**, so (a), (b) and (c) each needed a new client crate
+  as well.
+
+### G1, G2, G6 are PARKED — not deferred
+
+⚠ The distinction matters. They are not waiting for capacity or courage; **there
+is nothing for them to protect on the current topology.** The code stays merged
+and inert, and the reachability guard keeps F1's election registered as
+deliberately unreferenced so it cannot come alive unnoticed.
+
+**What would un-park them:** a genuinely shared substrate (item 7 / G4). The
+moment a store is reachable from more than one node, single-writer stops being a
+property of the disk and fencing becomes necessary again. At that point the
+lease backend should be chosen to match the substrate — if the substrate is GCS,
+the lease lives in the same bucket and the marginal dependency is near zero.
+
+⚠ Residual risk accepted, stated plainly: GKE force-detaches a PD after a node is
+`NotReady` for ~6 minutes, so a live-but-partitioned node is a window the storage
+guarantee does not cover. It is a real window; it is smaller than the one
+`replicas: 1` alone implies, and it is the one this decision accepts.
+
+---
+
 ## The dependency DAG
 
 ```
@@ -37,16 +78,16 @@ from manifests.
      └─► G1b  NOETL_EHDB_SEAL_MAX_AGE_MS=5000
               └─► D-3 alerts become enable-able
 
- G-pre  NOETL_EHDB_EVENTLOG_BACKEND=durable_segment       🔴 STORAGE SWITCH
+ G-pre  NOETL_EHDB_EVENTLOG_BACKEND=durable_segment       ⏸ PARKED (see decision above)
      │   (newly identified 2026-08-30 — the original plan did not name it)
      ├─────────────────────────────┐
      ▼                             ▼
- G3  election authoritative    G4  replica-set validation at open
+ G3  election  ⏸ PARKED         G4  replica-set validation at open
      │  ⛔ blocked on the           ⛔ would FAIL at open on prod today
      │     kube dependency
      ▼
- G2  fencing shadow → enforce
-     ⛔ enforce-before-G3 = OUTAGE (edge ②)
+ G2  fencing shadow → enforce  ⏸ PARKED
+     (edge ② moot while parked: no election, no tokens, nothing enforcing)
 
  Independent of the above:
  C1  catalog read-cutover   NOETL_CATALOG_READ_SOURCE=verify → tier
