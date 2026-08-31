@@ -1,0 +1,20 @@
+COVERAGE DIFF — Rust-generated schema vs the retired Python schema
+==================================================================
+  reference $defs: 24      rust $defs: 43
+  root properties: IDENTICAL
+  required set   : IDENTICAL
+  additionalProperties: ref=unset rust=unset
+
+  reference types present in Rust under a DIFFERENT NAME (2):
+     ExecutorSpecFull -> ExecutorSpec
+     Loop -> LoopConfig
+
+  reference types genuinely ABSENT from the Rust schema (0):
+
+  types Rust adds (21): AccumulateStrategy, CaseCondition, Compression, ExecutorSpec, FrameProcess, LoopConfig, LoopExec, LoopMode, MatchMode, Metadata, NextDoc, NextMode, NextStep, OnNoMatch, OnUnmatched, OutputScope, OutputStoreKind, TemplatableF64, TemplatableI64, ThenBlock, ToolSpecDoc
+
+  FIELD-LEVEL diff on shared types:
+    Step
+       added in Rust  : case, vars, when
+    StepSpec
+       added in Rust  : next_mode
