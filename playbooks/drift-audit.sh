@@ -868,6 +868,97 @@ fi
 # This check IS the forcing function.  It compares content only, ignoring the
 # transitional header on the server copy and trailing whitespace.
 # ---------------------------------------------------------------------------
+if run volumes; then
+  hdr "cluster: writer volume headroom, and whether a full one would be visible"
+  CTX="${PROD_CTX:-gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot}"
+  if ! kubectl --context "$CTX" get ns noetl >/dev/null 2>&1; then
+    skip "prod context unreachable — cannot read writer volumes"
+  else
+    # Why this check exists.  On 2026-09-01 /data/cmdbus reached 100% full and
+    # every POST /api/execute returned 500 for hours, while the writer pod
+    # reported Ready, restarts=0, all nine listeners bound, and ZERO ERROR or
+    # WARN lines.  serve_ingest answered append_batch failure with a bare
+    # `return`, discarding the error (noetl/ehdb#345), so a full volume and a
+    # serde-incompatible record produced byte-identical symptoms and no signal.
+    #
+    # A full volume is not a representation drifting from reality — it IS the
+    # reality.  It belongs here because the thing that drifted was the
+    # REPORTED health: `Ready` claimed to describe a writer that could not
+    # accept a single write.
+    WPOD="${WRITER_POD:-noetl-cmdbus-writer-0}"
+    if ! kubectl --context "$CTX" -n noetl get pod "$WPOD" >/dev/null 2>&1; then
+      skip "$WPOD not found — set WRITER_POD= to override"
+    else
+      df_out=$(kubectl --context "$CTX" -n noetl exec "$WPOD" -- df -P /data/cmdbus /data/eventbus /data/eventkv 2>/dev/null | tail -n +2)
+      if [ -z "$df_out" ]; then
+        skip "could not read df from $WPOD"
+      else
+        worst=0
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          pct=$(printf '%s' "$line" | awk '{gsub(/%/,"",$5); print $5}')
+          mnt=$(printf '%s' "$line" | awk '{print $6}')
+          avail=$(printf '%s' "$line" | awk '{print $4}')
+          case "$pct" in ''|*[!0-9]*) continue ;; esac
+          [ "$pct" -gt "$worst" ] && worst=$pct
+          if [ "$pct" -ge 80 ]; then
+            drift "$mnt is ${pct}% full (${avail}K avail) on $WPOD"
+            echo "         At 100% every append fails and the ingest face drops each publish."
+            echo "         Before noetl/ehdb#345 that was silent: no log, no metric, pod still Ready."
+          fi
+        done <<< "$df_out"
+        [ "$worst" -lt 80 ] && ok "writer volumes below 80% (worst ${worst}%)"
+
+        # The quadratic-growth signature (noetl/ehdb#344).  ehdb-l0 wrote a FULL
+        # manifest snapshot per version and pruned none; snapshot size grows with
+        # part count while snapshot count grows with write count.  Prod reached
+        # 6,770 snapshots / 19.4 GB behind 71.8 MB of real data.  Manifest bytes
+        # far exceeding part bytes is that signature, and it shows up long before
+        # the volume is full.
+        for base in /data/cmdbus /data/eventbus; do
+          mb=$(kubectl --context "$CTX" -n noetl exec "$WPOD" -- du -sk "$base/manifest" 2>/dev/null | awk '{print $1}')
+          pb=$(kubectl --context "$CTX" -n noetl exec "$WPOD" -- du -sk "$base/parts" 2>/dev/null | awk '{print $1}')
+          case "${mb:-x}${pb:-x}" in *[!0-9]*) continue ;; esac
+          [ "${pb:-0}" -lt 1 ] && continue
+          ratio=$(( mb / (pb > 0 ? pb : 1) ))
+          if [ "$ratio" -ge 5 ]; then
+            drift "$base manifest is ${ratio}x the size of its parts (${mb}K vs ${pb}K)"
+            echo "         That is the unbounded-retention signature. Confirm the running binary"
+            echo "         carries noetl/ehdb#344 — check ehdb_l0_manifest_versions_retained below."
+          else
+            ok "$base manifest/parts ratio ${ratio}x (${mb}K vs ${pb}K)"
+          fi
+        done
+
+        # Is a failing writer even observable on this binary?  ABSENT is not ZERO:
+        # a build predating noetl/ehdb#345 serves no such series at all, which
+        # reads exactly like a healthy one.  Say which it is rather than printing
+        # a reassuring nothing.
+        m=$(kubectl --context "$CTX" -n noetl exec "$WPOD" -- wget -qO- --timeout=8 http://127.0.0.1:9102/metrics 2>/dev/null)
+        if [ -z "$m" ]; then
+          skip "writer :9102/metrics unreadable — cannot tell a healthy writer from a refusing one"
+        elif ! printf '%s' "$m" | grep -q "ehdb_l0_ingest_append_failed"; then
+          drift "the running writer does not expose ehdb_l0_ingest_append_failed"
+          echo "         This binary predates noetl/ehdb#345 + noetl/worker#304, so a writer"
+          echo "         refusing every append is INDISTINGUISHABLE from a healthy one."
+          echo "         Absence here is a coverage gap, not a clean bill of health."
+        else
+          af=$(printf '%s' "$m" | awk '/^ehdb_l0_ingest_append_failed /{print $2}')
+          df_=$(printf '%s' "$m" | awk '/^ehdb_l0_ingest_decode_failed /{print $2}')
+          if [ "${af:-0}" != "0" ]; then
+            drift "writer refused ${af} append(s) — check volume headroom first"
+          elif [ "${df_:-0}" != "0" ]; then
+            drift "writer rejected ${df_} frame(s) as undecodable — publisher/writer version skew, NOT a disk problem"
+          else
+            ok "ingest failure counters present and 0 (present, so 0 means healthy)"
+          fi
+        fi
+      fi
+    fi
+  fi
+fi
+
+
 if run schema-copies; then
   hdr "schema: the two platform-DDL copies"
   A="$ROOT/repos/noetl/noetl/database/ddl/postgres/schema_ddl.sql"
