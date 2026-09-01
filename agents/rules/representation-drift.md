@@ -164,7 +164,7 @@ vs where they must run, a release job reported working that is not, a table
 the live control plane never touches, declared workloads that are not running,
 **running pods no applied scrape selects**, **tests that carry no `#[test]`**,
 **env vars the binary reads that its deployment-spec page omits**, and **metric
-recorders nothing calls**. Twelve checks; read-only; one command.  The twelfth compares each **pinned metric label set against the literals its recorder is actually called with** — a pinned set that omits one value reintroduces the absent-series bug on that value alone, while the rest read 0 and look complete.  It exists as a script rather than only as a Rust test because [ai-meta#232](https://github.com/noetl/ai-meta/issues/232) records that no `cargo test` runs in CI on any Rust repo, so the in-repo guards have no runner.
+recorders nothing calls**, and **a writer volume filling behind an unbounded manifest**. Seventeen checks; read-only; one command.  One of them compares each **pinned metric label set against the literals its recorder is actually called with** — a pinned set that omits one value reintroduces the absent-series bug on that value alone, while the rest read 0 and look complete.  It exists as a script rather than only as a Rust test because [ai-meta#232](https://github.com/noetl/ai-meta/issues/232) records that no `cargo test` runs in CI on any Rust repo, so the in-repo guards have no runner.
 
 That last check (`scrape`) generalises a subtlety worth stating on its own: an
 **enumerated selector is itself a representation** — a copy of the workload set.
@@ -173,6 +173,36 @@ existed, and omitted `noetl-worker-system-pool-shard1`, live since #166 Phase 5.
 Applying it would have scraped half the system pool and looked green. Partial
 monitoring coverage emits no error at all, so it can only be found by comparing
 the selector against the cluster — which is what the check does.
+
+The `volumes` check (added 2026-09-01) covers a class the rule did not yet name:
+**a resource exhausting itself while the thing that reports on it says `Ready`.**
+A full disk is not a representation drifting from reality — it *is* the reality.
+What drifted was the *reported health*. On 2026-09-01 `/data/cmdbus` reached 100%
+full and every `POST /api/execute` returned 500 for hours while the writer pod
+reported `Ready`, `restarts=0`, all nine listeners bound, and **zero ERROR and
+zero WARN lines**, because `serve_ingest` answered `append_batch` failure with a
+bare `return` that discarded the error ([noetl/ehdb#345](https://github.com/noetl/ehdb/issues/345)).
+Diagnosis cost several rounds ruling out DNS, endpoints, selector drift, pod-IP
+staleness and image mismatch — all of which checked out fine — because the one
+component that knew was silent.
+
+Three things generalise from it:
+
+- **Ask whether a failure would be observable at all on the binary that is
+  running**, not just whether the failure is present. The check reports the
+  *absence* of `ehdb_l0_ingest_append_failed` as DRIFT, because a build predating
+  the counter serves no such series and that reads exactly like a healthy one.
+  This is the absent-is-not-zero rule applied to a whole capability rather than a
+  single label.
+- **A cost that is the product of two growing quantities deserves a ratio, not a
+  threshold.** The manifest grew because snapshot *size* tracks part count while
+  snapshot *count* tracks write count — quadratic, and invisible until the volume
+  is gone. Manifest-bytes-over-part-bytes shows it up while there is still room.
+- **A hand-applied mitigation has a half-life, and it should be measured rather
+  than assumed.** The relocation done during the incident read as "resolved"; the
+  same check the next hour showed the manifest back to 162 snapshots and 820 MB —
+  ~12 GB/day against 18.6 GB free, so about 36 hours. A mitigation whose expiry
+  is not measured becomes a representation of its own.
 
 It deliberately reports evidence rather than verdicts, because several of these
 have a stale **issue** as well as a stale artifact, and the two want different
