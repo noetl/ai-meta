@@ -1,0 +1,41 @@
+# In-cluster load generator (noetl/ai-meta#317, #318).
+#
+# ⚠ Drive load from INSIDE the cluster. A `kubectl port-forward` is a single TCP
+# relay and becomes the bottleneck: two earlier runs measured the forward, not
+# the platform, and reported healthy numbers while masking a real collapse.
+#
+# Placeholders are substituted by run-load-curve.sh. Emits machine-readable
+# lines only — `R|ok|<centis>` / `R|err|<centis>` and one SUMMARY — so results
+# are parsed on a '|' delimiter rather than grepped out of free text. An earlier
+# harness grepped for "error" and matched the word inside EventEnvelope payloads
+# in INFO logs, reporting 771 phantom errors.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: NAMEPLACEHOLDER
+  namespace: noetl
+  labels: { app: noetl-loadgen }
+spec:
+  parallelism: PARPLACEHOLDER
+  completions: PARPLACEHOLDER
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 900
+  template:
+    metadata:
+      labels: { app: noetl-loadgen }
+    spec:
+      restartPolicy: Never
+      tolerations:
+      - effect: NoSchedule
+        key: kubernetes.io/arch
+        operator: Equal
+        value: amd64
+      containers:
+      - name: gen
+        image: IMGPLACEHOLDER
+        command: ["/bin/sh","-c"]
+        args:
+        - 'now() { cut -d" " -f1 /proc/uptime | tr -d .; }; START=$(date +%s); END=$(( START + DURPLACEHOLDER )); S=0; OK=0; ER=0; while [ $(date +%s) -lt $END ]; do A=$(now); R=$(wget -qO- --timeout=30 --header="Content-Type: application/json" --post-data="{\"path\":\"test/simple_loop\",\"payload\":{}}" http://noetl-server-rust.noetl.svc.cluster.local:8082/api/execute 2>/dev/null); B=$(now); D=$((B-A)); S=$((S+1)); case "$R" in *execution_id*) OK=$((OK+1)); echo "R|ok|$D";; *) ER=$((ER+1)); echo "R|err|$D";; esac; sleep SLEEPPLACEHOLDER; done; echo "SUMMARY|submitted=$S|ok=$OK|err=$ER"'
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
+          limits:   { cpu: 300m, memory: 256Mi }
