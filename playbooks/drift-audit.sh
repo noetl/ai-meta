@@ -959,6 +959,80 @@ if run volumes; then
 fi
 
 
+if run system-pool-scaling; then
+  hdr "cluster: system-pool autoscaling vs durable-backend shard ownership"
+  CTX="${PROD_CTX:-gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot}"
+  if ! kubectl --context "$CTX" get ns noetl >/dev/null 2>&1; then
+    skip "prod context unreachable"
+  else
+    # noetl/ai-meta#318. Autoscaling the system pool is safe ONLY while the
+    # durable event-log backend is unselected.
+    #
+    # Adding replicas is fine today because `ClaimCoordinator::claim_next`
+    # guarantees "members sharing a filter compete exactly-once", and the pool's
+    # members already share one subject filter. `NOETL_SHARD_INDEX` is inert for
+    # exclusivity: the command consumer filters by SUBJECT and the state
+    # materializer keys on `NOETL_RESULT_SHARD_COUNT`.
+    #
+    # ⚠⚠ But `NOETL_SHARD_INDEX` IS load-bearing for the DURABLE backend
+    # (`ownership_from_env` -> `ShardOwnership`). Selecting it via
+    # `NOETL_EHDB_EVENTLOG_BACKEND=durable` while replicas > 1 makes two pods
+    # owners of one shard. These are two numbers that must agree, and nothing in
+    # Kubernetes couples them — so the disagreement is checked here rather than
+    # discovered as corruption.
+    #
+    # TEST HOOK: set SYSTEM_POOL_BACKEND_OVERRIDE to exercise the failing branch
+    # without touching prod.
+    pools=$(kubectl --context "$CTX" -n noetl get deploy -o json 2>/dev/null | python3 -c '
+import sys, json
+try: items = json.load(sys.stdin).get("items", [])
+except Exception: sys.exit(0)
+for it in items:
+    n = it["metadata"]["name"]
+    if "system-pool" not in n: continue
+    env = {e["name"]: e.get("value") for e in it["spec"]["template"]["spec"]["containers"][0].get("env", [])}
+    print("%s|%s|%s" % (n, env.get("NOETL_EHDB_EVENTLOG_BACKEND", ""), it["spec"].get("replicas", 1)))
+' 2>/dev/null)
+
+    if [ -z "$pools" ]; then
+      skip "no system-pool deployments found"
+    else
+      unsafe=0
+      # ⚠ '|' not tab: tab is IFS-WHITESPACE in bash, so consecutive tabs collapse
+      # into one delimiter and an empty middle field silently vanishes -- which
+      # shifted `replicas` into `backend` and made the guard read a healthy
+      # 'unset' as the string '1'. A guard that misparses reports OK for the
+      # wrong reason.
+      while IFS='|' read -r name backend replicas; do
+        [ -z "$name" ] && continue
+        [ -n "${SYSTEM_POOL_BACKEND_OVERRIDE:-}" ] && backend="$SYSTEM_POOL_BACKEND_OVERRIDE"
+        scaled=$(kubectl --context "$CTX" -n noetl get scaledobject -o json 2>/dev/null | python3 -c "
+import sys, json
+try: items = json.load(sys.stdin).get('items', [])
+except Exception: sys.exit(0)
+print(sum(1 for i in items if (i.get('spec') or {}).get('scaleTargetRef',{}).get('name') == '$name'))
+" 2>/dev/null)
+        scaled="${scaled:-0}"
+        multi=0
+        [ "${replicas:-1}" -gt 1 ] 2>/dev/null && multi=1
+        [ "$scaled" -gt 0 ] 2>/dev/null && multi=1
+        if [ "$backend" = "durable" ] && [ "$multi" = "1" ]; then
+          unsafe=$((unsafe+1))
+          drift "$name: NOETL_EHDB_EVENTLOG_BACKEND=durable WITH autoscaling/replicas>1"
+          echo "         NOETL_SHARD_INDEX becomes load-bearing under the durable backend"
+          echo "         (ownership_from_env -> ShardOwnership). Replicas sharing an index are"
+          echo "         TWO OWNERS OF ONE SHARD. Remove the ScaledObject, or give each replica"
+          echo "         its own shard index before enabling that backend."
+        else
+          ok "$name: backend='${backend:-unset->LocalReference}' scaledobjects=$scaled replicas=${replicas:-1}"
+        fi
+      done <<< "$pools"
+      [ "$unsafe" -eq 0 ] && ok "system-pool autoscaling and shard ownership agree"
+    fi
+  fi
+fi
+
+
 if run schema-copies; then
   hdr "schema: the two platform-DDL copies"
   A="$ROOT/repos/noetl/noetl/database/ddl/postgres/schema_ddl.sql"
