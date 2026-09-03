@@ -399,3 +399,141 @@ And the one that was not asked: **at c=1 none of this helps, because
 group-commit is already running and has nothing to batch.** µs at c=1 requires
 accepting a crash window, and for the command bus that means telling a caller
 their execution started and then losing it.
+
+---
+
+# Addendum — the delivery hop, and why it outranks the durability question
+
+Added 2026-09-03 after tracing noetl/ai-meta#320 into this design. Read-only;
+no load was generated.
+
+## The chain, traced
+
+The records whose durability #322 is about do not arrive at the writer
+directly. They travel:
+
+```
+noetl-server-rust
+  --POST /ehdb/tiers/eventlog-->  noetl-worker-system-pool  (:9090, ONE pod)
+     --tier service-->            noetl-cmdbus-writer-0     (:9110)
+        --L0 append + fsync-->    /data/eventbus
+```
+
+Confirmed from the live cluster:
+
+- server: `NOETL_EHDB_WORKER_QUERY_URL = http://noetl-worker-system-pool-metrics…:9090`
+- worker system pool: `NOETL_EHDB_TIER_QUERY_SOURCE = service`,
+  `NOETL_EHDB_TIER_SERVICE_ADDR = noetl-cmdbus-writer-0…:9110`
+- writer: `NOETL_EHDB_TIER_SERVICE_BIND = 0.0.0.0:9110`,
+  `NOETL_EHDB_TIER_SERVICE_DIR = /data/eventbus/ehdb-tier`
+- the append route is `POST /ehdb/tiers/{tier}` in the worker's
+  `metrics_server.rs:621`, whose own doc says the write must resolve its store
+  the same way the read does, "or the comparator would report an artefact of
+  two different stores rather than a fact about either"
+
+**So the mirror relay is inside the durability chain, not beside it.** Every
+guarantee the writer's `fsync` provides is downstream of two network hops that
+provide none.
+
+## ⚠ And the tier is already `primary`
+
+The worker system pool carries `NOETL_EHDB_EVENTLOG = primary`, and its
+`/metrics` reports
+
+```
+noetl_ehdb_eventlog_ops_total{operation="mirror",outcome="served_primary"} 21912
+```
+
+⚠ I checked the **server** for a `served_primary` series earlier and found
+none, and concluded the tier was not serving. That was the wrong place to look
+— the serve decision lives on the **worker**. Correcting it here rather than
+leaving the earlier reading standing. (What these counters establish is that
+the eventlog tier is in `primary` mode and the mirror op takes the primary
+path 21,912 times; I did not establish from them whether user-facing *reads*
+resolve from the tier.)
+
+#322 says to "**gate** the Phase 9 tier-1 (event log) primary cutover on the
+window being bounded and monitored". The mode is already `primary` while the
+window is neither bounded (the substrate is a directory on the same PVC) nor
+fed by a lossless path. The gate is behind the thing it was meant to gate.
+
+## What #320 proves about fan-out — and it is not an assumption any more
+
+noetl/ai-meta#320, measured on this cluster this session:
+
+| | serial drain (v3.100.3) | concurrency 8 (v3.100.4) |
+| :-- | --: | --: |
+| `mirrored` | 3541 | 101 |
+| `unavailable` + `degraded` | 154 | 11,969 |
+| failure rate | **4.2%** | **99.2%** |
+
+The relay endpoint is a **headless service with exactly one endpoint pod**. It
+answers a single probe instantly and collapses at eight concurrent POSTs.
+
+**A batched or quorum design cannot assume replication endpoints scale with
+fan-out, because in this system the one endpoint we have does not.** That is
+now an observation, not a risk.
+
+Three consequences for the design above:
+
+1. **Quorum fan-out must be sized against a measured endpoint, not a
+   configured replica count.** `GroupQuorum { n }` implies `n` concurrent
+   confirmations in flight. On this cluster, `n = 8` against a single-pod
+   endpoint produced a 99% failure rate. Whatever `n` becomes, its per-endpoint
+   concurrency needs a measured ceiling and a bounded queue in front of it —
+   the same shape the mirror queue has, and the same shape that failed.
+2. **The batch helps here too, and for a second reason.** Everything in Q4 is
+   about amortising `fsync + RTT` over N. The relay adds a third term:
+   *requests per second at the endpoint*. Larger batches reduce the request
+   **rate** for the same record rate, which is precisely the pressure that
+   broke the relay. Batching is therefore not only a latency lever but the
+   main lever for staying inside this endpoint's capacity — an argument for
+   raising `MAX_COMMIT_BATCH` that is independent of the µs curve.
+3. **Ordering and retry become load-bearing at the same moment.** The relay
+   drops a failed batch — `deliver`'s `Err` arm logs and returns
+   (`ehdb_eventlog_mirror.rs:388`). A durability design whose delivery path can
+   silently discard records is not a durability design.
+
+## The conclusion this forces
+
+**Bounding the D1 window is the second problem, not the first.**
+
+D1 asks: *once a record reaches the writer, how long until it is safe?*
+Today's answer is bad — the substrate is the same disk — and #322 is right to
+attack it.
+
+But the prior question is: *does the record reach the writer at all?* Today's
+answer is **not reliably**, and when it doesn't, nothing anywhere records
+which record was lost. During the #320 window roughly **12,000 batch
+deliveries** were dropped with no retry and no dead-letter, into a tier whose
+mode is `primary`.
+
+A synchronous quorum-ack would make the last hop of that chain very safe while
+the first hop stays lossy. That is spending the expensive fix on the wrong
+segment.
+
+**Sequencing that follows:** make delivery lossless and observable *before*
+building quorum. Concretely, ahead of Phase 2:
+
+- **retry or dead-letter a failed mirror batch** — the current `Err` arm is the
+  single highest-severity line in the chain;
+- **a success-rate metric read beside `emit_mirror`** — a 99% failure rate
+  presented as a latency improvement is exactly what happened, because latency
+  was instrumented and outcome was not;
+- **a measured concurrency ceiling for the relay endpoint**, which requires a
+  load run and is therefore held.
+
+None of this is a durability trade. All of it is a prerequisite for one being
+meaningful.
+
+## Revised phasing
+
+| phase | work | gated on |
+| :-- | :-- | :-- |
+| **0** | group-commit — **already live** (`CallerDriven` + opportunistic committer) | — |
+| **0.5** *(new)* | delivery is lossless + observable: mirror retry/dead-letter, success-rate metric, measured relay ceiling | a load run (held) |
+| **1** | commit-batch-size metric; `DurabilityMode` scaffold, fail-closed; consider `MAX_COMMIT_BATCH` 512→1024 | nothing — buildable now |
+| **2** | follower-ack protocol, `GroupQuorum { n }` with a per-endpoint concurrency bound | ehdb#332 replica, C5 election, fencing enforcement, **and 0.5** |
+| **3** | ack-before-fsync, per-dataset, derived tiers only | a separate durability decision; **not** recommended for the event log or command bus |
+
+Phase 0.5 is new, and it is ahead of Phase 2 on purpose.
