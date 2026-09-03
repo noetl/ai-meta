@@ -537,3 +537,265 @@ meaningful.
 | **3** | ack-before-fsync, per-dataset, derived tiers only | a separate durability decision; **not** recommended for the event log or command bus |
 
 Phase 0.5 is new, and it is ahead of Phase 2 on purpose.
+
+---
+
+# Double writes — three different things with three different verdicts
+
+Added 2026-09-03. Design only; read-only against `noetl/ehdb@0980183` and the
+live cluster. No build, no prod change, no load.
+
+"Write it twice" describes three schemes that share a sentence and share
+nothing else. Taken together they are contradictory advice, so they are
+separated here.
+
+## Case 1 — SHARDING: separate writers owning disjoint shards
+
+**Verdict: sound, already modelled in the code, and it buys throughput — not
+redundancy, and not latency.**
+
+The shard model is real and consistent:
+
+```rust
+fn partition(record: &EventRecord, shard_count: u32) -> u32 {
+    shard_for_execution(&record.execution_id, shard_count)
+}
+```
+
+`shard_for_execution` is `XxHash64(seed=0)` over the execution id `%
+shard_count` (`dataset.rs:170`), and the seed comment states it is
+"byte-identical to `noetl-worker` / `noetl-server` `sharding::shard_for`" —
+the three components already agree on ownership. The engine holds
+`writers: HashMap<u32, PartWriter>`, one active writer per shard
+(`engine.rs:241`), each with its own file and its own `fsync`.
+
+⚠ **But more shards inside one engine does not parallelise the `fsync`.**
+`ehdb-feed`'s commit is a sequential loop:
+
+```rust
+fn commit(handles: &[std::fs::File]) -> io::Result<()> {
+    for handle in handles { handle.sync_data()?; }
+    Ok(())
+}
+```
+
+A batch spanning K shards therefore costs **K × 4 ms serially**, not
+`max(4 ms)`. Raising `shard_count` on one writer makes a cross-shard batch
+*slower*. The benefit the owner is describing comes from **separate writer
+processes**, each with its own engine and its own commit loop — which is
+exactly "separate writers owning disjoint shards", and is the right framing.
+
+**Throughput arithmetic.** One writer's ceiling is `batch / 4 ms`: ~250
+records/s at batch 1, ~128,000/s at the 512 cap. W independent writers
+multiply it linearly, because nothing is shared — disjoint executions,
+disjoint files, disjoint fsyncs.
+
+⚠ **It does nothing for the c=1 latency question.** Events partition by
+`execution_id`, so one execution's events all land on one shard. A single
+request still pays one 4 ms `fsync` no matter how many shards exist.
+**Sharding scales throughput; it does not reduce latency.**
+
+⚠ **And it is not redundancy.** Each shard still has exactly one copy on one
+disk. Sharding divides the data; it does not duplicate it. `DEFAULT_SHARD_COUNT
+= 1` and prod runs single-owner today.
+
+## Case 2 — MULTI-MASTER: independent writers to the SAME logical stream
+
+**Verdict: non-starter, and the code says so in its own terms.**
+
+Not a general dual-write objection — three specific facts in this codebase:
+
+**1. The position is writer-assigned, so two writers cannot agree on it.**
+
+```rust
+/// The writer owns the ordering key: on a writer-assigned append the record's
+/// `global_sequence` is overwritten with the writer's next monotonic sequence
+/// so the shard log stays ascending even when the D1 command feed's producer
+/// (noetl-server) assigned snowflake ids that raced out of order under
+/// concurrent publish (noetl/ai-meta#203).
+fn assign_sort_key(mut record: EventRecord, writer_seq: u64) -> EventRecord
+```
+
+Two independent writers assign **different** `global_sequence` values to the
+same logical event. There is no shared order to reconcile to, and this is not
+incidental — the writer took ownership of ordering *because* producer-assigned
+ids raced (#203). Multi-master re-creates the exact defect that change fixed,
+one layer up.
+
+**2. There is no cross-write atomicity.** `append_batch` is one engine's
+`Mutex` plus one `commit()`. Two engines share no lock and no transaction, so a
+double write can land in one and not the other with nothing recording which.
+
+**3. The single-writer invariant is load-bearing and stated.** `EventRecord`'s
+own doc: "Ascending within a partition (**a single writer serializes
+appends**)". And the shard-hash comment: "The two MUST agree on which shard
+owns an execution or single-writer coherence breaks." `election.rs` and
+`fencing.rs` exist precisely to guarantee one owner — and are **inert**
+(election issues tokens without being authoritative; fencing counts and refuses
+nothing).
+
+So multi-master is the C5 two-owners violation by construction, against a
+mechanism designed to prevent it that is currently switched off. **On
+divergence there is no source of truth, because the thing that would define one
+is the sequence, and each writer minted its own.**
+
+## Case 3 — SEQUENCED FAN-OUT: one sequencer, then N independent idempotent deliveries
+
+**Verdict: the right shape. The sequencer exists and the log is append-only —
+but the idempotency half does not hold today, and that gap is load-bearing.**
+
+### The sequencer already exists
+
+`append_writer_assigned` **is** the sequencer, and `append_record`
+(`engine.rs:493`) is the primitive a fan-out needs: it appends using *the
+record's own* `sort_key` rather than minting a new one. So "assign position
+once, then deliver the already-ordered record to N destinations" is expressible
+with what is there.
+
+### (b) Append-only — ✅ holds
+
+`DATASET_D1_EVENT_LOG` is documented "the append-only execution event log", the
+platform rule is that `noetl.event` is append-only and immutable, and there is
+no update path. `assign_sort_key` mutates only an in-flight record before its
+first append. **No last-write-wins semantics anywhere.**
+
+### (a) Idempotently keyed — ❌ does NOT hold
+
+`EventRecord` carries exactly four fields:
+
+```rust
+pub struct EventRecord {
+    pub global_sequence: u64,     // writer-assigned -> not deterministic
+    pub execution_id: String,     // not unique per event
+    pub transaction_id: String,   // freshly minted per delivery
+    pub payload: String,          // opaque; event_id is in HERE
+}
+```
+
+- `global_sequence` is assigned by the writer, so it is not derivable from the
+  event.
+- `transaction_id` is `format!("ehdbtxn-{}", txn_gen().next_id())` — a **new
+  snowflake per call** (`worker/src/ehdb/dataplane.rs:115`). A redelivery
+  carries a *different* one.
+- A genuine unique deterministic identity **does exist** — `event_id`, the
+  server's snowflake, minted once and immutable, and `mirror_payload` puts it
+  on the wire (`ehdb_eventlog_mirror.rs:199`). But it sits **inside the opaque
+  `payload` string**, not as a column the engine can index or compare.
+
+**And there is no dedupe on any append path.** Worse than a duplicate: an
+append whose key does not advance the shard tail trips a canary and, per the
+engine's own comment, "lands behind any follower cursor and is **silently never
+delivered**" (`engine.rs:497-501`). So a redelivery is a counted,
+undelivered duplicate on disk — not a no-op.
+
+**This is not hypothetical.** noetl/ai-meta#313 — "sink-mirror over-mirrors the
+event-log tier: **11 duplicates** + 4 orphans" — is the observed consequence of
+redelivery without an idempotency key.
+
+**Conclusion for case 3:** the shape is right and the model is most of the way
+there. The missing piece is small and specific: **promote `event_id` to a
+first-class column on `EventRecord` and dedupe on it at append.** With that,
+redelivery becomes a safe no-op and independent paths converge by key. Without
+it, fan-out multiplies #313.
+
+## Catch 1 — ack-time durability
+
+Independent fan-out does not escape the round-trip. If the ack must mean
+"durable in N places", the writer waits for N confirmations — **that is quorum
+with independent paths**, and Q3's 1.2 ms cross-node RTT applies unchanged. If
+eventual convergence is acceptable, it is async replication with better fan-out
+and no ack cost.
+
+**Which does NoETL actually need? Today: eventual is defensible — but only
+because of a fact that is being deliberately retired.**
+
+The authoritative event log is still Postgres `noetl.event`. EHDB's event-log
+tier is a *mirror* of it, which is why a cross-store parity comparator exists
+at all. A mirror may lag its source and be repaired from it.
+
+⚠ Two things make that answer expire:
+
+1. The tier is **already `primary`** on the worker (`NOETL_EHDB_EVENTLOG =
+   primary`, `served_primary` = 21,912) — see the previous addendum.
+2. noetl/ai-meta#241's whole direction is retiring the Postgres copy. The day
+   Postgres stops being written, "eventual" stops being repairable from
+   anywhere, and synchronous durability becomes mandatory rather than optional.
+
+**So: eventual now, quorum before #241 completes.** That sequencing is the
+answer, not one mode or the other.
+
+## Catch 2 — #332: two writes to one PVC is one failure domain
+
+Confirmed from the live StatefulSet: **one writer pod, one node**
+(`gk3-…-5pb5`), three PVCs (`cmdbus-data`, `eventbus-data`, `eventkv`) all
+mounted into it, and each engine's substrate directory on its *own same*
+volume (`/data/cmdbus/parts`, `/data/eventbus/parts`, `/data/eventkv/parts`).
+
+Writing an event twice into that pod — to two shards, two datasets, or two
+directories — produces two copies with **exactly one failure domain**. Node
+loss or volume loss takes both. It is duplicated cost with zero durability
+gain, and it would read as redundancy on every dashboard.
+
+Real redundancy requires separate disks on separate nodes. That is ehdb#332,
+and it gates case 3's *redundancy* benefit exactly as it gates quorum.
+
+## The recommendation for #320 — and it inverts the obvious ordering
+
+**Question:** is sequenced fan-out a cleaner Phase 0.5 than bolting
+retry/dead-letter onto the single relay?
+
+**The decisive point is one most plans would skip: retry is not safe today
+either.**
+
+The relay's `Err` arm drops the batch. The obvious fix is to retry it. But a
+retried batch may have *partially landed* — the relay POST can fail after the
+tier service accepted some records — and with no dedupe key, retrying appends
+them again. **Adding retry to the current relay manufactures #313 at scale.**
+
+So the idempotency work is **not extra scope belonging to fan-out. It is a
+prerequisite for the cheap fix as well.** Once that is understood, the two
+options stop being alternatives with different costs and become the same first
+step with different second steps.
+
+**Recommended ordering:**
+
+1. **Idempotency key first — `event_id` as a column, dedupe at append.** It
+   unblocks retry, unblocks redelivery, unblocks fan-out, and independently
+   closes #313. Highest leverage item on this page, and it needs no replica, no
+   election, and no durability decision.
+2. **Then scale the delivery path, not the disk.** The relay is
+   `noetl-worker-system-pool`, a **Deployment with `replicas: 1`** — a
+   stateless forwarder to the writer's tier service. Once redelivery is safe,
+   raising its replica count gives N independent delivery paths to the *same*
+   destination. That is sequenced fan-out's first real increment, it fixes
+   #320's single-pod bottleneck directly, and it requires **no second disk** —
+   so unlike quorum it is not blocked on #332 or C5.
+3. **Then retry/dead-letter**, which by that point is safe and nearly free.
+
+**So: sequenced fan-out is the better shape, but its first increment is
+"replicate the stateless delivery path", not "write to N disks."** Fan-out to N
+*destinations* is redundancy and stays blocked on #332. Fan-out to N *paths* is
+availability and is buildable now — after step 1.
+
+⚠ One caveat on step 2 that must be measured, not assumed: N relay replicas
+means N concurrent writers into the single writer's tier service (:9110). #320
+is the standing evidence that a single-pod endpoint in this system collapses
+under concurrency — 4.2% failure serial, 99.2% at 8 concurrent. **The relay's
+replica count must be sized against a measured tier-service ceiling**, or step
+2 relocates the bottleneck instead of removing it. That measurement is a load
+run and is held.
+
+## Revised phasing, with double-writes folded in
+
+| phase | work | gated on |
+| :-- | :-- | :-- |
+| **0** | group-commit — already live | — |
+| **0.4** *(new, and first)* | `event_id` as a first-class column + dedupe at append; closes #313 and makes retry/redelivery safe | nothing — buildable now |
+| **0.5** | relay replicas > 1 (independent delivery paths); then retry/dead-letter; success-rate metric beside `emit_mirror` | 0.4, plus a measured tier-service ceiling (load run, held) |
+| **1** | commit-batch-size metric; `DurabilityMode` scaffold, fail-closed; consider `MAX_COMMIT_BATCH` 512→1024 | nothing — buildable now |
+| **2** | follower-ack / `GroupQuorum { n }`; sharded writers for throughput | ehdb#332, C5, fencing, and 0.4/0.5 |
+| **3** | ack-before-fsync, derived tiers only | separate durability decision; not for the event log |
+
+Sharding (case 1) sits in Phase 2 not because it is hard but because it buys
+throughput, and throughput is not currently the binding constraint —
+**delivery reliability is.**
