@@ -19,6 +19,7 @@ countermeasure:
 | fixed `sleep` instead of waiting on the Job | pods that had not started yet yielded `0 ok / 0 err`, which reads as a stall | wait for **Job completion** |
 | Autopilot's ~60–90 s node provisioning | scheduling counted as latency; short runs ended before pods started | window opens only once **all** generators are `Running`; `sched` reported separately |
 | `grep -c error` over server logs | matched the word inside `EventEnvelope` payloads — **771 phantom errors** | generators emit `R\|ok\|<centis>`; parsed on `\|` only |
+| **probing the server under test while it runs** | a 75 MB `POST /api/catalog/list` pulled from the server pod mid-run collapsed that run's `c=4` level from 29 ok to 4 ok — indistinguishable from a real regression | **touch nothing during a run.** Snapshot `/metrics` *before* starting and diff *after*; the rig removes the harness from the path, so anything you add back is outside it |
 
 ## Controls
 
