@@ -1113,6 +1113,83 @@ if run knob-observability; then
   [ "$found" -eq 0 ] && ok "every mirror-queue tuning knob publishes its value (log field or gauge)"
 fi
 
+# --------------------------------------------------------------- spec-env-currency
+# noetl/ai-meta#241.  wiki-maintenance Rule 2a makes each component's
+# deployment-specification page the source of truth for its env vars, and nothing
+# forces that page to agree with the code.
+#
+# It has now drifted TWICE.  The August fix documented the eleven then-live vars;
+# by 2026-09-04 twelve were live and undocumented again, ten of them differing
+# from their default — so the page did not merely omit them, it implied the
+# default was what runs.  Two had been added to prod *after* the fix, which
+# confirms the mechanism: a flag ships, gets set, the page is not touched.
+#
+# ⚠ Only the vars that are BOTH read and SET ON PROD are reported as drift. The
+# latent ones (read but set nowhere) are counted and printed, not failed — a
+# check that reports 28 findings nobody will act on trains people to skim past
+# the 12 that matter.  That lesson is from knob-observability's first draft,
+# which cried wolf on 5 of 6.
+if run spec-env-currency; then
+  hdr "spec-env-currency — env vars live on prod but absent from the deployment spec (#241)"
+  PAGE="$ROOT/repos/noetl-server-wiki/deployment-specification.md"
+  if [ ! -f "$PAGE" ]; then
+    skip "repos/noetl-server-wiki not checked out"
+  elif [ ! -d "$ROOT/repos/server/src" ]; then
+    skip "repos/server not checked out"
+  elif ! command -v kubectl >/dev/null 2>&1; then
+    skip "kubectl unavailable — the live half needs the cluster"
+  else
+    out=$(python3 - "$ROOT" <<'PYEOF'
+import re, subprocess, sys, os
+root = sys.argv[1]
+srv = os.path.join(root, "repos/server")
+# The read-set needs BOTH idioms.  A literal-only scan undercounted by ~2.7x in
+# August and missed disproportionately many behavioural flags.
+files = subprocess.run(["git","-C",srv,"ls-files","src/**/*.rs","src/*.rs"],
+                       capture_output=True, text=True).stdout.split()
+src = "".join(open(os.path.join(srv,f), errors="ignore").read() for f in files)
+lit = set(re.findall(r'"(NOETL_[A-Z0-9_]+)"', src))
+envy = set()
+try:
+    cfg = open(os.path.join(srv,"src/config/app.rs")).read()
+    body = cfg[cfg.index("pub struct AppConfig"):]
+    body = body[:body.index("\n}")]
+    envy = {"NOETL_"+f.upper() for f in re.findall(r"^\s*pub ([a-z0-9_]+)\s*:", body, re.M)}
+except Exception:
+    pass
+read = lit | envy
+documented = set(re.findall(r"NOETL_[A-Z0-9_]+", open(os.path.join(root,"repos/noetl-server-wiki/deployment-specification.md")).read()))
+try:
+    j = subprocess.run(["kubectl","-n","noetl","get","deploy","noetl-server-rust","-o","json"],
+                       capture_output=True, text=True, timeout=40)
+    import json
+    envs = {e["name"] for e in json.loads(j.stdout)["spec"]["template"]["spec"]["containers"][0].get("env",[])}
+except Exception as e:
+    print("SKIP|could not read the live server Deployment"); raise SystemExit
+live = sorted((read - documented) & envs)
+latent = len(read - documented - envs)
+print("COUNTS|%d|%d|%d" % (len(read), len(documented), latent))
+for v in live:
+    print("LIVE|%s" % v)
+PYEOF
+)
+    if printf '%s' "$out" | grep -q '^SKIP|'; then
+      skip "$(printf '%s' "$out" | sed -n 's/^SKIP|//p' | head -1)"
+    else
+      counts=$(printf '%s' "$out" | sed -n 's/^COUNTS|//p')
+      nlive=$(printf '%s' "$out" | grep -c '^LIVE|' || true)
+      if [ "$nlive" -gt 0 ]; then
+        drift "$nlive env var(s) are set on the prod server and absent from its deployment spec"
+        printf '%s' "$out" | sed -n 's/^LIVE|/           /p'
+        echo "         Rule 2a makes the page the source of truth; it is not."
+        echo "         read=$(printf '%s' "$counts" | cut -d'|' -f1) documented=$(printf '%s' "$counts" | cut -d'|' -f2)"
+      else
+        ok "every env var set on the prod server is documented (latent, undocumented: $(printf '%s' "$counts" | cut -d'|' -f3))"
+      fi
+    fi
+  fi
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
