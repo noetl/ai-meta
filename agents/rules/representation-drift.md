@@ -90,6 +90,58 @@ On 2026-08-05 that one substitution found, in a few hours:
 The reason it works is that **existence is what a naive grep measures**, and
 every one of these passes that grep.
 
+### Print the denominator
+
+**A check must publish the population it measured, not only its findings.**
+
+Every scan is two claims: *this is what I found*, and *this is what I looked
+at*. Only the first is usually reported, and when the second is wrong the first
+is wrong in the direction that looks clean — a broken scan and a healthy system
+produce the same output.
+
+Two guards written on 2026-09-04 exist only because a previous measurement
+undercounted:
+
+- **`spec-env-currency`** (noetl/ai-meta#241). The August measurement scanned
+  literal `env::var("NOETL_*")` and found 56 server env vars. The server also
+  loads config through `envy::prefixed("NOETL_").from_env::<AppConfig>()`, which
+  maps struct **fields** to env names with no literal anywhere. The real read-set
+  is **152**. The 96 it missed were disproportionately the *behavioural flags* —
+  the ones whose absence from the deployment spec actually matters. The issue was
+  closed as fixed on a number that was low by a factor of 2.7.
+- **`knob-observability`** (noetl/ai-meta#320). Its first draft compared a knob's
+  stem to whole field names and reported **5 false positives out of 6**
+  (`enqueue_timeout` against the field `enqueue_timeout_ms`, `async` against the
+  gauge accessor). A check that cries wolf is worse than no check: it teaches
+  people to skim past the one finding that is real.
+
+So both directions are hazards, and both are invisible without the denominator:
+a scan that is too narrow reports a false clean, and one that is too broad
+reports noise that gets ignored.
+
+**What to do:**
+
+- **Report the population alongside the result.** `read=152 documented=123` is a
+  finding a reader can sanity-check. "12 undocumented" is not — it is consistent
+  with a scan that examined twelve things.
+- **State the idioms covered, and name the ones that are not.** A read-set that
+  counts `env::var` must say so, because that sentence is what lets the next
+  reader notice `envy`, a `<VAR>_FILE` hydration, a helper wrapper, or a
+  dependency crate doing the read.
+- **Assert the extraction before asserting about it.** A guard that slices a
+  region out of a file should fail loudly on an implausibly small slice. Three
+  separate checks this session "passed" against an empty or truncated region —
+  a `non_test()` helper cutting at the first `#[cfg(test)]` thousands of lines
+  early, an anchor searched before a doc-comment match, and a `git show` whose
+  path was eaten by a zsh modifier. Each printed a green result computed from
+  zero bytes.
+- **Separate what fails from what is merely counted.** `spec-env-currency` fails
+  on the 12 vars that are live and undocumented and merely *prints* the 28 latent
+  ones. Failing on all 40 would have produced a check nobody reads.
+
+The general form: **before believing a count, ask what a wrong denominator would
+look like — and make the output show it.**
+
 ### The zeros to distrust
 
 A clean result from a pattern-based scan is a claim about the pattern as much
