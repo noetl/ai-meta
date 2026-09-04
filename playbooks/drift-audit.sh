@@ -317,6 +317,7 @@ if run workloads; then
              -n noetl get deploy,sts -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
     missing=0
     notprod=""
+    fixtures=""
     for f in $(cd "$d" && git ls-tree -r --name-only origin/main ci/manifests/noetl/ 2>/dev/null | grep -E '\.ya?ml$'); do
       # Deployment/StatefulSet metadata.name declared in this file
       names=$(cd "$d" && git show "origin/main:$f" 2>/dev/null | python3 -c '
@@ -351,6 +352,21 @@ except Exception:
           #   kind-only fixture— never intended for prod (spool-downstream-echo)
           # A check that cannot tell them apart gets ignored, so this reports
           # the fact and names the question rather than asserting drift.
+          # A manifest may answer the question itself.  `# drift-audit: kind-only`
+          # in the file means "never meant to run in prod", and the intent then
+          # lives WITH THE ARTIFACT rather than in a list inside this checker — an
+          # exception list here would be a second representation of the manifests
+          # and would drift exactly like everything else this script watches.
+          # ⚠ Read the marker from the SAME source the names came from
+          # (`git show origin/main:$f`).  A plain `grep "$f"` resolves the path
+          # against this script's cwd, not the ops checkout, so it silently finds
+          # nothing and every marked fixture still reports as drift — which is
+          # exactly what happened on the first attempt.
+          if (cd "$d" && git show "origin/main:$f" 2>/dev/null) \
+               | grep -q '^# drift-audit: kind-only'; then
+            fixtures="${fixtures}${f} ($n)\n"
+            continue
+          fi
           drift "$f declares $n — not running in prod; is it dead legacy, a gated feature, or kind-only? (noetl/ai-meta#97)"
           missing=$((missing+1))
         fi
@@ -359,6 +375,10 @@ except Exception:
     if [ -n "$notprod" ]; then
       hold "$(printf "$notprod" | grep -c .) manifest(s) declare workloads absent from prod BY DESIGN — kind-only or a template, not a claim about prod"
       printf "$notprod" | sed 's/^/         /'
+    fi
+    if [ -n "$fixtures" ]; then
+      printf "         accounted kind-only fixtures (marked in-file, not drift):\n"
+      printf "$fixtures" | sed 's/^/           /'
     fi
     if [ "$missing" -eq 0 ]; then
       ok "every declared Deployment/StatefulSet exists in prod"
