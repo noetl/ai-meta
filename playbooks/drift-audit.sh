@@ -1143,6 +1143,34 @@ if run spec-env-currency; then
 import re, subprocess, sys, os, json
 root = sys.argv[1]
 
+def strip_test_modules(src):
+    """Remove every `#[cfg(test)] mod ... { ... }` block, by brace matching.
+
+    ⚠ Denominator discipline.  Without this the read-set counts names that exist
+    only to prove a DEFAULT fires when the variable is absent — e.g.
+    NOETL_TEST_ABSENT_CAPACITY_155.  Those are test fixtures, not deployment
+    config; counting them inflates `read` and manufactures findings nobody
+    should act on.
+
+    Brace matching rather than a `NOETL_TEST_` prefix filter: the prefix is a
+    naming convention, not a guarantee, and a fixture not following it would
+    slip straight through.
+    """
+    out, i = [], 0
+    while True:
+        m = re.search(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{", src[i:])
+        if not m:
+            out.append(src[i:]); break
+        start = i + m.start()
+        out.append(src[i:start])
+        j, depth = i + m.end(), 1
+        while j < len(src) and depth:
+            if src[j] == "{": depth += 1
+            elif src[j] == "}": depth -= 1
+            j += 1
+        i = j
+    return "".join(out)
+
 # ⚠ Denominator discipline (agents/rules/representation-drift.md): each component
 # declares WHICH read idioms its scan covers, because a read-set that misses an
 # idiom reports a false clean.  The server's August measurement missed `envy`
@@ -1163,6 +1191,7 @@ for repo, wiki, workloads, uses_envy in COMPONENTS:
     files = subprocess.run(["git","-C",rp,"ls-files","src/**/*.rs","src/*.rs"],
                            capture_output=True, text=True).stdout.split()
     src = "".join(open(os.path.join(rp,f), errors="ignore").read() for f in files)
+    src = strip_test_modules(src)
     read = set(re.findall(r'"(NOETL_[A-Z0-9_]+)"', src))
     if uses_envy:
         # envy maps struct FIELDS to env names; no literal ever appears.
@@ -1200,6 +1229,13 @@ for repo, wiki, workloads, uses_envy in COMPONENTS:
         print("LIVE|%s|%s" % (repo, v))
 PYEOF
 )
+    # ⚠ A crashed scan must not read as "no findings".  This check reported OK
+    # through a Python NameError once; a guard that cannot fail is
+    # indistinguishable from one that passes.  No COUNTS line == no measurement.
+    if ! printf '%s' "$out" | grep -q '^COUNTS|'; then
+      drift "spec-env-currency produced NO measurement — the scan itself failed"
+      printf '%s' "$out" | head -12 | sed 's/^/           /'
+    fi
     printf '%s' "$out" | sed -n 's/^MISS|/         skipped: /p'
     nlive=$(printf '%s' "$out" | grep -c '^LIVE|' || true)
     if [ "$nlive" -gt 0 ]; then
@@ -1209,7 +1245,9 @@ PYEOF
     fi
     # Denominators, always — a finding count is only readable beside the population.
     printf '%s' "$out" | awk -F'|' '/^COUNTS\|/ {printf "         %-14s read=%s documented=%s set-on-prod=%s latent-undocumented=%s\n", $2, $3, $4, $5, $6}'
-    [ "$nlive" -eq 0 ] && ok "every env var set on a prod workload is documented"
+    if [ "$nlive" -eq 0 ] && printf '%s' "$out" | grep -q '^COUNTS|'; then
+      ok "every env var set on a prod workload is documented"
+    fi
   fi
 fi
 
