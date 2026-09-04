@@ -60,6 +60,20 @@ REGISTRY = {
     "CREDENTIAL_SEAL_STATUSES": ("server", "record_credential_seal", None),
     "SYSTEM_PLUGIN_SEED_OUTCOMES": ("server", "record_system_plugin_seed", None),
     "EHDB_COMMAND_PUBLISH_FAILED_REASONS": ("server", "record_ehdb_command_publish_failed", None),
+    # The four mirror sets + the projection snapshot gate.  Each was NO-GUARD —
+    # declared and pinned, but with no registry entry, so the check could not say
+    # whether the pinned list matched what the recorder is called with.
+    #
+    # ⚠ An unverifiable guard is the thing this file exists to catch, one level
+    # up: "we pin these outcomes" reads as a guarantee, and NO-GUARD means nobody
+    # was checking it.  Each recorder was confirmed to exist exactly once and to
+    # have real call sites (5, 8, 5, 7 and 2) before being registered — a mapping
+    # to a recorder that is never called would make the entry green and vacuous.
+    "EHDB_EVENTLOG_MIRROR_OUTCOMES": ("server", "record_ehdb_eventlog_mirror", None),
+    "EHDB_EVENTLOG_MIRROR_QUEUE_OUTCOMES": ("server", "record_ehdb_eventlog_mirror_queue", None),
+    "EHDB_PROJECTION_MIRROR_OUTCOMES": ("server", "record_ehdb_projection_mirror", None),
+    "EHDB_PROJECTION_MIRROR_QUEUE_OUTCOMES": ("server", "record_ehdb_projection_mirror_queue", None),
+    "EHDB_PROJECTION_SNAPSHOT_GATE_OUTCOMES": ("server", "record_ehdb_projection_snapshot_gate", None),
     "COMMAND_ROW_INSERT_MODES": ("server", "record_command_row_insert_failed", None),
     # Not a label set at all: a list of METRIC NAMES that `init_unlabelled_series`
     # must touch.  Its guard is `startup_inits_alone_register_every_unlabelled_metric`,
