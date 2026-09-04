@@ -1140,53 +1140,76 @@ if run spec-env-currency; then
     skip "kubectl unavailable — the live half needs the cluster"
   else
     out=$(python3 - "$ROOT" <<'PYEOF'
-import re, subprocess, sys, os
+import re, subprocess, sys, os, json
 root = sys.argv[1]
-srv = os.path.join(root, "repos/server")
-# The read-set needs BOTH idioms.  A literal-only scan undercounted by ~2.7x in
-# August and missed disproportionately many behavioural flags.
-files = subprocess.run(["git","-C",srv,"ls-files","src/**/*.rs","src/*.rs"],
-                       capture_output=True, text=True).stdout.split()
-src = "".join(open(os.path.join(srv,f), errors="ignore").read() for f in files)
-lit = set(re.findall(r'"(NOETL_[A-Z0-9_]+)"', src))
-envy = set()
-try:
-    cfg = open(os.path.join(srv,"src/config/app.rs")).read()
-    body = cfg[cfg.index("pub struct AppConfig"):]
-    body = body[:body.index("\n}")]
-    envy = {"NOETL_"+f.upper() for f in re.findall(r"^\s*pub ([a-z0-9_]+)\s*:", body, re.M)}
-except Exception:
-    pass
-read = lit | envy
-documented = set(re.findall(r"NOETL_[A-Z0-9_]+", open(os.path.join(root,"repos/noetl-server-wiki/deployment-specification.md")).read()))
-try:
-    j = subprocess.run(["kubectl","-n","noetl","get","deploy","noetl-server-rust","-o","json"],
-                       capture_output=True, text=True, timeout=40)
-    import json
-    envs = {e["name"] for e in json.loads(j.stdout)["spec"]["template"]["spec"]["containers"][0].get("env",[])}
-except Exception as e:
-    print("SKIP|could not read the live server Deployment"); raise SystemExit
-live = sorted((read - documented) & envs)
-latent = len(read - documented - envs)
-print("COUNTS|%d|%d|%d" % (len(read), len(documented), latent))
-for v in live:
-    print("LIVE|%s" % v)
+
+# ⚠ Denominator discipline (agents/rules/representation-drift.md): each component
+# declares WHICH read idioms its scan covers, because a read-set that misses an
+# idiom reports a false clean.  The server's August measurement missed `envy`
+# and undercounted 152 as 56.
+COMPONENTS = [
+    # (repo, wiki, workloads, uses_envy_config_struct)
+    ("repos/server", "repos/noetl-server-wiki",
+     [("deploy", "noetl-server-rust")], True),
+    ("repos/worker", "repos/noetl-worker-wiki",
+     [("deploy", "noetl-worker-rust"), ("deploy", "noetl-worker-system-pool"),
+      ("statefulset", "noetl-cmdbus-writer")], False),
+]
+
+for repo, wiki, workloads, uses_envy in COMPONENTS:
+    rp, wp = os.path.join(root, repo), os.path.join(root, wiki)
+    if not os.path.isdir(os.path.join(rp, "src")) or not os.path.isdir(wp):
+        print("MISS|%s|not checked out" % repo); continue
+    files = subprocess.run(["git","-C",rp,"ls-files","src/**/*.rs","src/*.rs"],
+                           capture_output=True, text=True).stdout.split()
+    src = "".join(open(os.path.join(rp,f), errors="ignore").read() for f in files)
+    read = set(re.findall(r'"(NOETL_[A-Z0-9_]+)"', src))
+    if uses_envy:
+        # envy maps struct FIELDS to env names; no literal ever appears.
+        try:
+            cfg = open(os.path.join(rp,"src/config/app.rs")).read()
+            body = cfg[cfg.index("pub struct AppConfig"):]
+            body = body[:body.index("\n}")]
+            read |= {"NOETL_"+f.upper() for f in re.findall(r"^\s*pub ([a-z0-9_]+)\s*:", body, re.M)}
+        except Exception:
+            print("MISS|%s|could not parse AppConfig for the envy field set" % repo); continue
+    page = None
+    for cand in ("deployment-specification.md",):
+        fp = os.path.join(wp, cand)
+        if os.path.exists(fp): page = open(fp).read()
+    if page is None:
+        print("MISS|%s|no deployment-specification.md" % repo); continue
+    documented = set(re.findall(r"NOETL_[A-Z0-9_]+", page))
+    envs = set()
+    reachable = False
+    for kind, name in workloads:
+        try:
+            j = subprocess.run(["kubectl","-n","noetl","get",kind,name,"-o","json"],
+                               capture_output=True, text=True, timeout=40)
+            if j.returncode != 0: continue
+            envs |= {e["name"] for e in json.loads(j.stdout)["spec"]["template"]["spec"]["containers"][0].get("env",[])}
+            reachable = True
+        except Exception:
+            continue
+    if not reachable:
+        print("MISS|%s|no workload reachable" % repo); continue
+    live = sorted((read - documented) & envs)
+    print("COUNTS|%s|%d|%d|%d|%d" % (repo, len(read), len(documented), len(envs),
+                                     len(read - documented - envs)))
+    for v in live:
+        print("LIVE|%s|%s" % (repo, v))
 PYEOF
 )
-    if printf '%s' "$out" | grep -q '^SKIP|'; then
-      skip "$(printf '%s' "$out" | sed -n 's/^SKIP|//p' | head -1)"
-    else
-      counts=$(printf '%s' "$out" | sed -n 's/^COUNTS|//p')
-      nlive=$(printf '%s' "$out" | grep -c '^LIVE|' || true)
-      if [ "$nlive" -gt 0 ]; then
-        drift "$nlive env var(s) are set on the prod server and absent from its deployment spec"
-        printf '%s' "$out" | sed -n 's/^LIVE|/           /p'
-        echo "         Rule 2a makes the page the source of truth; it is not."
-        echo "         read=$(printf '%s' "$counts" | cut -d'|' -f1) documented=$(printf '%s' "$counts" | cut -d'|' -f2)"
-      else
-        ok "every env var set on the prod server is documented (latent, undocumented: $(printf '%s' "$counts" | cut -d'|' -f3))"
-      fi
+    printf '%s' "$out" | sed -n 's/^MISS|/         skipped: /p'
+    nlive=$(printf '%s' "$out" | grep -c '^LIVE|' || true)
+    if [ "$nlive" -gt 0 ]; then
+      drift "$nlive env var(s) are set on a prod workload and absent from its deployment spec"
+      printf '%s' "$out" | awk -F'|' '/^LIVE\|/ {printf "           %-22s %s\n", $2, $3}'
+      echo "         Rule 2a makes the page the source of truth; it is not."
     fi
+    # Denominators, always — a finding count is only readable beside the population.
+    printf '%s' "$out" | awk -F'|' '/^COUNTS\|/ {printf "         %-14s read=%s documented=%s set-on-prod=%s latent-undocumented=%s\n", $2, $3, $4, $5, $6}'
+    [ "$nlive" -eq 0 ] && ok "every env var set on a prod workload is documented"
   fi
 fi
 
