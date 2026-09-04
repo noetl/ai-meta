@@ -1062,6 +1062,57 @@ if run schema-copies; then
 fi
 
 
+# ------------------------------------------------------------- knob-observability
+# noetl/ai-meta#320.  A tuning env var that changes runtime behaviour but whose
+# VALUE is published nowhere.
+#
+# This is the defect the #320 mitigation shipped with.
+# `NOETL_EHDB_EVENTLOG_MIRROR_DRAIN_CONCURRENCY=1` was applied to production to
+# stop a 99% mirror failure rate, and nothing on the running process reported it:
+# the knob is read per drain pass rather than at startup, and the ARMED log line
+# carried the other three knobs but not that one.  The only way to check was the
+# Deployment spec — a different representation, and one that can disagree with
+# the process.
+#
+# A rollback knob whose engagement cannot be observed is the same defect class as
+# the incident it mitigates, so it gets a check rather than a note.
+#
+# The rule: every `*_ENV` constant in the mirror-queue modules must appear either
+# as a field on that module's startup `info!` or in a `crate::metrics::` call.
+if run knob-observability; then
+  hdr "knob-observability — tuning env vars whose value is published nowhere (#320)"
+  found=0
+  for m in ehdb_eventlog_mirror_queue ehdb_projection_mirror_queue; do
+    f="$ROOT/repos/server/src/handlers/$m.rs"
+    [ -f "$f" ] || continue
+    knobs=$(grep -oE '^pub const [A-Z_]+_ENV' "$f" | awk '{print $3}')
+    [ -n "$knobs" ] || continue
+    # Everything that could publish a value: the startup log's field list and any
+    # metrics call (a gauge's NAME carries the knob's stem, e.g. ASYNC_ENV ->
+    # `..._async_enabled`).  Matching the stem as a SUBSTRING of these is what
+    # makes `enqueue_timeout` match the field `enqueue_timeout_ms` and `async`
+    # match the gauge accessor.
+    #
+    # ⚠ The first version of this check compared the stem to whole field names and
+    # reported 5 false positives out of 6.  A check that cries wolf is worse than
+    # no check — it teaches people to skim past real drift.
+    surface=$(grep -E "info!|crate::metrics::|metrics::" -A 8 "$f" | tr 'A-Z' 'a-z')
+    for k in $knobs; do
+      stem=$(printf '%s' "$k" | sed 's/_ENV$//' | tr 'A-Z' 'a-z')
+      if printf '%s' "$surface" | grep -q "$stem"; then
+        :
+      else
+        found=$((found+1))
+        drift "$m: $k is read but its value is published nowhere"
+        echo "         Absent from the startup log's fields and from every metrics call."
+        echo "         An operator cannot tell what the running process uses; the"
+        echo "         Deployment spec is a different representation (#320)."
+      fi
+    done
+  done
+  [ "$found" -eq 0 ] && ok "every mirror-queue tuning knob publishes its value (log field or gauge)"
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"
