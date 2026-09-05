@@ -615,6 +615,17 @@ if run env-docs; then
             | while IFS= read -r v; do
                 printf '%s\n' "$corpus" | grep -qx "$v" || printf '%s\n' "$v"
               done )
+      # A `NOETL_TEST_*` name is a test fixture by construction -- the crates use
+      # the prefix precisely to name a variable nothing sets in production, e.g.
+      # `env_usize("NOETL_TEST_ABSENT_CAPACITY_155", 512)` asserting the default.
+      # Filtered so the check does not demand a config page document a fixture.
+      #
+      # COUNTED, not silently dropped: a filter you cannot see is how a check
+      # starts measuring nothing.  An earlier attempt at this filter carried a
+      # syntax error that made the comparison emit nothing while still saying OK.
+      fixtures=$(printf '%s\n' "$miss" | grep -c '^NOETL_TEST_' || true)
+      miss=$(printf '%s\n' "$miss" | grep -v '^NOETL_TEST_' || true)
+      [ "${fixtures:-0}" -gt 0 ] && echo "         (filtered $fixtures NOETL_TEST_* fixture(s))"
     n=$(printf '%s\n' "$miss" | grep -c . || true)
     if [ "${n:-0}" -eq 0 ]; then
       ok "$repo: every env var it reads is named somewhere in $wiki"

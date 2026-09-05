@@ -71,6 +71,19 @@ REGISTRY = {
     # to a recorder that is never called would make the entry green and vacuous.
     "EHDB_EVENTLOG_MIRROR_OUTCOMES": ("server", "record_ehdb_eventlog_mirror", None),
     "EHDB_EVENTLOG_MIRROR_QUEUE_OUTCOMES": ("server", "record_ehdb_eventlog_mirror_queue", None),
+    # Documented exclusion, not a gap.  `record_ehdb_eventlog_mirror_attempt` is
+    # handed a COMPUTED label (`AttemptOutcome::Retryable(label)`), so there is no
+    # literal beside the call for `literals_after` to take — and reaching for "the
+    # next quoted string" walks into the arm body and yields `dropped`, which is a
+    # terminal outcome, not an attempt one.  That mis-extraction was observed, not
+    # theorised.
+    #
+    # The guard lives where the literals do instead:
+    # server `every_attempt_label_that_can_be_recorded_is_pinned` scans the
+    # `AttemptOutcome::Retryable("…")` sites and asserts each is pinned; unpinning
+    # `unavailable` fails it.  Excluded here so this file reports a decision
+    # rather than an unverifiable NO-GUARD.
+    "EHDB_EVENTLOG_MIRROR_ATTEMPT_OUTCOMES": None,
     "EHDB_PROJECTION_MIRROR_OUTCOMES": ("server", "record_ehdb_projection_mirror", None),
     "EHDB_PROJECTION_MIRROR_QUEUE_OUTCOMES": ("server", "record_ehdb_projection_mirror_queue", None),
     "EHDB_PROJECTION_SNAPSHOT_GATE_OUTCOMES": ("server", "record_ehdb_projection_snapshot_gate", None),
