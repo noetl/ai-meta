@@ -1,338 +1,395 @@
-# EHDB as embedded state, not a networked service
+# EHDB as embedded state — routing and distribution
 
-**Status: analysis. Nothing here is built, and nothing touches prod.**
+**Status: design. Decision locked on the embedding question. Nothing is built,
+and nothing touches prod.**
 
-The proposal is to run EHDB as NoETL's *internal* storage — event log, cache,
-projections — called by the API server directly, in the RocksDB-inside-Flink
-shape: state is a projection over an event log, snapshotted, owned per shard.
+**Decision (owner, 2026-09-08): EHDB is embedded into the sharded NoETL API
+server. One unit per shard. Not a sidecar.**
 
-Today it runs as a separate networked service: a writer StatefulSet, an HTTP
-relay through a ClusterIP in front of a single pod, and a remote tier. This
-document asks how far the code already supports the first shape, and what the
-move would cost.
+The reasoning that settles it: the API server's job *is* to route and marshal
+internal data, issue commands and write events. API and storage are **one logical
+workload**. If the API stack stalls, storage stalling with it is *correct* — they
+share fate by design, so there is nothing to isolate. The sidecar option is
+dropped, and the contention question it existed to answer is dissolved rather
+than traded off.
 
-Every claim below is grounded in the code as of `ehdb@49fdefc`,
-`server@6f23a58`, and prod as observed 2026-09-08. Where I could not verify
-something, I say so.
+**Async keeps its place as a throughput tool *within* a shard** — folds,
+snapshots and compaction off the append path — **not as an isolation boundary
+between API and storage.** The code already works this way: `ehdb-l0` runs
+replication, manifest writes and uploads on a named OS thread
+(`engine.rs:446`, `"ehdb-l0-uploader"`) behind an `mpsc`, with *"The append path
+never does this — durability is asynchronous"* in the source. Nothing needs
+decoupling that is not already decoupled.
 
----
+**With embedding settled, the design problem is routing and distribution.** This
+is the RocksDB-in-Flink pattern taken to its distributed form: Flink partitions
+state by key and shuffles records to the owning partition. NoETL needs the
+equivalent, extended across regions. The rest of this document is that problem.
 
-## 1. How far is EHDB already embeddable?
-
-**Much further than the deployment suggests. The gap is one seam.**
-
-### It is already a library workspace
-
-| | |
-| :-- | :-- |
-| crates in the workspace | **11** |
-| crates that are libraries | **11** |
-| binaries in the whole workspace | **1** (`ehdb-reference`) |
-
-There is no EHDB server binary. The thing running as `noetl-cmdbus-writer` in
-prod is **the `noetl-worker` binary in writer mode** — NoETL's own worker,
-linking the EHDB crates and exposing HTTP faces on :9100–:9110. The "service" is
-not a separate product; it is our own process wrapping a library.
-
-### Every engine has an in-process constructor
-
-```rust
-// ehdb-l0/src/command_queue.rs:130, blob.rs:108, projection.rs:87
-pub fn open(config: L0Config, substrate: Arc<dyn DurableSubstrate>) -> Result<Self>
-pub fn cold_load(config: L0Config, substrate: Arc<dyn DurableSubstrate>) -> Result<Self>
-```
-
-`DurableSubstrate` is the storage seam — the RocksDB-`Env` analogue — with
-`LocalFsSubstrate` and `InMemorySubstrate` already implemented. Nothing about
-opening an engine requires a network, a port, or a second process.
-
-### The API is 100% synchronous
-
-| | count |
-| :-- | --: |
-| `pub async fn` in `ehdb-l0` | **0** |
-| sync `pub fn` in `ehdb-l0` | **236** |
-
-This matters more than it looks, and §3 turns on it.
-
-### The server links the crates and never opens an engine
-
-`repos/server/Cargo.toml` depends on `ehdb-l0` and `ehdb-feed`. But:
-
-```rust
-// the ONLY use of the engine type in the server:
-use ehdb_l0::{D1EventLog, EventRecord};                 // command_bus.rs:37
-router: Mutex<Option<Arc<PublishRouter<D1EventLog>>>>,  // :160
-PublishRouter::<D1EventLog>::connect(shard_count, addrs) // :462
-```
-
-`grep` for any engine construction in the server returns **nothing**.
-`D1EventLog` is a *type parameter*, and `PublishRouter` holds
-`_marker: PhantomData<fn() -> D>` — it never touches a local engine. Its only
-constructor is `connect(shard_count, addrs)` over TCP.
-
-### The quantified gap
-
-> **The server is one constructor away from in-process storage.**
-
-Everything under `PublishRouter` is already in-process-capable. What is missing
-is a local sibling to `PublishRouter::connect` — a router that dispatches to an
-owned `L0Engine` instead of a `PipelinedPublishClient`. The trait shape is
-already there (`D: Dataset`); the network client is one implementation of a
-boundary that currently has only one implementation.
-
-That is a genuinely small seam. **What is not small is everything built on the
-assumption that the boundary is remote**: the mirror, the parity comparator, the
-tier-service address configuration, the relay retry logic, the writer's HTTP
-faces. Those are the cost, not the engine.
+Grounded in `ehdb@49fdefc`, `server@6f23a58`, prod as observed 2026-09-08.
 
 ---
 
-## 2. Event-log-as-truth and snapshots, in the code today
+## 0. What embedding is, in one paragraph, and why it is close
 
-### The projection is already the fold, and it is already snapshotted
-
-`ehdb-l0/src/projection.rs` describes itself:
-
-> an **append-only log of projection snapshots** … the current state of an
-> execution being the **latest** snapshot — a fold
-
-Sort key `proj_seq`, partitioned by execution. `record_state` appends,
-`get_state` reads the latest, `list_executions` enumerates. This *is* the model
-being proposed. It is not something to build.
-
-### There are two distinct snapshot layers, and conflating them would be a mistake
-
-| layer | what it snapshots | analogue |
-| :-- | :-- | :-- |
-| **manifest** (`manifest_snapshot()`, `manifest_retain`) | which *parts* exist — storage layout | RocksDB MANIFEST / SST set |
-| **projection** (`ProjectionOp`, `proj_seq`) | the *state* folded from events | Flink checkpoint |
-
-The manifest is the thing that grew quadratically and filled the writer's PVC on
-2026-09-01. It is bookkeeping about files, not state.
-
-### Is "restore snapshot + replay tail" achievable now?
-
-**The primitives exist; the wiring does not.**
-
-- `cold_load` / `cold_load_replicated` are the restore half, in code.
-- The fold is in code and is what the parity work has been exercising.
-- **Missing:** nothing drives *restore-then-replay-tail* for the server. The
-  recovery path that exists folds from **Postgres**, not from the tier — which
-  is exactly what [#307](https://github.com/noetl/ai-meta/issues/307) recorded
-  as "coverage ~0 by construction": the in-path verdict cannot see
-  tier-vs-Postgres divergence because it never reads the tier.
-- **Missing:** a durable per-shard *cursor* (last applied event) that survives
-  restart, so "the tail" has a defined start. I did not find one; I may have
-  missed it, and this should be confirmed before any design is committed.
-
-So: event-log-as-truth is real in the code. Snapshot-and-restore is real at the
-engine level. **The server does not use either** — it treats Postgres as the
-system of record and EHDB as a mirror, which is the inversion this pivot undoes.
+All 11 EHDB crates are libraries; the workspace has **one** binary. What runs as
+`noetl-cmdbus-writer` is the `noetl-worker` binary in writer mode — our own
+process wrapping a library. Every engine has `open(config, substrate)` and
+`cold_load(config, substrate)`. The server links `ehdb-l0` and **never opens an
+engine**: `D1EventLog` is only a type parameter to `PublishRouter`, which holds
+`PhantomData` and can only `connect(shard_count, addrs)` over TCP. **The engine
+is one constructor away.** The work is not in EHDB; it is in everything built on
+the assumption that the store is elsewhere — and, as §1–§4 show, in routing.
 
 ---
 
-## 3. The deciding question: embedded vs sidecar
+## 1. Shard ownership and request routing
 
-The concern is contention — a request spike must not starve fsync, folds and
-snapshots, and vice versa. Two facts from the code decide more of this than
-first-principles reasoning does.
-
-### Fact 1: the engine already isolates its own heavy work
-
-```rust
-// ehdb-l0/src/engine.rs:446
-std::thread::Builder::new().name("ehdb-l0-uploader")
-```
-
-with an `mpsc` queue in front, and the comment on the receiving side:
-
-> *"The append path never does this — durability is asynchronous (RFC §2.3)."*
-
-Replication, the manifest write and the upload run on a dedicated named OS
-thread. **Embedding EHDB does not put that work on the request path**, because
-the library already took it off the caller's thread.
-
-### Fact 2: the engine is synchronous, so its placement cannot be accidental
-
-236 sync functions, 0 async. In an async server you *cannot* `.await` this. Any
-call site must explicitly choose `spawn_blocking`, a dedicated runtime, or a
-thread. **The type system forces the isolation decision to be made**, rather
-than leaving it to discipline — which matters in a codebase whose recurring
-failure is a guard that exists but is never reached.
-
-Against that: the server today is a bare `#[tokio::main]` with no
-`worker_threads` or `max_blocking_threads` tuning. There is no isolation
-discipline in place — it would have to be built.
-
-### The two options, concretely
-
-**Embedded (in-process).**
-- Contention handling: a **separate `tokio::runtime::Runtime` for storage** with
-  its own thread count, plus bounded channels so a request spike blocks at the
-  queue rather than consuming storage threads. Backpressure becomes a 429 at the
-  API instead of a stall in the fold.
-- What it does *not* solve: CPU shares and **heap**. One process means an L0
-  memtable spike and a request spike share an allocator and an OOM. There is no
-  cgroup boundary between them, and a panic on a storage thread can take the
-  process down.
-
-**Sidecar (same pod, UDS, own limits).**
-- Contention handling: **by construction.** Per-container CPU/memory limits mean
-  the kernel enforces the split; no discipline can erode it. This is a real and
-  honest advantage and it is exactly what was asked about.
-- Locality is preserved — same pod, same node, no ClusterIP, no DNS, no
-  cross-node hop. It is *not* the current relay.
-- What it costs: **a new IPC boundary on the hot path.** Smaller than the relay,
-  but the same shape — and the shape is what produced
-  [#320](https://github.com/noetl/ai-meta/issues/320) (no retry, plus a 90 s
-  pool handing a dead socket to every retry) and the two parity oracles of
-  [#325](https://github.com/noetl/ai-meta/issues/325)/[#326](https://github.com/noetl/ai-meta/issues/326).
-  Every boundary needs a retry policy, an idempotency key, a liveness story and
-  a parity check, and we have paid for all four of those on the current one.
-- Plus: a second process to supervise, start-order dependency, and a
-  serialization cost per append.
-
-### Recommendation: **embedded, behind a trait, with a dedicated storage runtime**
-
-Grounded in the code rather than in preference:
-
-1. **The heavy work is already off the request path** (Fact 1). The sidecar's
-   headline benefit is largely already provided by the library's own thread; the
-   part that remains is CPU/heap sharing, which is a *sizing* problem.
-2. **The sync API forces explicit placement** (Fact 2), so the isolation is
-   structural rather than remembered.
-3. **The pivot's whole purpose is to delete a boundary.** Replacing a remote
-   boundary with a local one keeps the entire class of failure — delivery,
-   ordering, idempotency, parity — that this reorientation exists to eliminate.
-   A UDS is better than a ClusterIP, but "better boundary" is a different goal
-   from "no boundary".
-4. **Per-shard ownership bounds the working set** (§4), so the heap-sharing risk
-   scales down as shards are added — the same lever that handles capacity.
-
-**Make it reversible.** Introduce the local router *as a second implementation
-of the same trait the network client already satisfies*. That seam is the
-existing `PublishRouter` shape, and keeping it means a sidecar transport can be
-added later without re-architecting — the decision is a config choice, not a
-rewrite. Given the contention concern is legitimate and I cannot measure it
-before the work exists, preserving the escape hatch is worth more than being
-right now.
-
-**What would change my recommendation:** a measurement showing the fold or
-compaction consuming enough CPU to affect API p99 under realistic load. That
-measurement does not exist today and should be taken on the embedded prototype
-before committing — if it goes the other way, the trait boundary is how you
-switch.
-
----
-
-## 4. Sharding and the single-writer guarantee
-
-**The sharding function already exists in the server:**
+### What exists, and it is more than expected
 
 ```rust
 // server/src/sharding.rs:192
-pub fn shard_for(execution_id: i64, shard_count: u32) -> u32   // xxhash64
+pub fn shard_for(execution_id: i64, shard_count: u32) -> u32   // XxHash64, LE bytes
 ```
 
-with `ShardConfig::owns` in `affinity.rs` and `NOETL_SHARD_INDEX` /
-`NOETL_SHARD_INDEX_FROM_HOSTNAME` for StatefulSet-ordinal assignment.
+`ExecutionAffinity` (`src/affinity.rs`) is a **working single-hop router**:
 
-**Prod today: `replicas: 1`, `NOETL_SHARD_COUNT` unset (⇒ 1).** The server is a
-single unsharded Deployment.
+| piece | state |
+| :-- | :-- |
+| `owns(execution_id)` | **live** — 3 call sites: nonconvergence sweep, orphan sweep, `events.rs:2797` |
+| `route_event()` → `Forwarded` / `ProcessLocally` | **live** at `events.rs:480` on `POST /api/events` |
+| loop guard (`AFFINITY_FORWARDED_HEADER`) | present — *"one hop, never a loop"* |
+| `owner_base_url()` via `NOETL_PEER_URL_TEMPLATE` `{shard}` | present |
+| shard index from StatefulSet ordinal hostname | present |
+| per-outcome metrics | present |
 
-### Does per-shard ownership dissolve the election?
+This is not a sketch. It is a keyed-shuffle for one endpoint, with the hard parts
+(loop protection, shard-map skew tolerance) already handled.
 
-Mostly, and it is worth being precise about why. EHDB has
-`ShardElection<S: LeaseStore, C: Clock>` with `try_acquire`/`renew` — note it is
-already **per-shard**, not global. With `shard_count = 1` a per-shard election is
-*de facto* a global one; that is a consequence of the current topology, not of
-the design.
+**⚠ Correction to a note I have carried:** I have recorded
+`NOETL_STATE_AFFINITY_ROUTE` as "fully inert, one reader zero callers" (#266).
+That is true of *that env flag*. It is **not** true of the affinity layer —
+`owns()` and `route_event()` are both reached. The inert flag and the live router
+are different things, and conflating them understates what exists.
 
-If each server shard sole-owns its partition's engine in-process, then **there is
-no second candidate to arbitrate between**, provided the orchestrator guarantees
-one live pod per ordinal — which is precisely what a StatefulSet provides. The
-election does not need to be replaced; it becomes degenerate, and its lease
-machinery can be retained as a safety belt against split-brain during rollout
-rather than as the primary mechanism.
+### ⚠⚠ The one behaviour that must change: degrade-to-local
 
-⚠ The honest caveat: a StatefulSet guarantees at-most-one *pod* per ordinal, not
-at-most-one *writer* — a partitioned-but-alive old pod is the classic exception.
-Retaining the lease (or a fencing token, which `ehdb-reference/src/fencing.rs`
-already has) is what makes the guarantee hold during rollovers. "By
-construction" is true for the steady state and needs the fence for the
-transition.
+`route_event` degrades to `ProcessLocally` on **every** failure — owner
+unreachable, non-2xx, undecodable body:
 
-**Scaling = more shards**, which is the same lever as
-[#318](https://github.com/noetl/ai-meta/issues/318) (the system pool is a fixed
-2-shard capacity with no autoscaler) rather than a new one.
+```rust
+"execution-affinity: owner unreachable; degrading to local processing"
+```
+
+Under today's topology that is right: Postgres is the system of record, every
+replica can write it, so a failed forward costs ordering, not data.
+
+**Under embedded per-shard ownership it is a correctness violation.** Writing
+locally means writing into *this* shard's event log for an execution *another*
+shard owns — a permanent fork of the log, silently, on a transient network
+error. The single-writer guarantee is exactly what embedding buys, and
+degrade-to-local spends it.
+
+> **Embedding requires this to become fail-closed: a failed forward is a 503,
+> not a local write.** This is the single most important behavioural change in
+> the pivot, and it is a three-line change guarded by a much larger question —
+> what the caller does with a 503 — which belongs in the retry/backpressure
+> design, not here.
+
+### The shard key, and where it stops working
+
+`execution_id` is the right key for the event log: an execution's events are all
+under one id, so per-execution locality is total and every hot path
+(`append`, `fold`, `get_state`) is shard-local.
+
+It is the wrong key for everything else, and the code already knows this:
+
+| table | read sites | mention `execution_id` |
+| :-- | --: | --: |
+| `noetl.event` | 86 | 17 |
+| `noetl.command` | 11 | 7 |
+| `noetl.catalog` | **31** | **0** |
+| `noetl.credential` | 10 | 0 |
+| `noetl.keychain` | 7 | 0 |
+| `noetl.runtime` | 9 | 0 |
+
+Catalog, credentials, keychain and the runtime registry are **not
+execution-scoped**. `ExecutionService::list` already names the resolution:
+
+> *"per-shard fan-out + **cluster-master catalog** lookup … results are merged,
+> catalog paths are looked up once on the cluster master, stitched in"*
+
+**So NoETL already has Flink's two-tier state split**: *keyed state* (sharded by
+`execution_id`) and *broadcast state* (catalog, credentials, runtime — global,
+read-mostly, one authority). The embedded design does not invent this; it
+inherits it, and the design work is to make the broadcast tier explicit rather
+than incidental (today it is "whichever pool is the master").
 
 ---
 
-## 5. What the pivot eliminates, and what it costs
+## 2. Cross-shard requests
 
-### Dissolved — not fixed, but made impossible
+### The precedent exists but is the wrong shape
 
-| today's problem | why it stops existing |
+```rust
+// server/src/db/pool.rs:284
+pub async fn for_each_shard<F, Fut, T, E>(&self, mut f: F) -> Result<Vec<(u32, T)>, E>
+```
+
+with `find_first` beside it, over-fetch handling (`limit + offset` per shard,
+merged then paginated), and a documented sequential-await choice:
+
+> *"Sequential await — simple and dep-free. Parallelism across shards is a
+> Phase G concern … For N=2-4 shards … sub-10ms per query."*
+
+**But it fans out over `DbPool`s, not peers.** Today one server process holds N
+connection pools and can reach *every* shard's data itself. That is
+"one process, N storage partitions" — and it is precisely what embedding ends.
+
+> **`for_each_shard` is a local loop today and becomes a distributed
+> scatter-gather under embedding.** Its latency assumption ("sub-10ms per query")
+> becomes a network RTT to a peer pod, its failure model changes from "a pool
+> errored" to "a peer is down or partitioned", and its sequential await becomes a
+> real serial cost that has to be parallelised.
+
+### The size of the surface
+
+**70 cross-execution `noetl.event` queries** in the server. Not all become
+scatter-gathers — many are admin/diagnostic and can be per-shard — but each one
+must be classified, and that classification is the bulk of the routing work:
+
+| class | routing | examples |
+| :-- | :-- | :-- |
+| **keyed** — carries an `execution_id` | forward to owner (§1 machinery, already built) | `/api/executions/{id}`, `/api/events`, status, cancel |
+| **fan-out** — spans executions, bounded | scatter to all shards, merge, paginate (`for_each_shard`, made distributed) | `/api/executions`, dashboard stats |
+| **broadcast** — non-keyed data | cluster-master or replicated read-only cache | catalog, credentials, runtime |
+| **sweep** — spans executions, unbounded | run *per shard, locally* — never gather | nonconvergence sweep, orphan sweep (already use `owns()`) |
+
+The fourth row matters: the sweeps already filter by `owns()`, so they are
+**already** written for a per-shard world. That is the shape every unbounded
+scan should take — the gather is avoided rather than optimised.
+
+### What has no answer yet
+
+A fan-out that needs a **consistent** view across shards. `/api/executions`
+merges independent per-shard reads taken at different instants; that is fine for
+a listing and wrong for anything that must not observe a torn state. Nothing in
+the code distinguishes the two today because a single Postgres made the question
+moot.
+
+---
+
+## 3. Multi-region and multi-cluster — the hard part
+
+### What exists: nothing for data placement
+
+The only region concept in the server is **credential residency** —
+`residency: strict` region-locks a keychain entry, with a cross-region broker
+and a `Residency violation: … region-locked to X; this server is in Z` error.
+That is a policy boundary for secrets, not a placement or routing mechanism.
+There is no region in the shard key, no region-aware routing, no cross-cluster
+transport. This is greenfield.
+
+### Routing to the right cluster is the easy half
+
+Extend the key. `shard_for(execution_id, N)` becomes a two-level resolution —
+region, then shard within region — and the natural encoding is in the id itself:
+`execution_id` is a **snowflake**, so a region field can be carried in the id the
+way `machine_id` already is (`agents/rules/observability.md` Principle 3 puts
+generation application-side precisely so the id is known before any round trip).
+An execution then names its own home region, and routing is a lookup, not a
+directory.
+
+The cost is that **an execution's home region is fixed at mint time**. Moving one
+is a migration (§4), not a route change. For a workload where an execution is
+minutes-to-hours long, that is the right trade.
+
+### Rebuilding across shards *and* regions is the genuinely hard part
+
+Replay is a fold. The question is what the fold is a fold *over*, and there are
+three cases that look alike and are not:
+
+**(a) Per-execution replay — solved by the partitioning.**
+Every event for an execution is in one shard's log, ordered by that log's
+sequence. Rebuilding one execution's state is a shard-local fold with a total
+order. No coordination. This is the common case and the pivot makes it *easier*
+than today, because today it requires reading Postgres and the tier and
+reconciling them (#325/#326).
+
+**(b) Whole-system rebuild — embarrassingly parallel, if you accept per-shard
+timelines.** Every shard folds its own log independently; there is no
+cross-shard interaction because state is keyed and keys do not span shards.
+Runtime is the slowest shard. Also fine.
+
+**(c) A rebuild that needs a consistent cut across shards — no answer today, and
+this is the one to design.**
+
+Consider: "reconstruct the state of the whole platform as of time T", or "replay
+region A's log into region B and get a coherent result." Per-shard logs have
+**independent sequence numbers**. There is no global total order. Snowflake ids
+give an approximate one — they are time-ordered by construction — but
+approximate is exactly the wrong word here: clock skew between nodes means
+`id_a < id_b` does not imply `a` happened before `b`, and across regions the
+skew is larger and the partition risk real.
+
+Three honest options, with what each costs:
+
+| approach | gives | costs |
+| :-- | :-- | :-- |
+| **Declare per-execution consistency only** | nothing to coordinate; (a) and (b) are the whole story | "state of the system at T" becomes undefined. Any feature needing it — a global audit as-of, cross-execution invariants — is off the table |
+| **Global sequencer** | a true total order | a single serialisation point; kills the scaling property the sharding exists for. Reintroduces exactly the centralisation this pivot removes |
+| **Watermarks + barriers (Flink's own answer)** | a consistent distributed snapshot without a global lock | Chandy-Lamport: a barrier injected into every partition's stream, each shard snapshots on barrier receipt, the snapshot set is a coherent cut. Needs a coordinator, barrier alignment, and a story for a shard that does not respond |
+
+**Recommendation: declare per-execution consistency as the contract, and treat
+the consistent-cut case as a separate, later, opt-in mechanism modelled on
+barriers.** Reasons: (a) and (b) cover every use we actually have — replay,
+recovery, projection rebuild are all per-execution or per-shard; option 2
+forfeits the point of the design; and option 3 is a large, well-understood piece
+of machinery that should be built when a requirement names it, not speculatively.
+
+**⚠ The cost of that choice must be written down where it will be read**, because
+it is the kind of constraint that gets discovered rather than remembered: with
+per-execution consistency, *there is no defined global as-of*, and any future
+feature that assumes one is a design change, not an implementation.
+
+### Cross-region replication is a separate decision
+
+Two shapes, and they should not be blurred:
+
+- **Regions partition the key space** (an execution lives in exactly one region).
+  No cross-region consistency needed; cross-region traffic is routing only. This
+  composes with the recommendation above.
+- **Regions replicate each other** (an execution's log exists in two regions).
+  Now you need conflict resolution or consensus, and the single-writer guarantee
+  that per-shard ownership buys is spent again at the region boundary.
+
+⚠ Note `ehdb-l0` already has `ReplicaTarget`, `open_replicated`, and a
+`FailureDomain` enum that **refuses a replica set built from undeclared
+domains** — `LocalDevice { device_id }` treats two paths on one disk as one
+domain. The primitives lean toward the replication shape. That is a reason to
+decide deliberately rather than let the available API choose.
+
+---
+
+## 4. Rebalancing
+
+### Nothing exists
+
+`ShardConfig::new(shard_index, shard_count)` is read from env at boot
+(`NOETL_SHARD_INDEX` / count, or the StatefulSet ordinal). There is no
+rebalancing, no ownership handoff, no migration path. Prod runs `replicas: 1`
+with `shard_count` unset (⇒ 1).
+
+### ⚠ The hash choice makes resizing maximally expensive
+
+`shard_for` is `XxHash64(execution_id) % shard_count`. Changing `shard_count`
+from N to N+1 remaps **roughly every key** — with embedded state, that means
+moving nearly all of it. Modulo hashing is fine when the shard map only selects
+a connection pool (today) and near-worst-case when it decides where terabytes of
+state live.
+
+**This is the change with the longest lead time**, because the hash is baked into
+`command_bus.rs` too (*"`shard_for_execution` is byte-identical to the
+server/worker `shard_for`"*) — any replacement must move both together or the
+command bus and the server will disagree about ownership, which is the one
+disagreement that cannot be tolerated.
+
+Options: **consistent hashing / rendezvous** (moves ~1/N of keys on a resize) or
+an **explicit partition table** (fixed large P partitions mapped to shards; a
+resize moves partitions, not keys — this is Kafka's and Flink's model, and it
+makes handoff a unit of work rather than a scan).
+
+**Recommendation: an explicit partition table with P fixed and P ≫ N.**
+It makes rebalancing a bounded, resumable, observable operation, and — decisively
+— an execution's partition never changes, so a partition can be handed off
+without any execution changing identity mid-flight.
+
+### What a handoff has to do
+
+Given per-partition state = event log + projection snapshots:
+
+1. Source shard **stops accepting** writes for the partition — fail-closed (§1),
+   forwarding to the new owner once it is ready.
+2. Ship the **latest projection snapshot** (`cold_load` is the restore half, and
+   it exists) plus the **log tail** after that snapshot.
+3. Target **replays the tail** onto the snapshot — the missing driver from §5.
+4. Ownership flips in the shard map; in-flight requests get one retry.
+5. Source drops the partition after a retention window.
+
+Steps 2–3 are exactly "restore snapshot + replay tail", which is also the
+recovery path. **Building it once serves both**, and that is the strongest reason
+to build it early.
+
+⚠ Step 4 is where a fence is required, not optional. A StatefulSet guarantees
+at-most-one *pod* per ordinal, not at-most-one *writer* — a partitioned-but-alive
+old owner is the classic split-brain. `ehdb-reference/src/fencing.rs` has the
+token machinery; ownership flips must carry it.
+
+---
+
+## 5. What the pivot dissolves, and what it costs
+
+### Dissolved — made impossible, not fixed
+
+| today | why it stops existing |
 | :-- | :-- |
-| [#320](https://github.com/noetl/ai-meta/issues/320) mirror loss | there is no mirror. The event log *is* the store; nothing is copied to a second place, so nothing can be dropped between them |
-| [#325](https://github.com/noetl/ai-meta/issues/325)/[#326](https://github.com/noetl/ai-meta/issues/326) cross-store parity | two stores are what parity compares. One store has nothing to disagree with — and the comparator, its flag, its alert and its two oracles all go away |
-| C5 / global election | §4: sole ownership per shard leaves nothing to elect (with a fence for rollover) |
-| [ehdb#332](https://github.com/noetl/ehdb/issues/332) remote tier shares the writer's PVC | the tier is not remote. `FailureDomain::LocalDevice` becomes the honest declaration rather than a defect, because replication moves to a genuinely separate substrate or is not claimed |
-| the phantom-tier-volume incident (2026-09-08) | a manifest declaring storage for a separate tier service has no referent once there is no separate tier service |
+| [#320](https://github.com/noetl/ai-meta/issues/320) mirror loss | there is no mirror; nothing is copied, so nothing can be dropped between copies |
+| [#325](https://github.com/noetl/ai-meta/issues/325)/[#326](https://github.com/noetl/ai-meta/issues/326) cross-store parity | one store has nothing to disagree with — comparator, flag, alert and both oracles go |
+| C5 / election | per-shard sole ownership leaves nothing to elect (fence retained for handoff, §4) |
+| [ehdb#332](https://github.com/noetl/ehdb/issues/332) remote tier on the writer's PVC | the tier is not remote; `FailureDomain::LocalDevice` becomes an honest declaration |
+| the 2026-09-08 phantom-volume incident | no separate tier service ⇒ no storage to declare for one |
 | the relay's retry / pool / liveness tuning | no relay |
 
-That list is the argument for the pivot. Six problems in five subsystems all
-trace to the same root: **the store is somewhere else.**
+Six problems, five subsystems, one root: **the store is somewhere else.**
 
-### Honest costs
+### Costs, honestly
 
-1. **Rework the writer.** `noetl-worker`'s writer mode, its nine HTTP faces
-   (:9100–:9110) and every client of them. The engines survive; the service
-   wrapper does not.
-2. **Build the local router.** Small (§1), but it must handle ordering,
-   backpressure and the sync/async boundary correctly — the append path is the
-   hot path.
-3. **Build the recovery driver.** §2: restore-then-replay-tail is not wired, and
-   a durable per-shard cursor appears to be missing. This is the piece most
-   likely to be underestimated, because the primitives existing makes it *look*
-   done.
-4. **Invert the system of record.** Today Postgres is authoritative and EHDB
-   mirrors it. Every read path that goes to `noetl.event` — the parity
-   comparator, the sweep, `project_events`, the status projection — assumes
-   that. This is the largest piece of work and it is not in EHDB at all.
-5. **Migrate a running system.** Prod has 2,390 executions and a live event log.
-   The cutover needs a dual-read period, which reintroduces two stores
-   *temporarily* — with the parity machinery we would otherwise be deleting.
-   That irony should be planned for, not discovered.
-6. **Per-shard storage sizing.** Each server pod gains a PVC and a memory
-   budget for its engine. Autopilot scheduling, PVC-per-ordinal and node
-   pressure all become server concerns.
+1. **Fail-closed forwarding** (§1) — small change, large consequence; needs the
+   caller-side retry story.
+2. **Classify 70 cross-execution queries** (§2) into keyed / fan-out / broadcast
+   / per-shard-sweep. Mechanical, large, and the real bulk of the work.
+3. **Make `for_each_shard` distributed** — parallel, partial-failure-aware. Its
+   own sequential-await comment already anticipates this as "a Phase G concern".
+4. **Build restore + replay-tail.** `cold_load` exists; the driver and a durable
+   per-shard apply-cursor do not appear to. Most likely to be underestimated,
+   because the primitives existing makes it look done. Serves recovery *and*
+   rebalancing (§4).
+5. **Replace modulo hashing with a partition table** (§4), in the server and the
+   command bus **together**.
+6. **Invert the system of record** — every read path assumes Postgres is
+   authoritative. Largest piece, and not in EHDB at all.
+7. **Make the broadcast tier explicit** (§1) — today "cluster master" is
+   whichever pool.
+8. **Migrate a live system**: 2,390 executions, needing a dual-read period that
+   *temporarily reintroduces two stores* — using the parity comparator we would
+   otherwise delete. Plan for that irony; do not discover it.
 
-### What I could not verify
+### Migration path from today
 
-- Whether a durable per-shard apply-cursor exists (§2). I searched and did not
-  find one; absence of evidence here is weak.
-- The actual CPU cost of folds/compaction under load — no measurement exists, and
-  it is the input the embedded-vs-sidecar call would most benefit from (§3).
+1. **Embed behind the existing seam.** Add a local router as a second impl
+   alongside `PublishRouter::connect`; single shard; server opens its own engine.
+   Kind only. Nothing in prod changes because `shard_count = 1` makes ownership
+   trivially true.
+2. **Wire restore + replay-tail**; prove recovery from a killed pod with Postgres
+   out of the path. Answers §5.4 and unlocks §4.
+3. **Flip one read path** to the embedded projection, dual-read against Postgres,
+   using the parity comparator as the migration oracle — the right tool for this
+   exactly once, on the way out.
+4. **Fail-closed forwarding + partition table**, still at N=1 (both are no-ops at
+   one shard, which is the safest place to land them).
+5. **N > 1 in kind**: exercise forwarding, distributed fan-out, and a partition
+   handoff.
+6. Only then: prod cutover, retire the writer service, delete the mirror.
+7. Multi-region after single-region sharding is boring.
+
+Steps 1–2 need no prod access and answer the two questions that most affect the
+rest.
+
+### Still unverified
+
+- A durable per-shard apply-cursor — searched, not found; weak evidence.
 - Whether any EHDB HTTP face has a consumer outside NoETL. If one does, the
   service wrapper cannot simply be deleted.
-
----
-
-## Recommended sequencing
-
-Nothing below is authorized; this is the shape the work would take.
-
-1. **Prototype the local router** behind the trait, in kind, single shard, with
-   the storage runtime split. Measure API p99 against a fold-heavy load. This is
-   the experiment that settles §3 with data instead of argument.
-2. **Wire restore + replay-tail** and prove recovery from a killed pod without
-   Postgres in the path — the claim in §2 that is currently untested.
-3. **Invert one read path** (status projection is the smallest) and run it
-   dual-read against Postgres, using the existing parity comparator as the
-   migration oracle. It is the right tool for this exactly once, on the way out.
-4. Only then: shard, retire the writer service, delete the mirror.
-
-Steps 1 and 2 are cheap and answer the two open questions. Neither requires
-touching prod.
+- Fold/compaction CPU under load. **No longer decision-relevant** — the owner's
+  fate-sharing argument settles the placement question — but still needed for
+  shard sizing.
