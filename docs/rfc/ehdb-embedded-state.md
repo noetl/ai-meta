@@ -41,6 +41,10 @@ engine**: `D1EventLog` is only a type parameter to `PublishRouter`, which holds
 is one constructor away.** The work is not in EHDB; it is in everything built on
 the assumption that the store is elsewhere — and, as §1–§4 show, in routing.
 
+**Topology and membership** — how an instance learns where a shard's owner
+is, and why that table is a hint and never an authority — is in
+[`ehdb-topology-membership.md`](ehdb-topology-membership.md).
+
 **Packaging and integration** — the library boundary, per-consumer crate
 surface, the in-process/transport line, and the KEDA + gateway face migration —
 are in the addendum [`ehdb-packaging.md`](ehdb-packaging.md).
