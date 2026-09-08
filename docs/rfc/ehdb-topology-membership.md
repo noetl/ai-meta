@@ -11,6 +11,13 @@ is**, and how every instance learns it.
 EHDB is self-sufficient — no external discovery service.** Consistent with the
 no-external-coordination arc that deleted NATS.
 
+**Decisions locked (owner, 2026-09-08):**
+
+1. **Gossip transport is a LIBRARY, not hand-rolled.** Option B below is closed.
+2. **Guiding principle — "self-sufficient" means no external DATABASE, not no
+   dependencies.** Proven libraries are welcome and preferred; do not reinvent
+   the wheel. Codified as [`agents/rules/self-sufficiency.md`](../../agents/rules/self-sufficiency.md).
+
 Grounded in `ehdb@main`, `server@main`, prod 2026-09-08.
 
 ---
@@ -194,12 +201,17 @@ Fully self-contained, zero third-party gossip, the whole stack ours.
   detector's bugs appear under partition and load, which unit tests do not
   reproduce.
 
-**Recommendation: A — library for transport, EHDB for state.** It satisfies the
-constraint (nothing external to operate), keeps every durable and queryable
-property in EHDB, and does not re-derive the one component whose failure mode is
-silent. **B remains an explicit owner option** if zero third-party gossip is
-itself the requirement; if so, it should be scoped as its own project with a
-partition-and-load test harness, not as a step inside this one.
+**DECIDED (owner, 2026-09-08): A — library for transport, EHDB for state.**
+B is closed.
+
+The decision follows [`self-sufficiency.md`](../../agents/rules/self-sufficiency.md)
+exactly: the constraint forbids an external *service*, not a crate. A gossip
+library compiles into the binary, versions with it, and has no runtime lifecycle
+of its own — it is not the thing self-sufficiency exists to prevent. And a
+failure detector is squarely in the "fails silently" category where that rule
+says use the maintained implementation.
+
+The specific crate recommendation is in §7.
 
 ### The split, drawn
 
@@ -213,6 +225,88 @@ partition-and-load test harness, not as a step inside this one.
         ├── snapshot / cold_load / cursor  ← step 2 + step 3 machinery, unchanged
         └── remote clusters read this projection by key, lazily, and cache
 ```
+
+---
+
+## 7. The crate recommendation — **foca**
+
+Surveyed 2026-09-08 against crates.io and docs.rs, not recall.
+
+| | **foca 2.0.0** | chitchat 0.13.0 | memberlist 0.8.5 | swim-rs 0.1.1 |
+| :-- | :-- | :-- | :-- | :-- |
+| last release | **2026-08-02** | 2026-08-06 | 2026-06-23 | 2024-10-07 |
+| downloads | 210,509 | 201,441 | 39,133 | 2,323 |
+| licence | MPL-2.0 | **MIT** | MPL-2.0 | Apache-2.0 |
+| protocol | **SWIM + Inf. + Susp.** | Scuttlebutt + phi-accrual | SWIM (memberlist port) | SWIM |
+| required deps | **2** (`bytes`, `rand`) | 11 (incl. `tokio`, `zstd`, `anyhow`) | 5 (+ its own sub-crates) | — |
+| does its own I/O | **no** | yes (tokio) | yes (runtime-agnostic) | yes |
+| `no_std` | **yes** (+ optional `std`) | no | no | no |
+
+### Why foca
+
+1. **It implements the property that decides this: SWIM with suspicion and
+   indirect probing.** §6 argues the whole failure-detector trade resolves on
+   being able to distinguish *"I cannot reach X"* from *"X is down"*. chitchat
+   does **not** do this — it is Scuttlebutt state dissemination with a
+   phi-accrual detector, which is a different (heartbeat-derived) family. That is
+   the single disqualifying difference, not a preference.
+
+2. **It does no I/O — "bring your own everything".** The caller owns the socket,
+   the codec and the identity type. That is exactly the shape needed here: foca
+   observes membership transitions and hands them back, and *we* append them to
+   D8. A library that owns its own socket and runtime would have to be adapted
+   into that flow; foca is already built for it.
+
+3. **Its `Identity` is pluggable and can carry payload.** Its own docs give the
+   example *"Want to attach extra crucial information (shard id, deployment
+   version, etc)? Easy."* — which is literally this design: the membership
+   message names the shard whose address is being announced, so the D8
+   `contract` field is populated from the gossip identity directly.
+
+4. **Two required dependencies.** `bytes` and `rand`. chitchat pulls 11
+   including `tokio`, `zstd` and `anyhow`; memberlist pulls its own sub-crate
+   family. For code on the routing path, that weight difference is a real
+   security and audit consideration, not aesthetics.
+
+5. **`no_std` + alloc** means it has no opinion about the server's runtime — it
+   cannot contend with the storage/API threading model because it does not have
+   one.
+
+### The tradeoffs, honestly
+
+- ⚠ **MPL-2.0**, not MIT. Weak, *file-level* copyleft: modifications to foca's
+  own files must be published; linking it into NoETL does not affect NoETL's
+  licence. Fine for use as-is; it means a fork carries an obligation. chitchat's
+  MIT is genuinely more permissive and is the one point where it wins.
+- ⚠ **"No I/O" means we write the transport.** Socket, retries, framing and the
+  encryption/signing layer (§5) are ours. That is more code than a batteries-
+  included crate — and it is also the only way to get the signed, authenticated
+  membership §5 requires, since none of these crates provides it.
+- ⚠ **Single-maintainer project.** Active (2.0.0 in Aug 2026, 100% documented,
+  210k downloads) but not a foundation-backed effort. The mitigation is real:
+  two required deps and no I/O means it is small enough to vendor or fork if it
+  goes unmaintained — a property chitchat's 11-dep tokio-coupled surface does not
+  have.
+- ⚠ **chitchat is not wrong, it is a different tool.** If the requirement were
+  "propagate arbitrary per-node key-value metadata cluster-wide", it would be the
+  better pick. The requirement here is *failure detection*, and it is worth
+  noting that Quickwit chose Scuttlebutt for state dissemination — the same split
+  this design makes, with EHDB in the state role.
+
+### What adoption would look like (not yet authorised)
+
+```
+foca (in-process, UDP, k-peer fan-out)
+   └─ Notification: member up / suspected / down
+        └─ RuntimeStore::{register, heartbeat, deregister}   ← D8, already tested
+             └─ fold → topology table → address for a shard
+```
+
+⚠ **Before adopting: D8 needs append-time validation** (§5, and the
+characterisation test `any_caller_can_currently_append_any_identity_gap_not_feature`
+in `runtime.rs` pins its absence). Feeding an unauthenticated network protocol
+into an unvalidated persisted log is the routing-poisoning path, and the persistence
+makes it durable.
 
 ---
 
