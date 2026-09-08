@@ -41,6 +41,10 @@ engine**: `D1EventLog` is only a type parameter to `PublishRouter`, which holds
 is one constructor away.** The work is not in EHDB; it is in everything built on
 the assumption that the store is elsewhere — and, as §1–§4 show, in routing.
 
+**Packaging and integration** — the library boundary, per-consumer crate
+surface, the in-process/transport line, and the KEDA + gateway face migration —
+are in the addendum [`ehdb-packaging.md`](ehdb-packaging.md).
+
 ---
 
 ## 1. Shard ownership and request routing
