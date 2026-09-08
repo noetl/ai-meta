@@ -1282,6 +1282,53 @@ PYEOF
   fi
 fi
 
+# ------------------------------------------------------- manifest-vs-live
+# The #323 incident, 2026-09-08.  A pre-apply proof compared ONE FIELD (`image`)
+# across five workloads, found it preserved, and that was generalised to the
+# whole object.  The same manifest declared a FOURTH volume for a PVC that has
+# never existed in prod; applying it left the cmdbus writer unschedulable for
+# ~55 minutes and took both buses down.
+#
+# A dry-run answers only the question you ask it.  This asks about the whole
+# rendered pod spec, and about the direction that bites: an element present in
+# the MANIFEST and absent from LIVE.  The reverse is usually deliberate — it is
+# what shape-only manifests do — so it is not a finding.
+if run manifest-vs-live; then
+  hdr "manifest-vs-live — a prod manifest declaring something the cluster does not have (#323)"
+  CTX="${PROD_CTX:-gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot}"
+  if ! kubectl --context "$CTX" get ns noetl >/dev/null 2>&1; then
+    skip "no reachable prod context"
+  elif ! python3 -c "import yaml" 2>/dev/null; then
+    skip "pyyaml not installed"
+  else
+    M=repos/ops/ci/manifests/noetl
+    out=$(python3 playbooks/lib/manifest_vs_live.py "$CTX" noetl \
+            "$M/cmdbus-writer-statefulset-prod.yaml" \
+            "$M/server-rust-deployment-prod.yaml" \
+            "$M/worker-rust-deployment-prod.yaml" \
+            "$M/worker-system-pool-deployment-prod.yaml" \
+            "$M/worker-system-pool-shard1-deployment-prod.yaml" 2>&1)
+    ncmp=$(printf '%s' "$out" | sed -n 's/^COUNTS|.*workloads_compared=\([0-9]*\).*/\1/p')
+    ndrift=$(printf '%s' "$out" | grep -c '^DRIFT|' || true)
+    # Assert non-vacuous BEFORE reading the result: zero workloads compared and a
+    # healthy system produce the same clean output.
+    if [ -z "$ncmp" ] || [ "$ncmp" -eq 0 ]; then
+      drift "manifest-vs-live compared NOTHING — the check failed, it did not pass"
+      printf '%s' "$out" | head -6 | sed 's/^/           /'
+    elif [ "$ndrift" -gt 0 ]; then
+      drift "$ndrift element(s) declared in a prod manifest are absent from the live object"
+      printf '%s' "$out" | sed -n 's/^DRIFT|/           /p'
+      echo "         Applying this mutates a running object toward a state it may not reach."
+      echo "         Gate: agents/rules/apply-safety.md — full-spec diff before any prod apply."
+    else
+      ok "every prod manifest's volumes, claims, mounts and containers exist live"
+    fi
+    # Rollout prediction — not a hazard, but the OTHER thing #323 got wrong.
+    printf '%s' "$out" | sed -n 's/^INFO|/         note: /p'
+    printf '%s' "$out" | awk -F'|' '/^COUNTS\|/ {print "         denominator: "$2" "$3}'
+  fi
+fi
+
 printf "\n"
 if [ "$DRIFT" -gt 0 ]; then
   printf "\033[31m%d drift finding(s).\033[0m Each is a representation disagreeing with the system.\n" "$DRIFT"

@@ -200,6 +200,26 @@ Ask what a *positive* result would have looked like, and run something that
 produces one. A check that has never once fired is indistinguishable from a
 check that cannot fire — which is the same defect, one level up.
 
+### Acting on a representation is its own hazard
+
+Everything above is about a copy that has drifted. There is a second failure
+that only appears when you go to *fix* one: **verifying a narrow slice of the
+representation and acting on all of it.**
+
+On 2026-09-08 the prod manifests were confirmed drifted, correctly. The fix was
+proved with a server-side dry-run showing that removing the image pin preserved
+the running digest on all five workloads — with a negative control. Real
+evidence, about **one field**. The same manifest also declared a volume for a
+PVC that has never existed; applying it took both buses down for ~55 minutes.
+
+The rule that follows has its own page — [`apply-safety.md`](apply-safety.md) —
+because it is a gate rather than a lens: **diff the whole rendered object
+against live before applying, never the field you changed.** A dry-run answers
+only the question you ask it, and the gap between what you verified and what you
+changed is where the incident lives.
+
+`playbooks/drift-audit.sh manifest-vs-live` mechanises the detection half.
+
 ## When this rule does not fire
 
 - Deliberately-frozen snapshots (rollback digests, incident captures, a
