@@ -302,11 +302,21 @@ foca (in-process, UDP, k-peer fan-out)
              └─ fold → topology table → address for a shard
 ```
 
-⚠ **Before adopting: D8 needs append-time validation** (§5, and the
-characterisation test `any_caller_can_currently_append_any_identity_gap_not_feature`
-in `runtime.rs` pins its absence). Feeding an unauthenticated network protocol
-into an unvalidated persisted log is the routing-poisoning path, and the persistence
-makes it durable.
+✅ **Append-time validation has landed** ([ehdb#357](https://github.com/noetl/ehdb/pull/357)).
+The structural half is enforced on the append path — bounded and charset-checked
+identity, dot-run rejection, bounded contract, field/event agreement — and every
+rule is mutation-verified.
+
+**The seam for the network-trust half is `OpOrigin`**, consulted on the append
+path and defaulting to `TrustedLocalOrigin` (named for what it *assumes*, not
+described as safe). `RuntimeStore::with_origin(..)` is where a
+`SignedGossipOrigin` plugs in.
+
+⚠ **That default is exactly what must be replaced when foca is wired.** Feeding
+an unauthenticated network protocol into a log that accepts any structurally
+valid op is the routing-poisoning path, and persistence makes it durable. The
+seam is proven *wired* — a mutation deleting the call from the append path fails
+the suite — but it authorises everything until something else is installed.
 
 ---
 
