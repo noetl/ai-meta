@@ -171,10 +171,10 @@ unexercised one.
       **identical version**) and asserts `DigestMismatch` + `is_fault()`; its
       control folds the tier against itself and asserts `Match`, pinning what
       the shipped code did. Mutation-gated 11/11.
-      ⚠ Closed in code and **released as v3.108.1** (digest `b9bed030…`), but
-      **not deployed** — prod still runs v3.108.0, where the check cannot fail.
-      The deploy is owner-gated and behaviour-changing; see
-      `deploy-3108.1-runbook.md`.
+      ✅ **LIVE ON PROD since 2026-09-11 22:45Z** (v3.108.1, `b9bed030`). The
+      verification is now Postgres-authoritative on the running build. ⚠ Its
+      effect on the read path is **unmeasured** — that path is cold under
+      `STATE_BUILDER=offserver` (2 reads in 35 min).
 - [ ] **AC13 — Prod flip executed and held.** Flag armed on prod, `served_tier`
       and/or `stale_within_window` climbing, `serve_refusal{stored_ahead}=0`,
       no no-op re-drive storm, serving unaffected — then held for a soak window.
@@ -355,6 +355,54 @@ kubectl --context gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot -
 ```
 
 Postgres untouched and authoritative throughout; nothing dropped or truncated.
+
+### 2026-09-11 — v3.108.1 DEPLOYED to prod (owner-gated); AC14 fix now live
+
+Applied 22:45Z. Pre-apply full-spec diff re-run live: **image-only, one hunk**
+(`867b822f` → `b9bed030`), flag absent, env 62, `READ_SOURCE=wal`,
+`RECOVERY_SOURCE=tier`, `replicas: 1`. Post-apply whole-object diff against the
+pre-apply snapshot showed **only the image line**. Pod 1/1, **0 restarts**,
+`build_info{version="3.108.1"}`, health 200, **0 ERROR / 0 WARN**. Dispatch
+end-to-end healthy: 5/5 probe executions COMPLETED with 30 events each.
+
+**Verdict: HOLD (do not revert).** No abort trigger met — no crash, no latency
+regression, no no-op storm (`nonconvergence_sweep` 15 candidates / 15
+`skipped_live`), `stored_ahead` 0, `recovery_source` still tier.
+
+⚠ **The soak's headline signal is UNOBSERVABLE at current traffic, and that is
+reported rather than papered over.** The D3 read path is cold under
+`NOETL_STATE_BUILDER=offserver`: **2 reads in 35 minutes**, against a pre-deploy
+baseline of 29,842 on a 16h-old pod — which was dominated by the earlier load
+run, not steady state. So `served_tier=0` here is **absence of traffic, not the
+refuse-everything abort trigger**, and `digest_mismatch` cannot rise-then-fall
+when nothing reads. A bounded probe (5 × `test/simple_loop`, concurrency 1)
+moved the counter by **+1**. The deploy is stable; the behaviour change is
+**unmeasured on the read path**.
+
+**What the comparator does show, and it is a flip-killer.** Exercised directly
+(`/api/ehdb/projection-fold/executions/`), tier-vs-Postgres divergence is
+**widespread and persistent**:
+
+| population | divergent |
+| :-- | :-- |
+| 5 probe executions, re-checked after ~12 min settle | **4/5** (23/30, 23/30, 26/30, 22/30; one converged 30/30) |
+| **7 executions created BEFORE the roll** (the control) | **7/7** |
+
+The pre-deploy control is what settles attribution: **the gap is pre-existing and
+the deploy did not cause it.** Three of the seven have no tier record at all, and
+three have *equal counts* with disagreeing digests — content divergence, not
+missing events (the #325 class). Re-checking after settle is what separates this
+from lag: one probe execution did converge, so the mirror works sometimes.
+
+⚠ Per the runbook this is **explicitly not a revert condition**: reverting would
+restore a build that verifies the tier against itself and serves these as
+`Match`. The fix is doing its job — it makes a real, widespread gap refuse
+instead of serve.
+
+**Consequence for AC13:** the serve-flip stays **NO-GO**, and the blocker is no
+longer the verification (fixed, shipped, live) but **mirror coverage**. Arming
+the flag over a mirror that loses events on most executions would widen serving
+over exactly the population that cannot be served correctly.
 
 ### 2026-09-11 — #424 merged and released as v3.108.1 (NOT deployed)
 
