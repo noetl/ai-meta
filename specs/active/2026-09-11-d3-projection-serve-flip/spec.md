@@ -171,7 +171,10 @@ unexercised one.
       **identical version**) and asserts `DigestMismatch` + `is_fault()`; its
       control folds the tier against itself and asserts `Match`, pinning what
       the shipped code did. Mutation-gated 11/11.
-      ⚠ Closed in code, **not yet in prod** — needs release + inert deploy.
+      ⚠ Closed in code and **released as v3.108.1** (digest `b9bed030…`), but
+      **not deployed** — prod still runs v3.108.0, where the check cannot fail.
+      The deploy is owner-gated and behaviour-changing; see
+      `deploy-3108.1-runbook.md`.
 - [ ] **AC13 — Prod flip executed and held.** Flag armed on prod, `served_tier`
       and/or `stale_within_window` climbing, `serve_refusal{stored_ahead}=0`,
       no no-op re-drive storm, serving unaffected — then held for a soak window.
@@ -352,6 +355,55 @@ kubectl --context gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot -
 ```
 
 Postgres untouched and authoritative throughout; nothing dropped or truncated.
+
+### 2026-09-11 — #424 merged and released as v3.108.1 (NOT deployed)
+
+Owner authorized merge + release only. Prod still runs **v3.108.0**; the deploy
+is a separate gate because this change is **not inert**.
+
+| | |
+| :-- | :-- |
+| merge commit | `f82f69f7` (conventional subject, so semantic-release reads it) |
+| release commit | `aea78ec7` |
+| tag | **v3.108.1** — read back from the remote, not assumed |
+| AR digest | `sha256:b9bed0304104247caa7b01594033c216ff98fa09f275173d7011160d07d075ee` |
+
+Pre-merge gate: `MERGEABLE`/`CLEAN`, CI green, branch 0 commits behind main,
+1063 tests pass, and the mutation battery re-run **11/11 on the exact merge
+content** rather than trusting the earlier run.
+
+⚠ The merge subject was set explicitly to `fix(ehdb): …` rather than accepting
+`Merge pull request #424 from …`. Per `release-versioning.md` a non-conventional
+merge subject releases **nothing, silently** — the failure mode that costs a
+build cycle to discover.
+
+**Fix confirmed in the built artifact**, by symbol inspection of
+`app/noetl-control-plane` (linux/amd64) in both images:
+`bounded_fold_agrees` / `bounded_fold_at` / `events_from_postgres` present in
+v3.108.1 and absent in v3.108.0; shared symbols (`wal_projection_state`,
+`grant_for_behind`) present in **both** as the positive control that makes those
+zeros meaningful; a nonexistent symbol 0 in both; version string `3.108.1`
+present and `3.108.0` absent. Digest resolution was itself controlled — resolving
+`v3.108.0` by the same method returns exactly the digest prod is running.
+
+**Deploy prepped, not applied** — `deploy-3108.1-runbook.md`. Full-spec
+server-side dry-run is **image-only** (one line), with `env` unchanged at 62 and
+the flag still absent; a positive control confirms the diff method reports a
+second change when one exists.
+
+⚠ **This deploy changes live behaviour, unlike the v3.108.0 roll.** The v3.108.0
+deploy was genuinely inert because its flag defaulted off. This one alters the
+*currently live* read path: the check that decides `Match` becomes able to fail.
+The expected outcome is **fewer `served_tier` and more refusals**, and a refusal
+falls back to a full Postgres rebuild — the safe direction. So the soak watches
+`digest_mismatch` **rise and then fall**; a rise is the fix becoming visible, not
+a regression, and the discriminator for a real gap is *persistence*, not
+presence. ⚠ `served_tier` falling to **0** is an abort trigger — that would be
+the option-(a) refuse-everything failure this fix was chosen to avoid.
+
+Reverting is an image rollback to `867b822f`, rehearsed. ⚠ Revert restores the
+defect, not correctness — revert for a crash/latency/storm, never because
+`digest_mismatch` is non-zero.
 
 ### 2026-09-11 — Q4 answered, AC14 closed, and the serve path found to be live
 

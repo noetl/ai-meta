@@ -219,7 +219,42 @@ If hard bounds are hit without success:
   unit level. Not fixed inside this loop: the fix changes the canonical state
   digest on a live path, which is a scope decision rather than a loop iteration.
 
-- **Loop status: 2 of 6 iterations used.** AC14 closed; Q4 answered; AC11/AC12
+- **Iteration 3 (2026-09-11) — target: ship the AC14 fix. Valid. Merged + released.**
+
+  Owner authorized merge + release only, not a deploy.
+
+  *Pre-merge gate, re-run rather than trusted:* `MERGEABLE`/`CLEAN`, CI green,
+  branch 0 commits behind main, 1063 tests, mutation battery **11/11 on the
+  exact merge content**.
+
+  *Released:* merge `f82f69f7` → release `aea78ec7` → tag **v3.108.1** → AR
+  digest `sha256:b9bed030…`. Tag read back from the remote; `Cargo.toml` agrees.
+
+  *Fix-present in the artifact, three-way:* fix symbols present in new / absent
+  in old; shared symbols in **both** (positive control); nonexistent symbol 0 in
+  both (negative control); version string flips 3.108.0 → 3.108.1.
+
+  *Deploy prepped, not applied:* full-spec dry-run **image-only**, one line,
+  env unchanged at 62, flag still absent, with a positive control showing the
+  method reports a second change when one exists.
+
+  ⚠ **Invalid measurements recorded:**
+
+  1. **A false zero I printed and caught.** `git show origin/<branch>:file`
+     failed (the remote-tracking ref did not exist locally), so the output file
+     was never written — and the follow-on `grep -c` over the missing file
+     reported `events_for_recovery( occurrences: 0`, which is exactly the
+     "clean" answer I was hoping for. Fixed by fetching the ref explicitly and
+     asserting the extracted byte count before running any check on it.
+  2. **`grep -cx "3.108.1"` returned 0 for both binaries.** The version is not a
+     whole line in `strings` output. An exact-match anchor turned a present
+     string into a confident absence; `-F` substring plus a nonsense control
+     gave the real answer.
+
+  *Not done:* the deploy. It is behaviour-changing (the verification becomes
+  able to fail on the live read path) and is the owner's gate.
+
+- **Loop status: 3 of 6 iterations used.** AC14 closed; Q4 answered; AC11/AC12
   remain open and are now **owner decisions** (Q1 needs a scoped code change;
   Q2 needs a test-only seam this loop's escalation path forbids shipping
   unilaterally), not further measurement. No prod mutation occurred, so the
