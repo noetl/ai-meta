@@ -109,6 +109,15 @@ If hard bounds are hit without success:
   and the inert prod-deploy diff prepped (image-only) with the revert rehearsed.
   AC11 and AC12 are the remainder.
 
+- Environment note (2026-09-11, not a loop iteration) — prod was rolled to
+  **v3.108.0 inert** (image-only, flag NOT armed; owner-authorized). This does
+  not advance AC11/AC12, which are kind-only, but it changes two of this loop's
+  assumptions: prod and kind now run the **same build**, so a behaviour
+  difference between them can no longer be explained by version skew; and the
+  four `serve_refusal` series now exist on prod, so `stored_ahead` there is a
+  real zero rather than an absent family. Recorded here because the loop's
+  State Source is what a resuming session reads first.
+
 ## Outcome
 
 (filled in by `loop-close`: status, iterations run, final result, links to any

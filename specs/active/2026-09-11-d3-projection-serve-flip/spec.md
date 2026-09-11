@@ -236,6 +236,63 @@ means *not exercised*, not *healthy* — the two are indistinguishable without t
 denominator, and this program has produced that false-clean reading more than
 once.
 
+## Change Log
+
+Append-only, per `agents/rules/spec-driven-development.md` ("log scope changes as
+new dated notes rather than silently rewriting Goals or Acceptance Criteria after
+implementation has started"). This spec was shared for review as
+[noetl/ai-meta#334](https://github.com/noetl/ai-meta/pull/334) before the entries
+below.
+
+### 2026-09-11 — inert prod deploy of v3.108.0 executed (owner-authorized)
+
+Plan step 8 is **half done**: the image is deployed, the flag is **not** armed.
+AC13 remains unchecked, because it requires the flag armed plus a soak — not the
+deploy alone.
+
+Pre-apply gate (re-run immediately before the apply against freshly captured
+live state, not the spec prepped hours earlier):
+
+- structured whole-object comparison: **exactly 1 spec difference** — the image
+  (`b444baea…` → `867b822f…`);
+- env **62 → 62**, env name-sets identical, `SERVE_ON_BEHIND` **not added**;
+- `volumeClaimTemplates` unchanged; volumes, volumeMounts, containers,
+  resources, replicas all unchanged;
+- `NOETL_EHDB_RECOVERY_SOURCE=tier` present in the object being applied.
+
+Post-apply verification:
+
+| check | result |
+| :-- | :-- |
+| running digest | `sha256:867b822f…`, `build_info version="3.108.0"` |
+| flag in pod env | **absent** (62 vars) — deploy is inert |
+| `recovery_source_info{tier}` | **1** — the prior GO flip survived the roll |
+| `serve_refusal` series | **0 → 4** — proves the new build is running |
+| `stale_within_window` | **0** — serve-on-behind did **not** engage, as required with the flag off |
+| pod | 1/1, **0 restarts**, health `ok`, database connected |
+| logs | **0 ERROR**, 0 panic; WARNs all pre-existing kinds |
+| no-op storm | **0/min** (the 2026-09-09 failure signal was ~52/min) |
+| PV | **1072 KB before and after** — data survived the roll, same PVC rebound |
+| canary | submitted 10 s, **reached a terminal event** end-to-end |
+
+⚠ Worth recording because it changes a number quoted in the Problem section: at
+pre-apply baseline prod showed `projection_read_total{served_tier}=1` and
+`{stored_behind_spine}=24`. The Problem section's "0 served / 11 of 11 refused"
+was measured on 2026-09-10; prod has since served once. The **shape** of the
+problem is unchanged (refusals still dominate at 24:1) but the literal "never"
+is now "once", and the spec should not keep asserting a stale zero.
+
+Revert, unchanged and rehearsed:
+
+```
+kubectl --context gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot -n noetl \
+  set image statefulset/noetl-server-rust-embedded \
+  noetl-server=us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/server-rust@sha256:b444baeabaa60b4041ec3dd8351ab2b3552ae78af83514385d8686a48917510b
+# confirm: noetl_server_build_info{version="3.107.1"} 1
+```
+
+Postgres untouched and authoritative throughout; nothing dropped or truncated.
+
 ## Linked Issues
 
 - (filled in by `spec-to-tasks`)
