@@ -499,7 +499,12 @@ the deploy stayed inert under load. All load generators cleaned up.
 
 ## Linked Issues
 
-- (filled in by `spec-to-tasks`)
+- **Coordination issue: [noetl/ai-meta#336](https://github.com/noetl/ai-meta/issues/336)**
+  — status, task breakdown and PR links for this spec, per
+  [`agents/rules/spec-locations.md`](../../../agents/rules/spec-locations.md)
+  (file = truth, issue = tracking, wiki = reading room). Indexed on the
+  coordinator wiki's Specs Index.
+- Per-plan-item issues: (filled in by `spec-to-tasks` once the spec is approved)
 - Related umbrella: [noetl/ai-meta#332](https://github.com/noetl/ai-meta/issues/332)
 - Related: [noetl/server#423](https://github.com/noetl/server/pull/423) (merged),
   [noetl/server#419](https://github.com/noetl/server/issues/419),
