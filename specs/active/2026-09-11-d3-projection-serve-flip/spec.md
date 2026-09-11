@@ -162,12 +162,16 @@ unexercised one.
       induced ahead snapshot is observed being refused on a running server, with
       `serve_refusal{reason="stored_ahead"}` incrementing.
       *(OPEN GAP — see Open Questions Q2.)*
-- [ ] **AC14 — The bounded verification is independent of the store it verifies.**
-      When a served read's verification falls back to the tier (spine refused),
-      the check must not compare a tier-derived fold against a tier-derived
-      record. Either the fallback is refused for serving, or an independent
-      source (Postgres) is consulted for the bounded re-fold.
-      *(OPEN — discovered 2026-09-11 under prod load; see Q4.)*
+- [x] **AC14 — The bounded verification is independent of the store it verifies.**
+      **CLOSED 2026-09-11** by noetl/server#424. Both verification legs
+      (`wal_projection_state`, which decides `Match`, and `grant_for_behind`,
+      the serve-on-behind leg) now fold `noetl.event`. Proven by
+      `a_tier_missing_middle_events_is_refused_not_served`, which reproduces the
+      `356712944081313792` shape (30 events in Postgres, 26 in the tier,
+      **identical version**) and asserts `DigestMismatch` + `is_fault()`; its
+      control folds the tier against itself and asserts `Match`, pinning what
+      the shipped code did. Mutation-gated 11/11.
+      ⚠ Closed in code, **not yet in prod** — needs release + inert deploy.
 - [ ] **AC13 — Prod flip executed and held.** Flag armed on prod, `served_tier`
       and/or `stale_within_window` climbing, `serve_refusal{stored_ahead}=0`,
       no no-op re-drive storm, serving unaffected — then held for a soak window.
@@ -216,18 +220,59 @@ unexercised one.
       flip is accepted as low-signal-but-harmless, or it is deferred until the
       topology question is addressed. This is a scope decision for the owner.
 
-- [ ] **Q4 — How should a tier-sourced bounded verification be made independent?**
-      Options: (a) refuse to serve when `events_for_recovery` resolved to the
-      tier, so the grant only issues on a spine-verified fold; (b) fold the
-      bounded verification from Postgres regardless of recovery source, paying
-      one query; (c) accept it and rely on the cross-store parity comparator to
-      catch tier gaps out-of-band. (a) is the cheapest and most conservative;
-      (c) is what exists today and it demonstrably left one execution divergent
-      for 15+ minutes without blocking anything.
+- [x] **Q4 — How should a tier-sourced bounded verification be made independent?**
+      **ANSWERED 2026-09-11: option (b)** — fold the bounded verification from
+      Postgres regardless of recovery source. Landed in noetl/server#424.
 
-⚠ This spec is **not approved** while Q1–Q4 remain unresolved. AC1–AC10 are
-already satisfied and are recorded here as the established baseline; AC11–AC13
-are what remain.
+      The measurement that settles it is the fold-source split on prod:
+
+      ```
+      recovery_fold{source="spine"} spine_incomplete  25390
+      recovery_fold{source="spine"} folded                0
+      recovery_fold{source="tier"}  folded            25349
+      ```
+
+      The spine **never** completes on prod, so the ladder resolves to the tier
+      on 100% of calls. That re-prices every option:
+
+      - **(a) refuse on tier fallback** — refuses ~100% of behind-serves. The
+        flip becomes a no-op that still consumes the flag and the soak window.
+        It reads as the conservative choice and is actually the vacuous one.
+      - **(c) accept + out-of-band comparator** — violates the stated bar
+        outright. Execution `356712944081313792` sat divergent for 15+ min and
+        blocked nothing; worse, it was being served as `Match`, not merely
+        going unnoticed.
+      - **(b) fold from Postgres** — the only option that can see a gap in the
+        mirror, because it is the only one reading something other than the
+        mirror.
+
+      The cost argument against (b) was that it puts Postgres back on the hot
+      path. That cost is **already being paid**: the WAL path hands
+      `rebuild_state` a snapshot with `version: 0`, so the caller re-reads the
+      execution's entire event set from Postgres immediately afterwards
+      (`orch_snapshot.rs:211` → `events.rs:2274`). (b) makes an existing read
+      honest rather than adding a new one.
+
+⚠ This spec is **not approved**. Q3 and Q4 are resolved; **Q1 and Q2 remain
+open**, and AC11/AC12 with them. AC1–AC10 are satisfied and recorded as the
+established baseline. AC14 is closed in code and awaits a release + inert
+deploy. AC13 is owner-gated and currently **no-go** — see `arm-runbook.md`.
+
+**AC11 and AC12 are left explicitly open rather than argued closed:**
+
+- **AC11** (behind-serves individually attributable) — the *denominator*
+  problem is solved (prod load produced 180 `served_tier` reads off 51
+  executions, ~1 read per 3), so the volume is reachable. What is missing is
+  the attribution mechanism itself, which is Q1 and needs a scoped code
+  change. Not closable by measuring harder.
+- **AC12** (live ahead-refusal) — `ServeGrant` has a private field and no
+  public constructor, so an ahead snapshot is **structurally
+  unrepresentable**; `evaluate` cannot return one. Inducing it live therefore
+  requires a test-only injection seam. Per this work's loop escalation path,
+  that seam is not to be shipped unilaterally: a seam that exists only for
+  tests is itself a surface, and accepting compile-time + property evidence
+  for the ahead case is a legitimate answer the owner may prefer. **Owner
+  decision, not an engineering gap.**
 
 ## Verification Plan
 
@@ -241,8 +286,8 @@ are what remain.
 | AC8 | kind with flag armed + `STATE_BUILDER=server` + `READ_SOURCE=wal`; drive load until `stale_within_window > 0`; assert `serve_refusal{*} = 0` across all four pinned series. |
 | AC9 | For each sampled execution call `/api/ehdb/projection-fold/executions/{id}`; compare digests **only when `tier.version == postgres.version`**; count version-mismatch and absent-side as a third outcome; require distinct-digest count > 1. |
 | AC10 | `kubectl diff --server-side -f <spec>` plus a structured whole-object comparison asserting exactly one spec difference; then rehearse the revert and confirm via `noetl_server_build_info{version}`. |
-| AC11 | Pending Q1. |
-| AC12 | Pending Q2. |
+| AC11 | Still pending Q1 — attribution mechanism, not measurement volume. |
+| AC12 | Still pending Q2 — needs a test-only seam; owner decision. |
 | AC13 | Post-arm: `served_tier`/`stale_within_window` climbing, `serve_refusal{stored_ahead}=0`, no-op storm at 0/min, dispatch completing end-to-end, 0 ERROR — with the revert one command away. |
 
 ⚠ **Denominator discipline applies to every row above.** A result is reported
@@ -307,6 +352,68 @@ kubectl --context gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot -
 ```
 
 Postgres untouched and authoritative throughout; nothing dropped or truncated.
+
+### 2026-09-11 — Q4 answered, AC14 closed, and the serve path found to be live
+
+Worked the spec's remaining open questions. Three findings, in the order they
+changed the picture.
+
+**1. The spine never folds on prod, so the self-reference is total.**
+`recovery_fold{source="spine"}` is 25,390 `spine_incomplete` against **0**
+folded, while the tier folded 25,349. The recovery ladder resolves to the tier
+on 100% of calls. Q4's option (a) — refuse on tier fallback — would therefore
+have refused ~100% of behind-serves: a flip that ships, changes nothing, and
+looks conservative while being vacuous. Answered **(b)**; see Q4.
+
+**2. The flag is not what put the tier on the read path.** `wal_projection_state`
+compares a tier record against a fold of the same tier events and serves on
+`Match`. `orch_snapshot.rs:193` maps `ReFoldVerdict::Match => "served_tier"`,
+and prod shows `served_tier = 2212` **with `SERVE_ON_BEHIND` off**. The flag
+widens serving from `Match` to `Match + StoredBehindSpine`; it is not the thing
+that made the tier authoritative for reads. The serve-flip question was
+therefore smaller than assumed and the correctness question larger.
+
+⚠ This inverts how AC14 was originally filed. It was logged as a gap in the
+*bounded* verification behind the gate — a risk the flip would introduce. It is
+actually a defect in the verification that is **already deciding live reads**.
+
+**3. The `356712944081313792` shape is served, not merely unnoticed.** `version`
+is `max(event_id)`, so a tier missing MIDDLE events reports the *same version*
+as Postgres. Both sides of the old comparison folded the same 26 events →
+equal version, equal digest → `Match` → served as correct. The stated bar —
+"a completed execution whose tier copy is missing events must NOT be served as
+if correct" — was being violated on the current build.
+
+**Fix:** noetl/server#424. Both verification legs fold `noetl.event`. Postgres
+remains never-a-source and never-a-fallback; it is the verifier. Three pure
+functions were extracted (`events_from_postgres`, `bounded_fold_at`,
+`bounded_fold_agrees`) because the serve decision was inline behind a `DbPool`
+and **a mutation replacing the entire agreement check with `true` survived the
+full suite**. Now mutation-gated 11/11; two of the eleven (M6 ordering, M8
+no-verification) only became catchable after the extraction.
+
+A guard **inverted**: `the_bounded_verification_uses_the_ladder` →
+`..._is_independent_of_the_tier`. Its property never changed — the serve
+decision must rest on evidence independent of the thing served — but the source
+satisfying it moved, because the original reasoning (the ladder gives completed
+executions coverage, ai-meta#307) was right about coverage and wrong about what
+was being compared.
+
+**Separate live defect found and filed, deliberately not fixed here:**
+noetl/ai-meta#335. The WAL path hands `rebuild_state` `version: 0`, so every
+event is applied **twice** onto the tier-folded base. Of the 4 accumulating
+mutations in `apply_event`, 3 are dedup-guarded by set inserts and
+`iterations_dispatched` is not — so `dispatched = 2N` while `completed = N`, and
+`orchestrator.rs:845` reads that as "an iteration is in flight" and never
+dispatches the next one. `test/simple_loop` is `mode: sequential`. Reproduced
+at unit level (`left: 2, right: 1`). It is ~83% masked because most reads return
+`no_stored_record` and rebuild cleanly from Postgres, which makes the symptom an
+intermittent non-dispatch rather than a hang. Kept out of #424 because the fix
+changes the canonical state digest for every iterator step, on a path already
+live in prod — that is the owner's call, not a rider on a correctness PR.
+
+**Prod untouched.** Everything above is code, unit-level proof, and read-only
+`--dry-run=server` diffs. No apply, no arm.
 
 ### 2026-09-11 — synthetic load against prod v3.108.0 (flag OFF, inert build)
 

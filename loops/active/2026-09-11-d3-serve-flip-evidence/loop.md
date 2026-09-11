@@ -139,6 +139,92 @@ If hard bounds are hit without success:
   sweep cannot distinguish that from loss; re-checking after settle can. One
   divergence did persist (tier 26 of 30 events, 15+ min) and is real.
 
+- **Iteration 1 (2026-09-11) — target: AC14 / Q4. Valid. Closed AC14.**
+
+  *Mechanism:* read the code rather than measure harder. Followed the serve
+  decision from `orch_snapshot::load_latest` through `wal_projection_state` to
+  `grant_for_behind`, then asked the ladder what it actually resolves to on
+  prod.
+
+  *Counters, with the denominator:*
+
+  ```
+  recovery_fold{source="spine"} spine_incomplete  25390     folded: 0
+  recovery_fold{source="tier"}  folded            25349
+  projection_read{outcome="served_tier"}           2212     <- flag is OFF
+  projection_read{outcome="no_stored_record"}      10452
+  ```
+
+  The spine folded **0 of 25,390**. That single ratio is what decided Q4: option
+  (a) would refuse ~100% of behind-serves, so the "conservative" option was the
+  vacuous one. Answered (b), implemented in noetl/server#424.
+
+  *What the denominator also exposed:* `served_tier = 2212` **with the flag
+  off** — the tier is already serving control-flow reads, verified only against
+  itself. AC14 was filed as a risk the flip would introduce; it is a defect in
+  the path that is already live. The loop's premise (that this work gates a
+  future flip) was too narrow.
+
+  *Proof:* `a_tier_missing_middle_events_is_refused_not_served` reproduces the
+  `356712944081313792` shape — 30 events vs 26, **identical version**, because
+  `version = max(event_id)` and the missing events are in the middle — and
+  asserts `DigestMismatch` + `is_fault()`. Its control folds the tier against
+  itself and asserts `Match`, pinning the pre-fix behaviour. Mutation-gated
+  11/11 after two rounds; 3 mutants survived round one (M3 truncation boundary,
+  M6 query ordering, M8 agreement forced true) and were only catchable after
+  extracting three pure functions.
+
+  ⚠ **Invalid measurements recorded, per this loop's cadence:**
+
+  1. **The AC14 control failed for an unrelated reason.** Two folds of
+     "identical" events digested differently — `event_from_tier_payload` does
+     `.unwrap_or_else(chrono::Utc::now)` for an absent `created_at`, so an
+     unpinned fixture re-stamps the clock on every call. Fixed by pinning
+     `created_at`. Had I read the failure as "the fix doesn't work" I would have
+     chased a real result as a bug.
+  2. **The order-sensitivity fixture proved nothing on its first draft.**
+     Twelve `step.enter` events on distinct nodes digest the same in either
+     order — distinct keys build the same map and the canonical digest sorts
+     keys. Order is only observable across a state transition on **one** node.
+     The first version asserted a property its own fixture could not exhibit.
+  3. **`cargo test --lib <name> -- --exact` ran 0 tests and reported `ok`.**
+     `--exact` needs the full module path. "80 passed" had not included the new
+     guard at all; a green run over a filter that matches nothing is
+     indistinguishable from a green run over the thing you meant.
+
+- **Iteration 2 (2026-09-11) — target: AC13 arm gate prep. Valid. Not executed.**
+
+  Full-object diff of the arm, via `patch --dry-run=server` against live:
+  **exactly 2 lines**, the env addition, nothing else. Positive control (same
+  method, patch also setting `replicas: 2`) reports **both** hunks, so the
+  one-hunk result is the method working rather than blind — the #323 lesson
+  applied. Revert rehearsed both ways (set `false`; remove index 62). Recorded
+  in `specs/active/.../arm-runbook.md`.
+
+  ⚠ A reconstructed full manifest did **not** diff clean against live — it would
+  rewrite `last-applied-configuration`. Hence `patch`, not `apply`.
+
+  ⚠ Arming writes `spec.template` and therefore **rolls the pod by
+  construction** (`replicas: 1` → ~30–60s serving gap). Stated up front rather
+  than discovered in the window.
+
+  **Outcome: NO-GO on v3.108.0**, on the iteration-1 finding — arming would
+  widen serving on a check that cannot fail. Not a defect in the arm materials,
+  which are ready.
+
+- **Out-of-scope defect found and filed:** noetl/ai-meta#335 — the WAL path
+  double-applies every event (`version: 0` + `event_id > 0`), and
+  `iterations_dispatched` is the 1 of 4 accumulators in `apply_event` with no
+  dedup guard, so sequential loops can silently fail to dispatch. Reproduced at
+  unit level. Not fixed inside this loop: the fix changes the canonical state
+  digest on a live path, which is a scope decision rather than a loop iteration.
+
+- **Loop status: 2 of 6 iterations used.** AC14 closed; Q4 answered; AC11/AC12
+  remain open and are now **owner decisions** (Q1 needs a scoped code change;
+  Q2 needs a test-only seam this loop's escalation path forbids shipping
+  unilaterally), not further measurement. No prod mutation occurred, so the
+  hard stop did not trigger.
+
 ## Outcome
 
 (filled in by `loop-close`: status, iterations run, final result, links to any
