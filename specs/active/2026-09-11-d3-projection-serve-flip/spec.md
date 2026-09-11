@@ -162,6 +162,12 @@ unexercised one.
       induced ahead snapshot is observed being refused on a running server, with
       `serve_refusal{reason="stored_ahead"}` incrementing.
       *(OPEN GAP — see Open Questions Q2.)*
+- [ ] **AC14 — The bounded verification is independent of the store it verifies.**
+      When a served read's verification falls back to the tier (spine refused),
+      the check must not compare a tier-derived fold against a tier-derived
+      record. Either the fallback is refused for serving, or an independent
+      source (Postgres) is consulted for the bounded re-fold.
+      *(OPEN — discovered 2026-09-11 under prod load; see Q4.)*
 - [ ] **AC13 — Prod flip executed and held.** Flag armed on prod, `served_tier`
       and/or `stale_within_window` climbing, `serve_refusal{stored_ahead}=0`,
       no no-op re-drive storm, serving unaffected — then held for a soak window.
@@ -210,7 +216,16 @@ unexercised one.
       flip is accepted as low-signal-but-harmless, or it is deferred until the
       topology question is addressed. This is a scope decision for the owner.
 
-⚠ This spec is **not approved** while Q1–Q3 remain unresolved. AC1–AC10 are
+- [ ] **Q4 — How should a tier-sourced bounded verification be made independent?**
+      Options: (a) refuse to serve when `events_for_recovery` resolved to the
+      tier, so the grant only issues on a spine-verified fold; (b) fold the
+      bounded verification from Postgres regardless of recovery source, paying
+      one query; (c) accept it and rely on the cross-store parity comparator to
+      catch tier gaps out-of-band. (a) is the cheapest and most conservative;
+      (c) is what exists today and it demonstrably left one execution divergent
+      for 15+ minutes without blocking anything.
+
+⚠ This spec is **not approved** while Q1–Q4 remain unresolved. AC1–AC10 are
 already satisfied and are recorded here as the established baseline; AC11–AC13
 are what remain.
 
@@ -292,6 +307,88 @@ kubectl --context gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot -
 ```
 
 Postgres untouched and authoritative throughout; nothing dropped or truncated.
+
+### 2026-09-11 — synthetic load against prod v3.108.0 (flag OFF, inert build)
+
+Bounded run: **51 executions** over ~4.5 min of load — 30 at concurrency 1
+(30 ok / 0 err, p50 **210 ms**) then 21 at concurrency 2 (19 ok / **2 err**,
+p50 **19,560 ms**, throughput *inverting* 0.25 → 0.13/s). Stopped there rather
+than escalating: throughput going down as concurrency goes up is saturation, and
+8-way concurrency wedged prod for ~40 min on 2026-09-09.
+
+**Answers Q3 (the "is a flip measurable?" question): YES, decisively.**
+
+| | |
+| :-- | --: |
+| D3 reads at idle | ~**1.4/hour** (2 in 87 min) |
+| D3 reads under this load | **180** `served_tier` |
+| reads per execution | ≈ **1 per 3** |
+
+The ~0.6–1.4/hr trickle is an artefact of an idle prod, not of the topology.
+`STATE_BUILDER=offserver` starves the read path *relative to traffic*, but the
+absolute rate scales with executions, so a flip is measurable under load.
+
+Read path (cumulative on this pod): `served_tier=180`,
+`stored_behind_spine=2`, `digest_mismatch=2`, `no_stored_record=1`,
+`stale_within_window=0`. All four `serve_refusal` series **0**.
+
+⚠ `digest_mismatch=2` on the read path is the guard **refusing on the live serve
+path** — evidence the refusal arms are reachable in production, not only in kind.
+
+#### ⚠⚠ Transient divergence under load is NOT divergence — 13 phantoms avoided
+
+During load, 13 of 42 comparable executions showed **same version, different
+`applied_count`** (tier 27/23/16 vs Postgres 30) with `context_explains_the_gap:
+false`. Because `version = max(event_id)`, a tier that received the *last* event
+but not some middle ones reports the same watermark with fewer events — which is
+exactly what an **async** mirror does under concurrency.
+
+Every one of the 6 sampled re-converged within ~3 min (tier n=30, digests agree).
+**Reporting those 13 as divergences would have been a false flip-killer.** The
+discriminator is re-checking after settle; a single-shot sweep cannot tell
+transient lag from loss.
+
+Settled sweep, same 60 executions:
+
+| | |
+| :-- | --: |
+| comparable (same version) | **60** |
+| digests **agree** | **59** |
+| digests differ | **1** |
+| not comparable | **0** |
+| distinct digests | **59** (negative control) |
+
+#### ⚠⚠ One PERSISTENT divergence — a real tier gap
+
+`356712944081313792` (`test/simple_loop`, COMPLETED 08:09:58Z, 30 events):
+tier folded **26 of 30** at the same version, still divergent **15+ minutes**
+later. The mirror's retry window is ~64 s, so this is not lag. The tier is
+missing 4 events for a completed execution.
+
+#### ⚠⚠ The bounded verification is self-referential for completed executions
+
+`events_for_recovery` falls back to `tier_events_within` when the spine refuses
+and `mode.serves_tier()` — true under prod's live `RECOVERY_SOURCE=tier`. A
+completed execution has no spine, so **both** the fold and `grant_for_behind`'s
+bounded re-fold read the **tier**. A tier missing events is missing them on both
+sides, the digests agree, and the check passes on incomplete data.
+
+Scope, stated precisely rather than alarmingly: the D3 *serve* path answers
+rebuilds for **in-flight** executions, where the spine is present and the check
+**is** independent. The self-reference bites when the spine refuses for an
+in-flight execution (`WAL chain incomplete`, which does occur) — then a served
+read is verified against the same store it came from.
+
+**This does not block the inert build, and it is not a new defect class** — it is
+the "a digest compared with itself" shape #265 A3 already names. But it is a
+**new AC for the flip**, added below.
+
+#### Health throughout
+
+0 ERROR, 0 panic, 0 restarts (100 min uptime), no-op storm **0/min** at rest
+(peaked at 7/min under load, vs the 52/min failure signal), `recovery mode
+tier=1`, flag **absent** from the pod's 62 env vars, `stale_within_window=0` —
+the deploy stayed inert under load. All load generators cleaned up.
 
 ## Linked Issues
 

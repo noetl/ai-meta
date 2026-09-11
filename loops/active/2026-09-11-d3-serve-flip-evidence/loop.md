@@ -118,6 +118,27 @@ If hard bounds are hit without success:
   real zero rather than an absent family. Recorded here because the loop's
   State Source is what a resuming session reads first.
 
+- Environment note 2 (2026-09-11, not a loop iteration) — synthetic load run
+  against **prod** v3.108.0 with the flag OFF. Two results change this loop's
+  assumptions:
+
+  1. **The denominator problem is solved by load, not by topology.** D3 reads
+     went from ~1.4/hour idle to **180 `served_tier`** off 51 executions
+     (≈1 read per 3). AC11's "≥10 attributable behind-serves" is therefore
+     reachable; what is still missing is *attribution*, not volume.
+  2. **A new gap was found that this loop should probably absorb:** the bounded
+     verification reads the **tier** when the spine refuses
+     (`events_for_recovery` → `tier_events_within` under `RECOVERY_SOURCE=tier`),
+     so for a spine-refused execution it compares a tier-derived fold against a
+     tier-derived record. Logged on the spec as **AC14 / Q4**.
+
+  ⚠ Also recorded because it is a trap this loop's Checkpoint Cadence explicitly
+  asks for: **13 apparent divergences under load were transient and all
+  converged within ~3 minutes.** Same version, different `applied_count` — an
+  async mirror delivering the last event before some middle ones. A single-shot
+  sweep cannot distinguish that from loss; re-checking after settle can. One
+  divergence did persist (tier 26 of 30 events, 15+ min) and is real.
+
 ## Outcome
 
 (filled in by `loop-close`: status, iterations run, final result, links to any
