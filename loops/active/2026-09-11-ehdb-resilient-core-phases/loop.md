@@ -412,6 +412,40 @@ Resumes from this file plus:
   image line)** with a positive control; post-apply whole-object diff the same;
   0 restarts; Postgres untouched; revert is one `set image`.
 
+  **⭐ Blocker 1 ROOT-CAUSED after the deploy, and it is not what a timeout fix
+  would have addressed.** The discriminator got its input: `send_error_total`
+  read `timeout 8`, every other kind **0**, and the log carried
+  `timeout: … <- operation timed out`. But the cause is one layer down — the
+  relay appends **one record at a time**
+  (`tier_append_records_total{path="single"} 80264`, `{path="batch"}` **0 of
+  80,264**, `NOETL_EHDB_TIER_APPEND_BATCH` unset). A 29-record POST is 29
+  sequential round trips against an fsync-per-append writer. **Raising
+  APPEND_TIMEOUT would have bought time for a loop that should not exist** —
+  which is exactly why the handoff said to instrument before tuning.
+
+  ⚠ And the flag cannot simply be armed: `append_batch_tier` puts every payload
+  in ONE frame, and the request cap is the 1 MiB I deliberately did not raise.
+  Arming it today fixes small batches and hard-fails the large executions that
+  are failing now. Sequenced in [#344](https://github.com/noetl/ai-meta/issues/344).
+
+  ⚠⚠ **A repair can push a large execution OVER the frame cap and make it
+  unmeasurable** — demonstrated live, not theorised. Repairing
+  `357059314088681472` delivered enough records to reach 1,062,530 bytes, 14 KB
+  over the cap, and the execution went `diverged → not_comparable`. **The repair
+  converted a measurable divergence into an unmeasurable one.** The armed sweep
+  does this unaided.
+
+  ⚠ **server#430 is forward-looking only.** The two already-damaged executions
+  stay divergent at 64/64, and re-repairing returns `already_complete` because
+  nothing is missing — the damage is in content, not count. Needs a forced
+  re-mirror: [#345](https://github.com/noetl/ai-meta/issues/345).
+
+  *Final parity, fixed 40, same ids throughout:* `agree 21 / diverged 15 /
+  not_comparable 4`, total 40. Exactly one execution changed class across the
+  two post-deploy reads and it is the one I repaired — **no unattributed
+  movement**. ⚠ Divergence did NOT fall; the work relabelled what was there and
+  stopped future damage.
+
 - **Loop status: 8 of 8 iterations used — at the hard bound.** #343 is no longer
   a diagnosis problem: three of its four parts are root-caused and merged. The
   remaining open item (transport root cause) is **waiting on data**, not on
