@@ -273,8 +273,51 @@ Resumes from this file plus:
   made the original plan a one-way door: no copy-consistency window and no
   copy-back on revert. Plan updated on the ehdb wiki.
 
-- **Loop status: 6 of 8 iterations used.** Two prod applies, both image-only,
-  both diff-verified before and after.
+- **Iteration 7 (2026-09-12) — #343 diagnosis. Partial. STOPPING and handing off.**
+
+  **Transport (blocker 1) — the obvious causes are RULED OUT, root cause not
+  yet proven.**
+  - The relay is **not** down and **not** rejecting: probed directly through a
+    port-forward, `GET /metrics` → **200**, `POST /ehdb/tiers/eventlog` → **400
+    "execution_id is required"** (a proper application error). The endpoint works.
+  - The #320 pooled-connection fix **is** in place (`pool_idle_timeout` 15 s,
+    `tcp_keepalive` 15 s), so this is not the dead-socket recurrence.
+  - ⭐ **The retries DO eventually succeed.** Execution `357138298767941632` went
+    `tier=25 → tier=64` against `pg=64` and now reports `already_complete,
+    missing_before: 0`. The sweep's persistence is closing gaps over time — the
+    #342 mechanism works; delivery is slow and flaky, not dead.
+  - **Leading hypothesis, NOT proven:** `APPEND_TIMEOUT` is **5 s**, and reqwest
+    renders a timeout as exactly the string observed
+    (`"error sending request for url (…)"`), which carries no source chain. One
+    execution's tier payload measures **1,174,874 bytes**. Large batches
+    plausibly exceed 5 s. ⚠ Recorded as a hypothesis because I did not isolate
+    timeout from other send failures — the honest discriminator (timing a repair)
+    returned in **0.2 s** because the target had *already* been repaired.
+
+  **Frame cap (blocker 2) — confirmed, not fixed.** Tier-service refuses a frame
+  over **1,048,576 bytes** (`http 502`), so a large execution is
+  `not_comparable`: 2 of 40 read `tier=None` and leave the denominator rather
+  than reporting divergent. No env var sets it; it is a code default on the
+  writer/ehdb side.
+
+  ⚠⚠ **A THIRD unhydrated instrument found, and it invalidates my reading of the
+  remaining divergence.** `fold_diff_endpoint` (`/projection-fold/diff/{id}`)
+  runs its **own raw SQL** and never hydrates. So the reference-vs-inlined
+  `diff_paths` I read for the two repaired executions is the *unhydrated*
+  difference and does **not** explain why the hydrated `compare_sources` still
+  calls them divergent at `tier=64 pg=64`. **I currently cannot see the real
+  remaining difference.**
+
+  ⚠ **This is the same error twice in one area** — assuming one code path where
+  there are several (`compare_sources`, then `fold_diff_endpoint`). That is the
+  failure mode that degrades with a long session, so I am stopping here rather
+  than pushing a third diagnosis through it.
+
+  *Prod state left:* v3.108.3, sweep **armed**, healthy (0 restarts, no-op storm
+  absent). Parity on the fixed 40: **agree 26 / divergent 14**, of which 2 are
+  frame-capped. Nothing left half-applied; the arm reverts by unsetting one env.
+
+- **Loop status: 7 of 8 iterations used.** Handing #343 off at the bound.
 
 ## Outcome
 
