@@ -317,7 +317,106 @@ Resumes from this file plus:
   absent). Parity on the fixed 40: **agree 26 / divergent 14**, of which 2 are
   frame-capped. Nothing left half-applied; the arm reverts by unsetting one env.
 
-- **Loop status: 7 of 8 iterations used.** Handing #343 off at the bound.
+- **Iteration 8 (2026-09-12) — #343 picked up from the handoff. Valid. The
+  instrument fix made a real defect legible.**
+
+  *Order followed deliberately:* fix the instrument, THEN measure. The prior
+  session's #1 item was right, and it paid immediately — the remaining
+  divergence was only findable once the differ stopped lying.
+
+  **Handoff claims verified independently before building on them:** prod
+  v3.108.3, sweep armed, 0 restarts, and the frame-cap 502 reproduced verbatim
+  (`frame of 1174874 bytes exceeds the 1048576-byte cap`).
+
+  **1. The instrument (server#427, merged).** `fold_diff_endpoint` was
+  unhydrated as reported — and **not alone**.
+  `fold_from_postgres_without_context`, the control behind
+  `context_explains_the_gap`, was also raw: it blanked `context` while leaving
+  `result` a `reference`, so it was **biased to `false`** and could deny that
+  context explained a gap context explained entirely. *A control that can only
+  fail is not a control.* The real defect was never one comparator but **four
+  copies of one SELECT**, so the guard now pins the **population**, not the
+  instances.
+
+  **2. Transport (server#428, live).** Instrumented, **no timeout touched**:
+  `send_error_total{kind}` + the `source()` chain. ⚠ **Root cause still NOT
+  proven** — the instrument is live and reachable (7 kinds pinned at 0) but no
+  send has failed since the roll, so it has had **no input**. Recorded as
+  unproven rather than inferred.
+
+  **3. Frame cap (worker#311, open, NOT deployed).** The codec was
+  **asymmetric**: writes uncapped, reads capped at 1 MiB, one shared constant —
+  so the service could serialise replies its own client could not read,
+  deterministically. Split the caps; the writer now refuses to emit an
+  unreadable frame and answers with a structured error that fits. A ceiling,
+  not a solution — but a **visible** one. Deploy is owner-gated (the writer
+  hosts both buses).
+
+  **4. ⭐ The remaining divergence, ROOT-CAUSED (server#430, merged).** The
+  #342 repair closed the COUNT gap and opened a CONTENT gap: the live mirror
+  sends the in-memory row (`result` inlined), the repair re-reads the persisted
+  row (`result` is a `reference`). Repairing again rewrote the same reference,
+  so it could never converge. Every event still differing on `result` was in
+  the re-mirrored set — **3 of 39 and 3 of 26, zero outside** — and a
+  never-repaired execution showed none. The call site's comment had asserted
+  the opposite property ("byte-identical to a first-delivery one"); nobody had
+  checked it.
+
+  **Parity, fixed 40 (ids recorded):** before `agree 21 / false 19`; after
+  `agree 21 / diverged 16 / not_comparable 3`. ⚠ **Divergence did not fall — it
+  is now honestly labelled.** The 3 were frame-capped and previously counted as
+  divergent by a boolean that cannot express "could not be read" (server#429
+  makes it a three-valued verdict; the sweep publishes `accounted_for`).
+
+  ⚠ **Invalid measurements recorded, per this loop's cadence:**
+
+  1. ⚠⚠ **My mutation harness had no timeout, and a mutant made a test HANG.**
+     Deleting the write guard left `write_frame` blocking on a socket nobody
+     drains. At 0% CPU that is indistinguishable from a slow compile; it sat
+     for **20 minutes**, and killing it left a **MUTATED file on disk** which
+     then poisoned the next runs. Same shape as iteration 1's harness race. The
+     harness now times out (a hang is a verdict) and restores in a `finally`;
+     the tests are bounded so a mutant FAILS rather than stalls.
+  2. ⚠⚠ **My "the tree is clean" check verified 4 of 9 mutation sites** and
+     missed the one that was still mutated. A verification with a smaller
+     denominator than the thing it verifies is the failure this programme keeps
+     re-finding — this time in my own check.
+  3. ⚠⚠ **A 60%-RED baseline nearly voided the frame-cap battery.** The suite
+     failed 3 runs in 5. Cause: my own new test drove `serve_tier` without
+     `metrics::test_guard()`, and seven **pre-existing** `tier_client` tests do
+     the same, racing an exact-count assertion. Third session running that a
+     red baseline threatened a battery. Fixed; 6/6 green before re-running.
+  4. **A guard matched its own comment.** `!body.contains("unwrap_or_default()")`
+     failed against the comment explaining that `unwrap_or_default()` had been
+     removed. Negative assertions now strip `//` lines.
+  5. **Twice I inserted code between an attribute and its item**, rebinding
+     `#[derive]` / `#[tokio::test]` to my own block. Caught by the compiler both
+     times, but it is the same shape as the doc-comment-between-`#[test]`-and-fn
+     trap already in memory.
+  6. **A per-test isolation loop reported PASS for tests that never ran** —
+     `cargo test --lib <bare_name> -- --exact` matched nothing and printed
+     `0 passed`, which my `grep "test result: ok"` accepted as a pass. It is why I
+     briefly believed the hang was a parallelism interaction.
+  7. **`jq //` treats `false` as absent**, so my first parity tally reported 19
+     `ERR` where the truth was 19 `false`. And **zsh `path` is tied to `$PATH`** —
+     `read -r id path ...` destroyed PATH mid-loop and every subsequent `wc`,
+     `awk`, `sort` reported "command not found".
+  8. **A `kubectl set image` no-op emits NOTHING**, so my first "negative
+     control" compared against a 0-byte file and read as 425 changed lines.
+     Replaced with a control that injects a #323-shape phantom volume and
+     proves the diff catches it.
+  9. **The port-forward probe returned empty because the server listens on 8082,
+     not 8080** — a false zero caught only by reading the forward log.
+
+  *Prod:* v3.109.0 applied by digest. Pre-apply full-object diff **one hunk (the
+  image line)** with a positive control; post-apply whole-object diff the same;
+  0 restarts; Postgres untouched; revert is one `set image`.
+
+- **Loop status: 8 of 8 iterations used — at the hard bound.** #343 is no longer
+  a diagnosis problem: three of its four parts are root-caused and merged. The
+  remaining open item (transport root cause) is **waiting on data**, not on
+  analysis, and the worker deploy is owner-gated. Both belong to the owner
+  rather than to another loop iteration.
 
 ## Outcome
 
