@@ -137,6 +137,75 @@ Resumes from this file plus:
 
   *Prod:* untouched. This slice is code + tests only.
 
+- **Iteration 2 (2026-09-12) — root-cause the mirror divergence. Valid. Two causes, split ~30/48.**
+
+  *Classified 40 most-recent prod executions, exhaustively (other=0, err=0):*
+
+  | shape | n | |
+  | :-- | --: | --: |
+  | agree | 9 | 22% |
+  | **(a) real missing events** | **19** | **48%** |
+  | **(b) reference-vs-inlined only** | **12** | **30%** |
+
+  **Cause (a) — permanent mirror loss.** The mirror POSTs to a relay and, on the
+  terminal retry, records `dropped` and never tries again. Three facts make it
+  fire: the relay `noetl-worker-system-pool-metrics` has **one** endpoint pod;
+  the retry budget is ~**63 s** (7 × 500 ms doubling); nothing repairs the gap.
+  Prod, 8 h: `mirrored 237 / recovered 256 / dropped 323` events — **39.6% lost**,
+  with `attempt{unavailable} 2842` and a transport-level detail naming the relay
+  URL. Filed noetl/ai-meta#342. ⚠ The counters are **event-weighted, not batch**.
+
+  **Cause (b) — my own verification artifact, not a mirror defect.** Under
+  `PERMANENT_LOG_LEAN=true` Postgres keeps `result.context.result.reference`
+  where the tier keeps the inlined `context`. The v3.108.1 leg folds the **raw**
+  row, so it digests a pointer against content. `rebuild_state` hydrates at all
+  **8** of its fold sites; this leg did not — while `fold_from_postgres`'s doc
+  claimed it built "the same Event values the orchestrator's rebuild path does".
+  Fixed in noetl/server#425, mutation-gated **6/6**.
+
+  ⚠ **Invalid measurements recorded:**
+
+  1. ⚠⚠ **"0 ERROR lines" was a FALSE ZERO.** `kubectl logs | grep ' ERROR '`
+     never matches, because the logs carry **ANSI colour codes**. I reported 0
+     ERROR in the v3.108.1 soak; stripping ANSI shows **4 ERROR / 101 WARN** —
+     and those 4 were the mirror drops, i.e. the very thing I was looking for.
+     **Strip ANSI before counting log levels.**
+  2. **I compared an 8-hour counter against a 90-minute log window** and read the
+     mismatch as "drops with no logs". The pod was 8 h old, not 90 min.
+  3. **The field-level diff endpoint was vacuous by default.** Its comparand is
+     the WAL spine, which refuses `spine_incomplete` on prod, so `diff_paths: []`
+     meant *compared against nothing*. `?source=tier` is what produces evidence.
+     Absence of disagreement is not agreement.
+  4. **The mechanism test needed THREE fixture corrections** before it could
+     fail: the payload rides the `result` column of the event that **completes**
+     the step — not `context`, not `command.issued`. The first two drafts folded
+     identically on both sides and proved nothing.
+  5. **rustfmt swept 47 unrelated lines** in `orch_snapshot.rs` (5 hunks that were
+     not mine). Reverted and re-applied minimally — 2 hunks.
+  6. A **rustc incremental-compilation ICE** required `cargo clean -p noetl-server`.
+
+- **Iteration 3 (2026-09-12) — Phase 3 ops half. STOPPED at the plan, by the gate.**
+
+  Giving the tier its own failure domain needs a **data migration** (1.8 GB / 3
+  files) and the env-var switch is a **one-way door** — once
+  `TIER_SERVICE_DIR` moves, a revert must copy back. The owner gate says bring
+  the plan in that case, so nothing was applied.
+
+  ✅ One expected blocker did **not** apply: the writer uses `volumes` over
+  pre-created PVCs, not `volumeClaimTemplates` (empty), so adding a volume is a
+  normal mutable update rather than a StatefulSet recreate.
+
+  ⚠⚠ But the sequence is the **#323 outage shape**: that incident declared a
+  volume for a PVC that never existed and left the writer — which hosts **both**
+  buses — unschedulable for 55 minutes. The PVC must be `Bound` first.
+
+  **Recommendation recorded:** settle #342 before migrating. Moving 1.8 GB of a
+  mirror that is currently losing 39.6% of what it is handed relocates a
+  known-bad copy; fixing the mirror and letting a clean tier refill is safer and
+  less work. Plan on the ehdb wiki: `Plan-Tier-Failure-Domain`.
+
+- **Loop status: 3 of 8 iterations used.** No prod mutation in iterations 1-3.
+
 ## Outcome
 
 (filled in by `loop-close`)
