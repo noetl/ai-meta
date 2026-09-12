@@ -204,7 +204,77 @@ Resumes from this file plus:
   known-bad copy; fixing the mirror and letting a clean tier refill is safer and
   less work. Plan on the ehdb wiki: `Plan-Tier-Failure-Domain`.
 
-- **Loop status: 3 of 8 iterations used.** No prod mutation in iterations 1-3.
+- **Iteration 4 (2026-09-12) — #425 merged, released v3.108.2, DEPLOYED. Valid, and it falsified my own prediction.**
+
+  Pre-apply full-spec diff re-run live: **image-only**, one hunk
+  (`b9bed030` → `cbc688c7`), flag absent, env 62, READ_SOURCE=wal,
+  RECOVERY_SOURCE=tier. Post-apply whole-object diff: **only the image line**.
+  Pod 1/1, **0 restarts**, `build_info 3.108.2`, **0 ERROR** (ANSI-stripped),
+  28 WARN, dispatch healthy.
+
+  *Fix-present in the artifact:* `events_from_postgres_hydrated` **new=4 /
+  old=0**, version strings flip 3.108.1→3.108.2, nonsense control 0/0, shared
+  symbols present in both.
+  ⚠ Two symbols read 0 in the new build (`fold_from_postgres_hydrated`,
+  `grant_for_behind`) — thin wrappers the optimiser **inlined**, not missing
+  code. Symbol presence is a one-way instrument: presence proves, absence does
+  not disprove.
+
+  ⚠⚠ **PREDICTION FALSIFIED, and that was the finding.** I measured a fixed set
+  of 40 executions before the deploy (`agree=9 divergent=31`, of which **16**
+  were the equal-count hydration class) and predicted agree would rise to ~25.
+  After the deploy: **`agree=9 divergent=31`, 0 flipped, 0 regressed.**
+
+  Cause: `/api/ehdb/projection-fold/executions/{id}` is backed by
+  `compare_sources`, which calls `fold_from_postgres(` **raw** — it was never on
+  the path I fixed. The fix is live and correct on the serve path; the
+  *instrument* was still lying. **An instrument that cannot see a fix cannot
+  validate one.** Fixed in noetl/server#426 with a guard.
+
+- **Iteration 5 (2026-09-12) — #342 root fix built, merged, released v3.108.3.**
+
+  `ehdb_mirror_repair_sweep`: bounded periodic pass, default **off**; the
+  terminal drop hints it; `repair_execution` extracted so sweep and endpoint
+  share one implementation. **The gap is its own pending-work record** — Postgres
+  is authoritative, so a sweep is durable retry with no new storage, surviving
+  both a restart and a failed repair.
+
+  Mutation-gated **8/8** on a green baseline (1072/0).
+
+  ⚠ **Invalid measurements recorded:**
+
+  1. ⚠⚠ **Two batteries thrown away for a RED baseline** (1069/2, then the same
+     shape). Both times my own refactor had broken guards on the file I changed
+     (`&state` → `state` shifted their exact-call needles). With a permanently
+     failing test **every** mutant reads CAUGHT. Assert the baseline is green
+     before interpreting a battery — this is the second session running.
+  2. **Four tests could not fail:** the off-by-default test was a **tautology**
+     (asserted the parse agreed with the env, which any parse does — a mutation
+     arming it by default survived); the pinned outcome set carried
+     `incomplete` where the code returns **`partial`**; `"INSERT"` matched
+     `BTreeSet::insert`; `mirror_rows(` matched the module's own **doc comment**.
+  3. **`src()` cut at the FIRST `#[cfg(test)]`** — this module also has a
+     `#[cfg(test)] pub fn clear_hints()` a third of the way down, so the slice
+     stopped before `sweep_once` and positive assertions failed while negatives
+     were vacuous. My 2000-byte floor was too low to catch it; raised to 5000 and
+     cut at `#[cfg(test)]\nmod tests`.
+  4. **I re-introduced a test race I had just fixed** by adding a second test
+     touching the global `HINTS`. `cargo test` does not serialise. One test owns
+     it now, stated in the doc comment.
+  5. **rustfmt swept `main.rs` 2→9 hunks and `mod.rs` 1→7.** Reverted, re-applied
+     minimally.
+  6. ⚠⚠ **The board helper reported success while doing nothing** — macOS bash
+     3.2 has no `declare -A`, so the option id was empty and `&&` masked it.
+     Rewritten and now **verified by read-back**.
+
+- **Iteration 6 (2026-09-12) — failure domain: DECISION RECORDED, deferred.**
+
+  Owner chose **refill after #342, not migrate**. That removes both hazards that
+  made the original plan a one-way door: no copy-consistency window and no
+  copy-back on revert. Plan updated on the ehdb wiki.
+
+- **Loop status: 6 of 8 iterations used.** Two prod applies, both image-only,
+  both diff-verified before and after.
 
 ## Outcome
 
