@@ -520,6 +520,76 @@ Resumes from this file plus:
   self-heals under the **tier refill the owner already chose** (iteration 6), so
   #345 should close as superseded rather than be built.
 
+- **Iteration 10 (2026-09-13) — post-outage deploy COMPLETE. The number finally moved.**
+
+  **Outage remediation first.** Owner authorised destructive recovery ("I don't
+  need any data"). Postgres confirmed out of scope — **Cloud SQL
+  `noetl-shared-pg`**, reached via a pgbouncer proxy with **zero PVCs**.
+  ⚠ Step 1 (free node capacity) was **not actionable**: `gcloud compute
+  instances list` is EMPTY because Autopilot nodes live in a Google-managed
+  project, so only Autopilot can reclaim node boot disks. The only SSD in this
+  project was the 90 GB of PVCs. Deleted the three EHDB PVCs → **quota 500/500 →
+  410/500**.
+  ⚠⚠ **The writer StatefulSet has NO `volumeClaimTemplates`** — it mounts PVCs
+  by NAME, so nothing recreated them and the pod became permanently
+  unschedulable: the **#323 shape, self-inflicted**. Recreated them by hand,
+  deliberately smaller (10/20/10 vs 20/50/20) → 450/500, and Autopilot later
+  reclaimed a node → **350/500**.
+  ⭐ The fresh PVCs removed the **zone pin**, which was the real trap: the writer
+  had been stuck on a 5.8 Gi us-central1-a node where its own 4 Gi limit drove
+  `memory-pressure` and evicted it. On a 28 Gi node it idles at **9 Mi**. All 11
+  listeners bound (9090, 9100-9108, 9110) — `9104`/`9110` for the first time
+  since the incident began.
+  ⚠⚠ **I told the owner 70 GB of PVCs were orphaned and could be deleted. WRONG
+  — all three were mounted by the writer.** Three compounding errors: GCE
+  `USERS=0` meant *the pod is Pending*, not unused; I matched PVCs to
+  StatefulSets **by name** when one writer hosts both buses; and **my `jq` check
+  errored, printed the right answer twice, and I captioned it "(empty above = no
+  pod uses them)"**. A failed probe read as proof of absence. Corrected publicly
+  before any harm.
+
+  **Then the deploy, surge-free.** Node memory requests were at **99% on both
+  large nodes** and the relay's `maxSurge=25%` on 1 replica rounds to **+1 pod at
+  3 Gi** — the exact surge that caused the outage. I **stopped at that gate and
+  reported** rather than rolling into it. Owner chose surge-free:
+  `maxSurge=0, maxUnavailable=1` (pod template untouched ⇒ the strategy apply
+  caused zero churn), then rolled. Every rollout logged `0 of 1 updated replicas
+  are available` — terminate-then-create, **capacity-neutral, 0 Pending, no
+  scale-up**. Left surge-free deliberately: at 99% commitment a surge that cannot
+  schedule is worse than a brief single-replica gap.
+
+  **Deployed:** v5.131.3 (frame cap) and v5.132.0 (chunked batch) to all three
+  pools, `TIER_APPEND_BATCH` armed on the relay, `MIRROR_REPAIR_SWEEP` re-armed.
+  Both images arch-verified `linux/amd64` first; every apply a full-spec diff
+  (image/env line only) with a phantom-volume control.
+
+  **⭐⭐ The transport fix, proven by the counter that had never moved:**
+  `tier_append_records_total{path="batch"}` **0 → 460** (was 0 of 80,264 records,
+  ever). A 64-event repair went from `partial`, **1 of 39** landed, to
+  **`repaired`, 64 of 64, one pass**. Across 14 executions: **378 missing → 0**,
+  12 `repaired` / 2 `already_complete`, **0 `partial`**, and new
+  `dropped`/`timeout` both **0**.
+
+  **⭐⭐ Parity: 14/14 agree**, 0 divergent, 0 not_comparable, 0 count mismatches —
+  including all three executions that defined the investigation, now
+  `agree pg=64 tier=64`: the two "unexplained" divergences and the frame-cap
+  victim. `hydrated=30` across the set is server#430 doing the work that makes
+  them *agree* rather than merely match on count.
+
+  ⚠ **Honest limits, recorded:**
+  1. **The fixed-40 baseline is no longer a valid population** — the wipe
+     destroyed its tier data and the sweep's `lookback_mins=180` cannot reach
+     26-hour-old executions. Before/after on it measures the WIPE. I rebuilt the
+     population by repairing 14 explicitly.
+  2. **No >1 MiB frame was exercised in prod.** The refilled 64-event payload is
+     **199,160 bytes** — ~6× smaller than the 1,174,874 it held before, which is
+     circumstantial support for the **#335 double-apply**. The >1 MiB path is
+     covered only by the unit test at exactly the prod size.
+  3. Counters are from a **fresh server pod**, so `dropped 0` is a clean window,
+     not a cumulative claim.
+  4. **No non-system traffic exists** for an independent fresh sample —
+     `system/` paths are excluded from the tier by design.
+
 ## Outcome
 
 (filled in by `loop-close`)
