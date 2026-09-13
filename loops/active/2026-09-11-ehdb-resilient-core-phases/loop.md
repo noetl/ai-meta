@@ -452,6 +452,74 @@ Resumes from this file plus:
   analysis, and the worker deploy is owner-gated. Both belong to the owner
   rather than to another loop iteration.
 
+- **Iteration 9 (2026-09-13) — owner extended the bound and directed a four-step
+  run. Steps 1-3 landed; step 4 is blocked BY DESIGN.**
+
+  *Owner direction:* pause the sweep, deploy the frame-cap fix, build the batch
+  path, force-repair the two damaged executions, then re-measure. Bound lifted
+  explicitly, so this iteration is authorised rather than a loop overrun.
+
+  **Step 1 — sweep PAUSED.** Full-spec diff was exactly the one env entry (4
+  lines); image, volumes and the other 62 env vars byte-identical; a phantom-PVC
+  control proved the diff catches unintended changes. Confirmed off by the
+  **absence** of the ARMED log line, with a positive control (the mirror-queue
+  ARMED line still present) so the absence means something. 0 restarts.
+
+  **Step 2 — blocked first by a broken `main`, which was NOT my change.**
+  noetl/worker `main` did not compile and the **v5.131.2 release build FAILED**,
+  so there was no image to deploy:
+  `missing field child_execution_id in initializer of ToolResult`
+  (`noetl-executor-0.5.0`). `noetl-tools = "3.19.1"` is `^3.19.1`; a resolver
+  took **3.27.0**, which added a required field.
+
+  ⚠⚠ **It broke on the `chore(release)` commit ITSELF**, where the lock is
+  re-resolved — every PR's CI passed against the older lock, so nothing failed
+  until main was already tagged. **The breakage appears after the last gate that
+  could have caught it.** This is the **worker#183 shape**: *a caret range is a
+  decision made later by a resolver.* I reproduced it on pristine main with CI's
+  exact command before concluding it was not mine. Fixed in worker#312 (merged,
+  v5.131.3) with two guards — one refusing a bare caret, one refusing to lift
+  the hold while `noetl-executor` is still 0.5.x, because without the second the
+  fix reintroduces the bug.
+
+  ⭐ **A correction that lowered step 2's risk:** the frame-cap fix does **not**
+  need the both-buses `noetl-cmdbus-writer`. The `read:` refusal comes from
+  `tier_client::request_within` in the **relay** (`noetl-worker-system-pool`,
+  which serves `ehdb.tier.query`), rejecting the writer's reply. Rolling the
+  worker pools suffices. Traced rather than assumed.
+
+  **Step 3 — chunked batch append built (worker#313, lands inert).** Root cause
+  of the timeouts confirmed as the un-batched fan-out; the module's own comment
+  measures the per-record fsync at **~118ms**, so 29 records overrun a 5s
+  timeout unaided. Chunks are budgeted under the **unchanged** 1 MiB request cap,
+  counting **escaped** bytes — payloads are JSON embedded as JSON strings, so the
+  serialised cost approaches 2x raw, and budgeting on raw length would build
+  frames that pass locally and are refused by the service.
+
+  ⚠ **Three mutants survived the first battery, all at the CALL SITE** — drop the
+  chunking, drop the headroom, overwrite `per_record` instead of extending it.
+  Every test exercised `chunk_for_frame` directly and nothing exercised the
+  handler's use of it. **Testing a function is not testing its use** — the same
+  reachability shape that let the batch path sit unused for 80,264 records.
+  7/7 after a structural guard on the batch branch.
+
+  ⚠ The escaping test **failed on first run for want of a fixture**: 4x120k
+  quotes escapes to ~960KB against a ~983KB budget, so it fit. Resized. A
+  positive control that fails first is doing its job.
+
+  **⛔ Step 4 — NOT ACHIEVABLE as specified, and the check that settled it is the
+  one #345 flagged as "do this before building anything".**
+  The event-log tier deduplicates by **IGNORING**, not replacing — *"a dedupe
+  returns the existing position and does not advance the count"* — so re-sending
+  a corrected record is a no-op that **reports success**. And the tier service
+  accepts only `Append / AppendBatch / Health / ReadExecution / Scan`: no
+  replace, no upsert, no delete. KV and vector have them; the event log
+  deliberately does not, because it is append-only.
+  **Building a mutation op on an append-only log to correct six events is not a
+  trade worth making, and not mine to make.** Recommended instead: the residue
+  self-heals under the **tier refill the owner already chose** (iteration 6), so
+  #345 should close as superseded rather than be built.
+
 ## Outcome
 
 (filled in by `loop-close`)
