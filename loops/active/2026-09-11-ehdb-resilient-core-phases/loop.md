@@ -590,6 +590,55 @@ Resumes from this file plus:
   4. **No non-system traffic exists** for an independent fresh sample —
      `system/` paths are excluded from the tier by design.
 
+- **Iteration 11 (2026-09-13) — accelerated soak. Clean at realistic size; D3
+  serve-flip HELD by its own precondition.**
+
+  *Soak:* 5 batches x 3 sequential, guards aborting on Pending / KEDA scale-up /
+  writer restart / any new drop. **All guards clean every batch.** 15 executions,
+  all COMPLETED, **15/15 agree**, 0 count mismatches, +450 events, **0 dropped,
+  0 timeout**, 0 Pending, KEDA never scaled. Controls both pass: the comparator
+  self-test detects all **10** planted divergence classes, and an untouched
+  execution reads `not_comparable` — `agree` is not the default.
+  ⚠ My first negative control was invalid (I had repaired that execution
+  earlier); re-done against an untouched one.
+
+  **⭐⭐ The >1 MiB test found a real bug in MY OWN #311.** #311 raised the REPLY
+  cap to 16 MiB and made `write_frame` validate against it **for both
+  directions**, so a client writes a 1.25 MB *request*, passes locally at 16 MiB,
+  and the service refuses it at its 1 MiB request cap and closes the socket —
+  48 × `protocol error … frame of 1251646 bytes exceeds the 1048576-byte cap`,
+  batch dropped **permanently**. *One cap for two directions is the same mistake
+  as one cap for two roles* — the exact defect #311 was written to remove,
+  recreated by #311's own guard. Fixed: worker#314, direction-aware writers,
+  6/6 gated. ⚠ It makes the refusal local and attributable; it does **not** make
+  an oversized single event mirrorable.
+
+  ⚠⚠ **A distinction the precondition conflates:** a >1 MiB *execution total*
+  (the original #343 failure) is **fixed and verified in prod** — the exact
+  victim `357060485092220928` reads `agree pg=64 tier=64`. A >1 MiB *single
+  event* cannot cross a 1 MiB request cap; that is **pre-existing** and does not
+  occur naturally (real events are 3-18 KB). **I manufactured the second case.**
+
+  **⛔ Flip HELD.** The instruction said do not arm on ANY persistent divergence,
+  and there is one: my synthetic `357549612292120576`, `diverged pg=8 tier=7`,
+  permanent. All 13 drops and all 13 ERROR lines trace to that one execution and
+  the sweep retries it forever (`partial 13`). Excluding it would clear the gate
+  — and narrowing a denominator to make a gate pass is exactly what this
+  programme refuses, so I did not. Handed the call to the owner.
+
+  *Loose ends:* **#335 FIXED** (server#431) — `iterations_dispatched` was the one
+  unguarded additive accumulator, and the sequential gate only dispatches when it
+  equals `completed`, so double-counting **silently stalls the loop**. ⚠⚠ The
+  dedup set is `#[serde(skip)]` because `canonical_state_digest` hashes the whole
+  `WorkflowState`; a serialised field would have flipped **every** iterator
+  execution to divergent. 4/4 gated including a serialise-it mutant.
+  ⚠ My first #335 test passed **VACUOUSLY** — the fixture never set
+  `iterations_expected`, so nothing incremented and 0 == 0 read as a pass. The
+  two controls caught it.
+  *Rollout strategy:* **keeping surge-free** — at 99% node memory a surge that
+  cannot schedule is worse than a brief single-replica gap. *SSD quota:* owner
+  action (450/500, not currently binding).
+
 ## Outcome
 
 (filled in by `loop-close`)
