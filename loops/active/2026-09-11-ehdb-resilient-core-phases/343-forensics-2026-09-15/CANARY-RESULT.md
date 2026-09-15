@@ -1,3 +1,23 @@
+> ## ⚠ SUPERSEDED — read `HYDRATION-STATE-OF-PLAY.md` first
+>
+> The diagnosis below ("zero resolve metrics ⇒ resolve_by_urn never invoked;
+> likely the worker cannot reach the result tier") was **disproven**.
+>
+> - noetl/worker#317 fixed the locator gate and **does work** — resolve metrics
+>   went 0 → 63-69 per pod and `resolved over-budget result by URN` appeared for
+>   the first time. It was still insufficient for the PARENT consume.
+> - The object-store/config hypotheses in this file are dead ends: the default
+>   object backend is Postgres, and workers never reach the object store
+>   directly — they go through the server.
+>
+> Three layers are now positively excluded by measurement (predicate, locator
+> shape, `steps` population). Two hypotheses survive, and the next diagnostic is
+> a **call-site trace**, not another shape fix. See
+> `HYDRATION-STATE-OF-PLAY.md`.
+>
+> Kept unedited below as the record of what the canary actually showed at the
+> time.
+
 # Canary result — worker#315 did NOT fix hydration. Rolled back.
 
 2026-09-15. Executed the staged canary in `CANARY-RUNBOOK.md`. **Negative result.**
