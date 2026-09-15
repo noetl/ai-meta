@@ -1,3 +1,31 @@
+> ## ⚠ CORRECTION (2026-09-15, later the same day)
+>
+> **The conclusion below is WRONG for the case that actually mattered.**
+>
+> This note says kind cannot validate the path without an object store and the
+> off-server state builder. That is true only for the `reference` OBJECT shape.
+> The shape the runtime actually emits to a consuming step is the **flat**
+> accessor form — `{"_ref": …, "data": {"_ref": …}}` — and **kind emits that
+> already** (its BEFORE probe produced exactly it). So kind CAN gate this fix,
+> with no MinIO and no off-server builder.
+>
+> Two further claims here are also wrong:
+> - **An object store is not needed.** The default backend is **Postgres**
+>   (`NOETL_OBJECT_STORE_BACKEND` unset ⇒ bytes in `noetl.object_store`), which
+>   kind already has.
+> - **The worker needs no object-store config.** Per
+>   `server/src/services/object_backend.rs`: *"workers never reach GCS directly —
+>   they `PUT`/`GET` through the server."* The "worker has no object-store
+>   config" hypothesis was a dead end.
+>
+> The real blocker was never infrastructure: `reference_locators` did not
+> recognise the flat shape, so no candidate was formed. See
+> `CANARY-RESULT.md` and noetl/worker#317.
+>
+> Kept unedited below because the *method* — compare versions before building,
+> reproduce the mechanism not just the symptom — is still right, and because a
+> wrong conclusion reached carefully is worth being able to re-read.
+
 # Why kind cannot validate the externalised-reference path
 
 2026-09-15, while validating noetl/worker#315. **Do not repeat this attempt
