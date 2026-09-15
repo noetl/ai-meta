@@ -1,0 +1,128 @@
+Name:             noetl-cmdbus-writer-0
+Namespace:        noetl
+Priority:         0
+Service Account:  default
+Node:             gk3-noetl-prod-autopilot-pool-1-85d4d190-vb8t/10.128.15.211
+Start Time:       Sat, 12 Sep 2026 23:40:27 -0700
+Labels:           app=noetl-cmdbus-writer
+                  apps.kubernetes.io/pod-index=0
+                  command-bus=ehdb
+                  component=cmdbus-writer
+                  controller-revision-hash=noetl-cmdbus-writer-564bd5c7fb
+                  managed-by=noetl
+                  statefulset.kubernetes.io/pod-name=noetl-cmdbus-writer-0
+                  topology.kubernetes.io/region=us-central1
+                  topology.kubernetes.io/zone=us-central1-f
+Annotations:      cloud.google.com/cluster_autoscaler_unhelpable_since: 2026-09-13T06:33:32+0000
+                  cloud.google.com/cluster_autoscaler_unhelpable_until: Inf
+Status:           Running
+SeccompProfile:   RuntimeDefault
+IP:               10.119.0.62
+IPs:
+  IP:           10.119.0.62
+Controlled By:  StatefulSet/noetl-cmdbus-writer
+Containers:
+  noetl-worker:
+    Container ID:  containerd://5fd7ab6af655aa702bdb262f7b2aa26feffe3494be45ca8ddd8a33b3d48da02c
+    Image:         us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:c13b2957999f0bc15fe56b91a3005e7bfecd16bbbf51135c3ee641f2510e7466
+    Image ID:      us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/noetl-worker-rust@sha256:c13b2957999f0bc15fe56b91a3005e7bfecd16bbbf51135c3ee641f2510e7466
+    Ports:         9110/TCP (tier-service), 9100/TCP (cmdbus-ingest), 9101/TCP (cmdbus-claim), 9102/TCP (cmdbus-lag), 9090/TCP (metrics), 9103/TCP (events-ingest), 9104/TCP (events-claim), 9105/TCP (events-sse), 9106/TCP (events-lag), 9107/TCP (events-kv), 9108/TCP (events-wal)
+    Host Ports:    0/TCP (tier-service), 0/TCP (cmdbus-ingest), 0/TCP (cmdbus-claim), 0/TCP (cmdbus-lag), 0/TCP (metrics), 0/TCP (events-ingest), 0/TCP (events-claim), 0/TCP (events-sse), 0/TCP (events-lag), 0/TCP (events-kv), 0/TCP (events-wal)
+    Command:
+      /bin/sh
+      -c
+    Args:
+      set -e
+      ORD="${HOSTNAME##*-}"
+      case "$ORD" in ''|*[!0-9]*) echo "cannot derive shard from HOSTNAME=$HOSTNAME" >&2; exit 1 ;; esac
+      export NOETL_COMMAND_BUS_SHARD="$ORD"
+      export NOETL_EVENT_BUS_SHARD="$ORD"
+      echo "writer shard $ORD (host $HOSTNAME)"
+      exec ./noetl-worker
+      
+    State:          Running
+      Started:      Sat, 12 Sep 2026 23:40:40 -0700
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:                2
+      ephemeral-storage:  1Gi
+      memory:             4Gi
+    Requests:
+      cpu:                250m
+      ephemeral-storage:  1Gi
+      memory:             512Mi
+    Liveness:             tcp-socket :cmdbus-claim delay=30s timeout=1s period=20s #success=1 #failure=3
+    Readiness:            tcp-socket :cmdbus-claim delay=5s timeout=1s period=5s #success=1 #failure=3
+    Environment:
+      NOETL_EHDB_TIER_SERVICE_BIND:         0.0.0.0:9110
+      NOETL_EHDB_TIER_SERVICE_DIR:          /data/eventbus/ehdb-tier
+      NOETL_EHDB_CATALOG_MIRROR_SOURCE:     server
+      NOETL_EHDB_SEAL_MAX_AGE_MS:           5000
+      WORKER_POOL_NAME:                     cmdbus-writer
+      NOETL_SERVER_URL:                     http://noetl-server-rust.noetl.svc.cluster.local:8082
+      WORKER_MAX_CONCURRENT:                1
+      WORKER_METRICS_BIND:                  0.0.0.0:9090
+      RUST_LOG:                             info,noetl_worker=info,ehdb_feed=info
+      NOETL_COMMAND_BUS:                    ehdb
+      NOETL_COMMAND_BUS_HOST:               true
+      NOETL_COMMAND_SHARD_COUNT:            1
+      NOETL_COMMAND_BUS_WRITER_DIR:         /data/cmdbus
+      NOETL_COMMAND_BUS_INGEST_BIND:        0.0.0.0:9100
+      NOETL_COMMAND_BUS_CLAIM_BIND:         0.0.0.0:9101
+      NOETL_COMMAND_BUS_METRICS_BIND:       0.0.0.0:9102
+      NOETL_COMMAND_BUS_ACK_WAIT_SECS:      30
+      NOETL_COMMAND_BUS_CLAIM_ADDR:         127.0.0.1:9101
+      NOETL_FEED_FILTER_SUBJECT:            noetl.commands.cmdbus.>
+      NOETL_EVENT_BUS_HOST:                 true
+      NOETL_EVENT_SHARD_COUNT:              1
+      NOETL_EVENT_BUS_WRITER_DIR:           /data/eventbus
+      NOETL_EVENT_BUS_KV_DIR:               /data/eventkv
+      NOETL_EVENT_BUS_INGEST_BIND:          0.0.0.0:9103
+      NOETL_EVENT_BUS_CLAIM_BIND:           0.0.0.0:9104
+      NOETL_EVENT_BUS_SSE_BIND:             0.0.0.0:9105
+      NOETL_EVENT_BUS_METRICS_BIND:         0.0.0.0:9106
+      NOETL_EVENT_BUS_KV_BIND:              0.0.0.0:9107
+      NOETL_EVENT_BUS_WAL_BIND:             0.0.0.0:9108
+      NOETL_EVENT_BUS_ACK_WAIT_SECS:        30
+      NOETL_EVENT_BUS_CURSOR_PERSIST_SECS:  5
+      NOETL_EVENT_BUS_CURSOR_FALLBACK:      tail
+      NOETL_EHDB_REFERENCE_RUNTIME_CACHE:   true
+    Mounts:
+      /data/cmdbus from cmdbus-data (rw)
+      /data/eventbus from eventbus-data (rw)
+      /data/eventkv from eventbus-kv (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-6czlw (ro)
+Conditions:
+  Type                        Status
+  ImageStreaming              True 
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  cmdbus-data:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  noetl-cmdbus-writer-0-data
+    ReadOnly:   false
+  eventbus-data:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  noetl-eventbus-writer-0-data
+    ReadOnly:   false
+  eventbus-kv:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  noetl-eventbus-kv-0-data
+    ReadOnly:   false
+  kube-api-access-6czlw:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 kubernetes.io/arch=amd64:NoSchedule
+                             node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:                      <none>
