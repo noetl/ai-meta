@@ -1,0 +1,37 @@
+--- du -sh /data/* ---
+210.1M	/data/cmdbus
+289.3M	/data/eventbus
+32.0K	/data/eventkv
+--- df -h /data ---
+Filesystem                Size      Used Available Use% Mounted on
+overlay                  94.3G     13.0G     81.2G  14% /
+--- top-level listing ---
+total 20
+drwxr-xr-x    5 root     root          4096 Sep 13 06:40 .
+drwxr-xr-x    1 root     root          4096 Sep 13 06:40 ..
+drwxr-xr-x    5 root     root          4096 Sep 15 06:47 cmdbus
+drwxr-xr-x    6 root     root          4096 Sep 15 06:21 eventbus
+drwxr-xr-x    4 root     root          4096 Sep 13 06:06 eventkv
+--- /data/eventbus ---
+total 48
+drwxr-xr-x    6 root     root          4096 Sep 15 06:21 .
+drwxr-xr-x    5 root     root          4096 Sep 13 06:40 ..
+-rw-r--r--    1 root     root            48 Sep 15 06:21 claim-cursor.noetl_materializer.shard-0.json
+-rw-r--r--    1 root     root            48 Sep 15 06:21 claim-cursor.noetl_result_materializer.shard-0.json
+-rw-r--r--    1 root     root            48 Sep 15 06:21 claim-cursor.noetl_state_materializer.shard-0.json
+drwxr-xr-x    2 root     root          4096 Sep 13 18:37 ehdb-tier
+drwx------    2 root     root         16384 Sep 13 06:06 lost+found
+drwxr-xr-x    3 root     root          4096 Sep 13 14:28 manifest
+drwxr-xr-x    3 root     root          4096 Sep 13 06:06 parts
+--- /data/eventbus/ehdb-tier ---
+total 213860
+drwxr-xr-x    2 root     root          4096 Sep 13 18:37 .
+drwxr-xr-x    6 root     root          4096 Sep 15 06:21 ..
+-rw-r--r--    1 root     root       1365692 Sep 14 06:55 catalog.jsonl
+-rw-r--r--    1 root     root     215120526 Sep 15 06:21 eventlog.jsonl
+-rw-r--r--    1 root     root       2479294 Sep 15 06:00 projection.jsonl
+--- file counts ---
+/data/cmdbus: 16201 files
+/data/eventbus: 1116 files
+/data/eventbus/ehdb-tier: 3 files
+/data/eventkv: 1 files

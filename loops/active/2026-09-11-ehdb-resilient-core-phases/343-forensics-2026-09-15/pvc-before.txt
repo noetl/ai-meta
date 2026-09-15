@@ -1,0 +1,5 @@
+NAME                                         STATUS   CAPACITY   SC
+ehdb-embedded-noetl-server-rust-embedded-0   Bound    10Gi       standard-rwo
+noetl-cmdbus-writer-0-data                   Bound    10Gi       premium-rwo
+noetl-eventbus-kv-0-data                     Bound    10Gi       premium-rwo
+noetl-eventbus-writer-0-data                 Bound    20Gi       premium-rwo

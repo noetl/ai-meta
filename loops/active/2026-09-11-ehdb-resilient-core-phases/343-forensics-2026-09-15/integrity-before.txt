@@ -1,0 +1,8 @@
+/data/eventbus/ehdb-tier/eventlog.jsonl bytes=215120526 lines=19141
+/data/eventbus/ehdb-tier/catalog.jsonl bytes=1365692 lines=20
+/data/eventbus/ehdb-tier/projection.jsonl bytes=2479294 lines=641
+cmdbus_files=16204 eventbus_parts=1093
+--- mount check: is /data a PVC? ---
+/dev/nvme0n3 on /data/cmdbus type ext4 (rw,relatime)
+/dev/nvme0n4 on /data/eventbus type ext4 (rw,relatime)
+/dev/nvme0n5 on /data/eventkv type ext4 (rw,relatime)
