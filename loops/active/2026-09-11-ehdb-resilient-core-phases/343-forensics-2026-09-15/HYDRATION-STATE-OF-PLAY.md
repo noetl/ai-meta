@@ -1,3 +1,15 @@
+> ## ⚠ SUPERSEDED — read `HYDRATION-FINAL-LOCALIZATION.md`
+>
+> The diagnosis in this file has been overtaken. DIAG(1-4) from an instrumented
+> build proved that `steps` is present at resolve time, the locator IS found, and
+> the resolver proceeds with `candidates=1` — neither early return fires.
+>
+> **The failure is inside the resolve FETCH** (`resolve_by_urn` / `resolve_ref` →
+> control-plane client → server): fast-and-empty in prod, hanging in kind.
+> Possibly the same failure mode as noetl/worker#316.
+>
+> Kept unedited as the record of what was believed at the time.
+
 # Externalised-result hydration — definitive state of play
 
 2026-09-15, end of session. **Read this first.** It supersedes the diagnosis in
