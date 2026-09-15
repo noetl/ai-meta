@@ -53,7 +53,52 @@ debug line should appear.
 (`map_cards` debug line present on the pod that ran it), there were **zero**
 `resolved over-budget` and **zero** `kept as summary` lines for the parent step.
 
-## ❓ The two surviving hypotheses
+## ✅ BOTH original hypotheses also EXCLUDED (probe `358387099021352960`)
+
+A diagnostic clone of hotel-cards (`muno/probe/hotel-shape` — prod playbook
+untouched) dumped what `map_cards` sees at render time:
+
+```
+steps_ns_type             : dict
+steps_ns_keys             : ['resolve_dates', 'search_hotels', 'start']
+ref_paths_in_steps        : ['/search_hotels/context/result/context/data/_ref']
+search_result_type        : dict
+ref_paths_in_search_result: ['/_ref', '/data/_ref']
+```
+
+So at the consuming step, `steps` **is** an object, it **does** contain the
+parent step, and the locator **is** at exactly the path the recursive search
+handles. Every precondition for resolution is satisfied — and the v5.132.4
+canary still logged nothing for `map_cards`.
+
+That kills both:
+
+1. ~~`resolve_context_references` never invoked on this path~~ — there is exactly
+   ONE call site (`command.rs:478`) and it is on the common command path.
+2. ~~Resolver runs before the `_ref` is injected~~ — the ref is present in the
+   very namespace the resolver reads.
+
+## ❓ The ONE surviving question — an ordering question about `render_context`
+
+Static analysis found the decisive line:
+
+```rust
+ctx.variables = command.render_context.clone();   // command.rs:~443
+```
+
+`variables` is **server-supplied per command**. A probe can only observe RENDER
+time, which is *after* line 478. The open question is whether
+`command.render_context` carries `steps` **at dispatch**, or whether `steps` is
+assembled/enriched between line 443 and render — after the resolver has already
+run and returned.
+
+The code comment at ~446 makes this plausible: the server **stopped** sending
+parts of the context because persisting it "ballooned to 5MB", and the worker
+"rebuild[s] them transiently here".
+
+If `steps` is rebuilt after line 478, every observation is explained at once.
+
+## ❓ The two surviving hypotheses (SUPERSEDED — see above)
 
 1. **`resolve_context_references` is never invoked on the `kind: playbook`
    consume path.** Its only call site is `executor/command.rs:~478`. A
