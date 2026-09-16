@@ -8,21 +8,53 @@ workers v5.132.5. Every number below was measured, not carried forward.
 
 ## 1. Recommendation
 
-**Do not flip KV or object to primary-serve.** Not "not yet, pending the fencing
-spec" — the blockers are two layers earlier than #321, and one of them means the
-tiers are not even readable through the surface that would serve them.
+**Do not flip KV or object to primary-serve.**
 
-The honest summary is that this is not a cutover decision yet. It is a
-**build** decision about what has to exist first.
+⚠ **Updated 2026-09-16.** The original reason was that the blockers sat two
+layers earlier than #321 — the tiers were not readable, had no durable store,
+and had no comparator. **That work is now done and kind-proven** (§2), so the
+recommendation no longer rests on it.
+
+It now rests on three things, none of which is engineering:
+
+1. the prod rollout is blocked on the **writer-pin** question (§8);
+2. **noetl/ehdb#321** is open, and its acceptance is explicit — *"no tier flips
+   to primary-serve until this is merged"*;
+3. the **substrate decision** (§3) is unmade, and it is the same question for
+   these tiers as for the event log.
+
+What changed is that (1) and (3) are now the only things between here and an
+*evidence-based* decision, rather than an absence of evidence.
 
 ## 2. Measured readiness
 
-| tier | shadow writes | readable via tier service | parity comparator | state |
+> **Readiness updated 2026-09-16.** Prerequisites 0, 1 and 2 are built and
+> kind-proven. The table below is current; the strikethrough row records what it
+> said before, because the difference is the work.
+
+| tier | durable shadow store | readable via tier service | parity comparator | state |
 | :-- | :-- | :-- | :-- | :-- |
-| **eventlog** | yes | **yes** | yes — *now trustworthy*, noetl/ai-meta#346 | `primary`, serving |
-| **projection** | yes | n/a (server-side WAL read) | yes | serving **99.88%** |
-| **object** | `object_ops_total{operation="mirror",outcome="mirrored"} 34` | **NO — HTTP 501** | **none** | shadow, unreadable |
-| **kv** | **no metrics emitted at all** | **NO — HTTP 501** | **none** | not exercised |
+| **eventlog** | n/a (is the tier) | **yes** | yes — *now trustworthy*, noetl/ai-meta#346 | `primary`, serving |
+| **projection** | n/a | n/a (server-side WAL read) | yes | serving **99.88%** |
+| **object** | **yes**, writer PVC — survives a pod roll | **yes** (was 501) | **yes**, false-alarm-proof | shadow; **not deployed to prod** |
+| **kv** | **yes**, same | **yes** (was 501) | **yes**, same comparator | shadow; no traffic yet |
+
+*Was, on 2026-09-16 morning:* ~~object — ephemeral `/tmp`, HTTP 501, no
+comparator; kv — no metrics at all, HTTP 501, no comparator.~~
+
+**Kind-proven, end to end:**
+
+* shadow records **survive a pod roll** (5 records, identical digests, across
+  brand-new pods; `/tmp/ehdb` on those pods empty) and keep accumulating
+  (11 records across a pre-roll and a post-roll execution);
+* shadow digests **match the source object bytes** exactly;
+* the comparator reports `match` on healthy data with **5 superseded records
+  counted, not alarmed** — the case a naive comparator would have called 5
+  divergences;
+* a **genuine** planted defect is caught (`authoritative 000000000000 vs shadow
+  7404912ce859`) and clears on repair;
+* coverage is honest: `unmirrored: 194` with a prefix, the field **omitted**
+  without one, and `no_comparable` rather than a free `match` on an empty tier.
 
 Verbatim, from prod:
 
@@ -175,3 +207,38 @@ on ephemeral storage. Both are the same question wearing different clothes:
 **the EHDB tiers' durability substrate has not been decided**, and each tier has
 inherited a different provisional answer. The cutover question cannot be
 answered per-tier until that one is.
+
+
+---
+
+## 8. The writer pin — the one thing blocking the prod rollout
+
+`sts/noetl-cmdbus-writer` runs `sha256:c13b2957…`, a **different digest** from
+the worker pools' v5.132.5 (`sha256:14759cee…`). `memory/current.md` records it
+as held back deliberately; the reason is not written down anywhere I could find.
+
+It matters because **rollout order is load-bearing**. On a writer that predates
+the change, `StoreTier::parse("object")` returns `None` and every shadow append
+is refused — correctly labelled `append_failed` rather than lost silently, but
+nothing accumulates. I hit exactly that on the first kind attempt.
+
+### The documented sequence, for when the pin is cleared
+
+1. `sts/noetl-cmdbus-writer` → new image. *(Appends refused until this lands.)*
+2. `deploy/noetl-worker-system-pool` → new image. *(Tier reads relay via
+   `NOETL_EHDB_WORKER_QUERY_URL` → this pool, so reads 501 until it lands.)*
+3. `deploy/noetl-worker-rust` → new image.
+4. `sts/noetl-server-rust-embedded` → new image (the comparator endpoint).
+5. Verify: `GET /api/ehdb/tiers/object?limit=5` → 200 with
+   `serve_state: "not_wired"`; `GET /api/ehdb/object-parity/object` → `match`;
+   records accumulate across a subsequent roll.
+
+Every step is an image roll with the previous image as its rollback. **Nothing
+authoritative changes at any point** — KV's incumbent stays NATS-KV, object's
+stays the external object store, and `kv`/`object` stay out of
+`SERVE_WIRED_TIERS` with three tests failing if that changes.
+
+⚠ One config prerequisite, additive: `NOETL_EHDB_CLIENT_ROLE=worker` must be set
+on any pool expected to mirror — `object::runtime_hook_env` returns `None`
+without a data-plane role and the hook is simply absent, silently. **Prod already
+has it** on both worker pools; kind did not, which is how it was found.
