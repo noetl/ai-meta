@@ -36,6 +36,7 @@ owner-timed rollout. #443 in particular is a **wire change**: anything reading
 | :-- | :-- |
 | [tools#99](https://github.com/noetl/tools/pull/99) | policy rules can see a transport failure — completes noetl/server#434's third symptom |
 | [worker#324](https://github.com/noetl/worker/pull/324) | the three HTTP clients with **no timeout** are bounded (materializer ×2, plugin) |
+| [tools#100](https://github.com/noetl/tools/pull/100) | a poll wait long enough for real Pub/Sub, and a clamp that stops truncating silently (noetl/tools#57) |
 
 ⚠ The care in #99 is the preservation half, not the fix: converting the `Err`
 into a result would have moved every postgres failure from `command.failed` to
@@ -142,17 +143,40 @@ needs branch protection / a ruleset, which changes merge policy for every
 contributor — surfaced, not done. Worth noting while 8 open PRs' green checks are
 advisory only.
 
+## ⚠ Two more of my own mistakes, both the same shape
+
+**A grep that read comments as code.** I told noetl/tools#94 that its CI runs
+`cargo fmt` and `cargo clippy` and is "stricter than server's or worker's". The
+`cargo fmt` hits were inside a **comment block saying the opposite** — that repo
+deliberately does not gate fmt (rustfmt 1.9.0 pins the tree) and runs clippy with
+`|| true`. Corrected publicly on the issue. ⚠ This is the exact failure I built
+comment-stripping into two test matchers to prevent today, committed in my own
+analysis where no matcher was watching.
+
+**An unchecked per-file claim.** I wrote in tools#100 that "my two files are
+individually clean" on fmt without checking per file. `source/mod.rs` reports
+dirty — the diff is rustfmt following `mod` declarations into sibling files
+already dirty on `main`, so the substance held, but the claim was not one I had
+verified. Corrected in the PR body.
+
 ## ⚠ A negative control that lied
 
-While building worker#324's guard, my first RED control **passed** — and the
+**Twice today a negative control silently selected nothing.** While building
+worker#324's guard, my first RED control **passed** — and the
 guard was not at fault. `sed '0,/re/'` is a **GNU extension that BSD sed silently
 ignores**, so the planted defect never landed and I was testing unmodified
 source. Re-planted in Python with an asserted match count, the guard fails at
 `materializer.rs:252` naming the exact line.
 
-⚠⚠ The failure mode is the dangerous one: a negative control that *cannot* fail
-looks identical to a passing test. Every plant on this machine should assert that
-the substitution actually happened — `sed -i ''` on macOS is not GNU sed.
+And again on tools#100: a RED control ran **0 tests** and looked like a pass,
+because `cargo test` takes a plain substring, not the regex alternation I gave
+it.
+
+⚠⚠ The failure mode is the dangerous one: a control that *cannot fail* and a
+control that *selects nothing* both look exactly like a passing test. Every plant
+should assert the substitution happened AND the run should assert a non-zero test
+count — `sed -i ''` on macOS is not GNU sed, and `cargo test` filters are not
+regexes.
 
 ## ⚠ My own miss, worth keeping
 
