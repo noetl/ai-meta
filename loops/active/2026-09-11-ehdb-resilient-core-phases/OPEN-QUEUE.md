@@ -2,7 +2,7 @@
 
 Updated 2026-09-16, after the merge round.
 
-## ✅ Merged this round — ten PRs, all green on main
+## ✅ Merged — thirteen PRs, all green on main
 
 | PR | what | prod impact of the MERGE |
 | :-- | :-- | :-- |
@@ -16,9 +16,17 @@ Updated 2026-09-16, after the merge round.
 | [ehdb#360](https://github.com/noetl/ehdb/pull/360) | torn tail skipped, anything else still fails | library only |
 | [ehdb#343](https://github.com/noetl/ehdb/pull/343) | second-substrate write-up | docs |
 | [ops#310](https://github.com/noetl/ops/pull/310) | digest ledger seeded with the rollback targets | none — nothing applies `ledger/` |
+| [tools#99](https://github.com/noetl/tools/pull/99) | policy rules see a transport failure (noetl/server#434 symptom 3) | unhandled outcome preserved exactly — nothing that failed stops failing |
+| [tools#100](https://github.com/noetl/tools/pull/100) | pubsub poll wait + a clamp that stops truncating silently | ⚠ changes the pubsub default wait 1s → 5s |
+| [worker#324](https://github.com/noetl/worker/pull/324) | three HTTP clients with no timeout are bounded | ⚠ unbounded waits become bounded failures |
 
 `main` after the merges: **worker** 19 binaries ok / 0 clippy errors; **server**
 14 ok / 0 clippy errors; **ehdb** 80 ok / fmt clean / clippy clean.
+
+⚠ The last three were merged by the owner 2026-09-16 13:48–13:49. Prod re-verified
+immediately after: same three image digests, every `generation ==
+observedGeneration`. The behaviour-changing ones (tools#100's default wait,
+worker#324's bounded waits) still want a canary and an owner-timed rollout.
 
 ⚠ **Merged is not deployed, and nothing was.** semantic-release cut versions and
 the release workflows built images to Artifact Registry. No workflow in any repo
@@ -34,9 +42,6 @@ owner-timed rollout. #443 in particular is a **wire change**: anything reading
 
 | PR | what |
 | :-- | :-- |
-| [tools#99](https://github.com/noetl/tools/pull/99) | policy rules can see a transport failure — completes noetl/server#434's third symptom |
-| [worker#324](https://github.com/noetl/worker/pull/324) | the three HTTP clients with **no timeout** are bounded (materializer ×2, plugin) |
-| [tools#100](https://github.com/noetl/tools/pull/100) | a poll wait long enough for real Pub/Sub, and a clamp that stops truncating silently (noetl/tools#57) |
 | [worker#325](https://github.com/noetl/worker/pull/325) | test-only: pin the reference shapes observed in kind |
 
 ⚠ The care in #99 is the preservation half, not the fix: converting the `Err`
