@@ -149,6 +149,34 @@ needs branch protection / a ruleset, which changes merge policy for every
 contributor — surfaced, not done. Worth noting while 8 open PRs' green checks are
 advisory only.
 
+## 🔴 The worker#316 chase — three defects filed, one verdict
+
+**Verdict: a wedge IS reproducible.** My first "not reproducible" result was
+under-powered — #445 handed the consuming step a `{"_len": N}` stub, so the
+large-payload path was never exercised in those 25 runs. #445 was masking #316.
+Forcing the real payload through reproduced an indefinite wedge first try.
+
+| filed | what |
+| :-- | :-- |
+| [server#445](https://github.com/noetl/server/issues/445) | a step consuming a large upstream field silently gets `{"_len": N}`; server renders templates against the summarised context before the worker can hydrate |
+| [server#446](https://github.com/noetl/server/issues/446) | the credential scrub replaces ANY 40+ char alphanumeric/base64 string with `[REDACTED]` — sha256 digests, base64 blobs, long ids — in the **data** path |
+| [server#447](https://github.com/noetl/server/issues/447) | **the wedge**: `orchestrate_in_flight` has one clear path (on apply), no timeout, no expiry — any unapplied drive strands the execution forever |
+| [worker#326](https://github.com/noetl/worker/issues/326) | tier-service silently loses events over the 1 MiB frame cap while logging `served_primary` |
+
+⭐ #447 is measurable with metrics that already exist:
+`orchestrate_drive_total{dispatched} − {applied}` is the leaked-guard count
+(observed 10 vs 4), and a climbing `skipped_in_flight` against a flat `applied`
+is the signature. Nothing alerts on it.
+
+⚠ All four were triggered with `NOETL_PERMANENT_LOG_LEAN=false`, which prod does
+**not** use (prod runs `true`). So these exact triggers are not prod-reachable —
+**except #445 and #446, whose preconditions ARE live in prod.** #447's leak is
+config-independent; only my trigger for it was synthetic.
+
+⚠⚠ None fixed. Each needs a decision I should not make alone: #445 and #447
+change execution semantics, #446 loosens a security control, #326 changes what
+the tier does with data it currently drops.
+
 ## 🔴 noetl/server#445 — found by the #316 reproduction, and worse than #316
 
 A step whose `input:` binds a LARGE field of an upstream result silently receives
