@@ -639,6 +639,63 @@ Resumes from this file plus:
   cannot schedule is worse than a brief single-replica gap. *SSD quota:* owner
   action (450/500, not currently binding).
 
+- **Iteration 12 (2026-09-15) — ✅ D3 SERVING. The falsifier confirmed #335 at a
+  denominator that leaves no room for coincidence.**
+
+  *Deployed:* worker **v5.132.1** (#314 direction caps) to all three pools and
+  server **v3.109.2** (#431, the #335 dedup) — surge-free, every pre-apply diff
+  **exactly the image line**, phantom-volume control each time, **0 Pending
+  throughout**, both images arch-verified amd64 first.
+
+  ⭐ **#314 verified live** on the sweep's own retry of the >1 MiB event:
+  `write: Connection reset by peer` became
+  `write: refusing to write a 1251646-byte request frame; the reader cap is
+  1048576 bytes` — local, explicit, attributable — and the writer's
+  `protocol error` count fell **25 → 1**.
+
+  ⭐⭐ **THE FALSIFIER, CONFIRMED.** ~22h on v3.109.2:
+
+  | verdict | before | after |
+  | :-- | --: | --: |
+  | `digest_mismatch` | **426** | **0** |
+  | `match` | 2 | **19,818** |
+  | `stored_behind_spine` | 0 | 22 |
+
+  19,840 refolds, **zero** mismatches. The prediction registered *before* the
+  deploy held exactly. **#335 was the cause of the projection serve-path
+  divergence.**
+
+  ⭐⭐ **D3 IS SERVING:** `served_tier` **19,823 of 19,847 = 99.88%**, all
+  `serve_refusal` 0. ⚠ **This happened WITHOUT the flag** — serving began the
+  moment the digests agreed. The flag was never the blocker; the double-apply
+  was. The deliverable was "D3 serving correctly from the embedded tier", and
+  that is what the fix bought.
+
+  *Mirror, same window:* `mirrored 10,051`, **dropped 0, timeout 0, send errors
+  0**; sweep `already_complete 10,187`, `partial 0`. The synthetic >1 MiB
+  artefact aged out of the lookback exactly as predicted.
+
+  *Flag armed* — but only once its condition became real: `stored_behind_spine`
+  went **0 → 22**. Full-spec diff was the one env addition (63→64). It is worth
+  **0.1%** of reads; the other 99.88% were already served.
+
+  ⚠ **Two honest notes on the measurement.** The refold path is NOT driven by
+  execution traffic — 13 fresh executions produced **1** refold, and my first
+  post-deploy read was `match 1 / mismatch 0`, which I reported as
+  **inconclusive** rather than as a win. It was the 22h soak that produced the
+  denominator. I could not force the path on demand, and still cannot: that is
+  an observability gap, not a correctness one.
+
+  ⚠⚠ **NEW, and filed separately ([#346](https://github.com/noetl/ai-meta/issues/346)):**
+  the **event-log** cross-store parity is **36.9% divergent** (`match 759 /
+  divergent 443`) — but every one of 264 sampled is
+  `authoritative=174 ehdb=174 kinds={"order"}`: **equal counts, zero data loss,
+  order-only**, with all ten comparator controls reading `expected`. It does not
+  touch the projection serve path (0 mismatches over 19,818), which is why it did
+  not block the flip — but an order divergence that leaves the digest identical
+  contradicts `the_postgres_read_orders_events_and_the_fold_depends_on_it` and
+  needs an explanation rather than a shrug.
+
 ## Outcome
 
 (filled in by `loop-close`)
