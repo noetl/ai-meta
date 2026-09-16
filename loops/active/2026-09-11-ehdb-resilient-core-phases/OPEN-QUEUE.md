@@ -35,8 +35,9 @@ noetl/worker#222 is about.
    mechanism is (demonstrated twice), but reproducing a #443-style decode failure
    needs an image with both the probe and the bug, and that bug no longer
    compiles.
-5. **tools#99/#100 undeployable** — worker pins `noetl-tools ~3.26.3`; fixes are
-   in v4.0.1.
+5. ~~**tools#99/#100 undeployable**~~ — the coordinated 4.x bump is done
+   (cli#87 + cli#89 merged); worker#329 lands it once noetl-executor 0.10.0
+   publishes.
 6. **noetl/server#434 is NOT fixed for users** — symptoms 1+2 behind
    `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` (off), symptom 3 behind the pin above.
 
@@ -65,24 +66,52 @@ COMPLETED.
 while the newer service may emit up to 16 MiB. v5.132.1 and later are safe, and
 the ledger's recorded rollback target (v5.132.1) satisfies this.
 
-## 🔴 tools#99 + tools#100 — MERGED BUT UNDEPLOYABLE (owner-scoped follow-up)
+## 🟡 tools#99 + tools#100 — THE PIN IS LIFTED; awaiting a worker release
 
-Both are merged and released in **noetl-tools v4.0.1**, but the worker pins
-`noetl-tools = "~3.26.3"` and `Cargo.lock` holds **3.26.3**. Neither fix reaches
-production. Lifting it is a **3.x → 4.x major bump** (v4.0.0 carries
-`feat/330-non-exhaustive`), and the pin's own comment says it must move together
-with `noetl-executor`:
+**The coordinated 4.x bump was taken on and it was small.** Surveyed, measured,
+implemented as a three-PR chain:
 
-> Lift this only together with `noetl-executor` … the two move as a pair.
+| PR | what | status |
+| :-- | :-- | :-- |
+| [cli#87](https://github.com/noetl/cli/pull/87) | CI selects the whole workspace + the 4 failures that hid behind it | **merged** |
+| [cli#89](https://github.com/noetl/cli/pull/89) | noetl-tools 4.x, noetl-executor 0.10.0 | **merged** |
+| [worker#329](https://github.com/noetl/worker/pull/329) | `~3.26.3`+`0.5` → `~4.0`+`0.10` | open, blocked on the executor publish |
 
-**Status: merged but undeployable, pending a coordinated `noetl-tools` 4.x +
-`noetl-executor` bump — owner-scoped follow-up.** Not attempted here: it is
-engineering work with breaking-change risk, not a deploy step.
+**Measured blast radius of the "major": TWO struct literals**, both in the
+executor's `tools_bridge.rs` (one production, one test). Nothing else in the cli
+workspace touches `ToolResult`, and **the worker needed zero source changes** —
+it never built one by literal. 850 worker tests pass against noetl-tools 4.0.1 +
+noetl-executor 0.10.0, proven locally through a path override before the publish
+existed.
 
-⚠ Consequence to be explicit about: noetl/server#434 is **not actually fixed in
-production**. Its symptom 3 (`do: retry` inert) is fixed in code and cannot
-reach prod until this bump lands; symptom 1 remains behind the
-`NOETL_EXECUTION_FAIL_ON_STEP_ERROR` flag. The issue should stay open.
+⚠ **The hold survives the lift, deliberately: `~4.0`, not `^4`.** Sealing
+`ToolResult` retires the exact 3.27.0 mechanism, not the class — a new enum
+variant elsewhere breaks a resolve the same way, still on the release commit.
+
+⚠ noetl/server#434 stays not-fixed-for-users until worker#329 lands and
+deploys. Symptom 3 unblocks with it; symptom 1 remains behind
+`NOETL_EXECUTION_FAIL_ON_STEP_ERROR`.
+
+## 🔴 THE CI SCOPE GAP — found while surveying the bump, and it was everywhere
+
+`cargo test --all-targets` selects the **root package only**. `--all-targets`
+widens *target kinds*; `--workspace` widens *package selection*. Three repos
+whose root Cargo.toml is a `[package]` AND a `[workspace]` were testing only the
+root:
+
+| repo | before → after | what was unrun |
+| :-- | :-- | :-- |
+| [cli#87](https://github.com/noetl/cli/pull/87) | 69 → 245 | `events`, `executor`, `arrow-cache`, `arrow-flight-client` — **hiding 4 real failures**, one red on main for 8 days |
+| [server#455](https://github.com/noetl/server/pull/455) | 1197 → 1360 | `orchestrate-core` — **including server#445's four tests, the proof for a fix LIVE IN PROD** |
+| [tools#101](https://github.com/noetl/tools/pull/101) | 512 → 541 | `noetl-directives`, `noetl-locator` — the crates whose whole point is standalone use |
+
+All three merged. `ehdb` already passed `--workspace`; `worker` is a single
+package. Each carried a negative control showing the old command reports success
+on a planted failure and the new one fails.
+
+⚠ The honest note on server#445: its tests pass and were run by hand when the
+fix shipped, so the fix is sound. But CI never ran them, and "I ran it locally"
+is not a gate.
 
 ## 🔴 PROD DEPLOY 2026-09-16 — attempted, rolled back, PAUSED
 

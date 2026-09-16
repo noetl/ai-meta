@@ -189,9 +189,56 @@ owner's, and each carries a costed proposal on its issue.
 executions show `inspect` *claimed then silent* whereas mine was *never issued*.
 Either two surfaces, or the claimed-then-silent case has a further cause.
 
+## ⚠⚠ `cargo test --all-targets` DOES NOT TEST THE WORKSPACE (2026-09-16)
+
+**Read this before trusting any Rust repo's green CI here.** `--all-targets`
+widens *target kinds* (lib, bins, tests, examples). `--workspace` widens
+*package selection*. A root `Cargo.toml` that is a `[package]` AND a
+`[workspace]` defaults to the root package **alone**.
+
+Three of the six repos were doing exactly that. Found while surveying the
+noetl-tools 4.x bump; all three fixed and merged:
+
+| repo | tests before → after | what was never run |
+| :-- | :-- | :-- |
+| cli (#87) | 69 → 245 | `events`, `executor`, `arrow-cache`, `arrow-flight-client` — **4 real failures were hiding there**, one red on main for 8 days |
+| server (#455) | 1197 → 1360 | `orchestrate-core` — **including server#445's four tests, the proof for a fix that is LIVE IN PROD** |
+| tools (#101) | 512 → 541 | `noetl-directives`, `noetl-locator` |
+
+`ehdb` already passed `--workspace`. `worker` is a single package.
+
+⚠ The server#445 note is the one to keep: those tests pass, and they were run by
+hand when the fix shipped, so the fix is sound — but **"I ran it locally" is not
+a gate**, and for eight days the only thing that would have caught a regression
+in a live-in-prod fix was not running.
+
+⚠ And branch protection made this worse before it made it better: the required
+`test` check was enabled on all four CI repos earlier the same day, which made a
+check that ran 5% of cli's tests *mandatory* — the appearance of rigour over a
+gate that was not gating.
+
 ## server#203 — CQRS phase 2b (2026-09-16)
 
-Plan written, **nothing built**, held for owner review:
+⚠ **2b-2 IS NOW BUILT** — `worker/src/projector.rs`, the real drain, flag-gated
+off (`feat/203-projector-loop`, worker#329's sibling). Key decisions:
+
+* **Redelivery is per-execution** (decision 3, nack failures): ack the events
+  whose execution advanced, HOLD the ones whose execution did not. Acking the
+  whole batch on a 200 silently drops failed work (`advance` returns 200 WITH a
+  populated `failed[]`); holding the whole batch lets one broken execution stall
+  the entire feed.
+* **Events with no `execution_id` are acked and COUNTED** — holding them
+  poison-loops the cursor, so the ack is real, but never silent.
+* **A distinct consumer group from the materializer's**, enforced at config
+  time: sharing one splits the feed, so each consumer sees ~half the events and
+  neither errors.
+* ⚠⚠ **The module was spawned by nobody.** `worker.rs` started the materializer
+  and three siblings and never mentioned the projector, so flipping the flag
+  would have started nothing — the same silent no-op the scaffolding refused to
+  ship, reached by a different route. Now wired, with a source guard requiring
+  exactly one non-comment `projector::spawn` call site.
+
+Original plan:
 `loops/active/2026-09-11-ehdb-resilient-core-phases/203-cqrs-phase-2b/PLAN.md`.
 
 * **2b-1 is already DONE** — endpoint, `NOETL_PROJECTOR_OWNS_SNAPSHOT` gate
