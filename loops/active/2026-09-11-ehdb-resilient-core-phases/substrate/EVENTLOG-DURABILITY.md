@@ -74,9 +74,13 @@ single-zone disk, that a zonal loss loses the tier, and that Postgres remains th
 authoritative event log so the **business** record survives independently.
 
 *Buys:* honesty, immediately, at no risk. *Costs:* nothing changes. *Rollback:*
-n/a. ⚠ Worth checking before choosing: the claim "Postgres is still
-authoritative" needs verifying per read path, not assumed — noetl/ai-meta#343 was
-exactly a case where a tier silently became the only copy that mattered.
+n/a.
+
+✅ **The check this option depended on has been done** (§4.1): Postgres is
+authoritative for the business event log, and the projection serve path is
+licensed by a Postgres fold. A tier loss costs a rebuild, not the data. That
+moves A from "defensible if the claim holds" to **"defensible, claim verified"**,
+and it is the cheapest honest position available.
 
 ### B. Snapshots
 
@@ -123,10 +127,41 @@ the one the architecture documents point toward. That tension is the decision.
 
 ## 4. What I would want answered before choosing
 
-1. **Is Postgres genuinely still authoritative for every event-log read path?**
-   If yes, A is far more defensible and D is less urgent. If any path reads the
-   tier as the only copy, A is not available. This is checkable and I have not
-   checked it — it deserves its own measurement rather than an assumption.
+1. ~~**Is Postgres genuinely still authoritative for every event-log read
+   path?**~~ **ANSWERED 2026-09-16 by measurement. Yes — with one nuance that
+   makes option A stronger than this section originally allowed.**
+
+   | read path | source |
+   | :-- | :-- |
+   | business event log (`noetl.event`) | **Postgres authoritative.** `/api/executions/{id}` and `/api/ehdb/executions/{id}/events` both read it; the tier is a mirror |
+   | projection **recovery fold** (`events_for_recovery`) | **tier, on 100% of calls.** Postgres is not in that chain |
+   | projection **serve** | **licensed by a Postgres fold** — a tier-derived projection may not serve unless it agrees with one |
+
+   Measured live: `recovery_fold_total{outcome="spine_incomplete",source="spine"} 2`
+   and `{outcome="folded",source="tier"} 2`, with
+   `recovery_source_info{mode="tier"} 1`. The code records the same at a far
+   larger denominator: spine `25,390 spine_incomplete, 0 folded`.
+
+   The serve gate is armed and clean — `projection_serve_refusal_total` is **0**
+   across all four reasons including `digest_mismatch`. Its comment records that
+   it *used* to fold the recovery ladder and therefore compared a tier-derived
+   fold against a tier-derived record: *"A tier missing events agrees with
+   itself and is granted a serve."* Folding Postgres is what can see a gap in
+   the mirror.
+
+   **No #343-class finding.** Nothing serves event data from the tier as the
+   only copy without a Postgres check behind it. I looked for one specifically.
+
+   ⚠ **The caveat, and it is the useful part.** `fold_from_postgres` exists and
+   works but is **not wired into `events_for_recovery`**. So a tier loss makes
+   recovery **refuse** — fail-safe, not a wrong answer, and not data loss. The
+   events are in Postgres; rebuilding from them is a **wiring job, not a
+   recovery operation**.
+
+   **This makes option A materially more defensible than §3 claimed.** Accepting
+   the substrate does not mean accepting that a zonal loss destroys the
+   projection — it means accepting a rebuild step that already has its
+   ingredients.
 2. **What RPO is acceptable for the tier specifically**, given the business
    record is in Postgres?
 3. **Is a zonal outage in scope at all** for this deployment? Four disks in
