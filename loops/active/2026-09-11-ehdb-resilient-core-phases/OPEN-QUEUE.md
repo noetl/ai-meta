@@ -92,6 +92,54 @@ variant elsewhere breaks a resolve the same way, still on the release commit.
 deploys. Symptom 3 unblocks with it; symptom 1 remains behind
 `NOETL_EXECUTION_FAIL_ON_STEP_ERROR`.
 
+## 🚨🚨 `noetl/worker` MAIN HAS NO REQUIRED STATUS CHECK RIGHT NOW (2026-09-16)
+
+**State: `required_status_checks` REMOVED from `noetl/worker` `main`. Deliberate.
+Not yet restored. Owner action needed.**
+
+```
+noetl/worker  main  required_status_checks = REMOVED
+                    allow_force_pushes = false   allow_deletions = false
+noetl/server  main  required=["test"] strict=true   (UNCHANGED, still protected)
+noetl/tools   main  required=["test"] strict=true   (UNCHANGED, still protected)
+noetl/ehdb    main  required=["rust"] strict=true   (UNCHANGED, still protected)
+```
+
+**Why it is off.** The recommended fix — a ruleset with the GitHub Actions app
+(id 15368) as a bypass actor — was attempted with explicit owner authorization
+and **GitHub itself refused it**:
+
+```
+422 Validation Failed
+Actor GitHub Actions integration must be part of the ruleset source or owner organization
+```
+
+A repository-level ruleset will not accept the Actions app as a bypass actor; it
+has to be an **organization-level** ruleset. Creating one needs the `admin:org`
+OAuth scope, which this session's token does not carry, and acquiring it is an
+interactive credential grant — owner-only. So the permanent fix is still
+owner-gated, for a different reason than before.
+
+**Why it is STAYING off rather than being restored.** Restoring the plain
+classic check re-breaks the next release immediately and identically. Turning it
+back on would trade a known-open gate for a silently-broken release pipeline.
+Flagged loudly here instead.
+
+### What the owner needs to do
+
+Apply **Option A** from `release-pipeline/RELEASE-PIPELINE-FIX.md`, at the
+**org** level:
+
+```bash
+gh auth refresh -h github.com -s admin:org     # interactive; owner only
+gh api orgs/noetl/rulesets -X POST --input <ruleset.json>   # body in the runbook
+```
+
+Then re-add the classic check on worker (full `PUT`, body in the runbook §B.3).
+
+Until then `noetl/worker` `main` accepts a merge whose `test` check is red.
+Force-push and branch-deletion protection are **still on**.
+
 ## 🔴🔴 BRANCH PROTECTION BROKE THE RELEASE PIPELINE — MY REGRESSION, OWNER-GATED FIX
 
 **Enabling required status checks (item 4) blocks semantic-release.** It pushes

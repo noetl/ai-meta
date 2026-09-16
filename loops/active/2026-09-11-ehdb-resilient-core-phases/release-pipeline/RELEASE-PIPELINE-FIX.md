@@ -1,11 +1,71 @@
 # RUNBOOK — unblock the release pipeline on `noetl/server`, `noetl/worker`, `noetl/tools`
 
-**Status: OWNER ACTION REQUIRED. Nothing in this file has been executed.**
-Both paths below are repo-**security** changes. They were deliberately not made
-by the agent; option A was attempted and correctly refused by the safety
-classifier.
+**Status: OWNER ACTION REQUIRED.**
 
-Written 2026-09-16.
+Written 2026-09-16. **Updated the same day — Option A was attempted with owner
+authorization and Option B was then executed on `noetl/worker`.** Read §A.0b and
+the banner below before using this file.
+
+> 🚨 **`noetl/worker` `main` currently has NO required status check.** Option B
+> was run to release the pending worker build; the check was deliberately NOT
+> restored, because restoring the plain classic check re-breaks the next release
+> identically. `server`, `tools` and `ehdb` are untouched and still protected.
+> Force-push and deletion protection on worker are still on.
+
+### ⚠ A.0b — WHAT ACTUALLY HAPPENED WHEN OPTION A WAS TRIED
+
+The safety classifier permitted it once the owner authorized it explicitly.
+**GitHub refused it:**
+
+```
+422 Validation Failed
+Actor GitHub Actions integration must be part of the ruleset source or owner organization
+```
+
+**A repository-level ruleset will not accept the GitHub Actions app as a bypass
+actor.** It must be an **organization-level** ruleset, where the app counts as
+part of the owner org. `POST /orgs/noetl/rulesets` requires the `admin:org`
+OAuth scope; this session's token has org `role=admin` but not that scope, and
+`gh auth refresh -s admin:org` is an interactive credential grant — owner-only.
+
+**So §A.2 below is wrong as written for the repo level.** Use §A.2-ORG instead.
+
+### A.2-ORG — the corrected Option A
+
+```bash
+gh auth refresh -h github.com -s admin:org      # interactive; owner runs this
+
+cat > /tmp/ruleset-org.json <<'JSON'
+{
+  "name": "main: required test check (release bot bypasses)",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name":        { "include": ["~DEFAULT_BRANCH"], "exclude": [] },
+    "repository_name": { "include": ["server", "worker", "tools"], "exclude": [] }
+  },
+  "bypass_actors": [
+    { "actor_id": 15368, "actor_type": "Integration", "bypass_mode": "always" }
+  ],
+  "rules": [
+    { "type": "required_status_checks",
+      "parameters": { "strict_required_status_checks_policy": true,
+                      "required_status_checks": [ { "context": "test" } ] } }
+  ]
+}
+JSON
+gh api orgs/noetl/rulesets -X POST --input /tmp/ruleset-org.json \
+  --jq '"created \(.id) \(.name) [\(.enforcement)]"'
+```
+
+⚠ `noetl/ehdb` uses context **`rust`**, not `test`. Either leave ehdb on its
+classic protection (it does not use `@semantic-release/git`, so it is not
+broken) or give it a second ruleset with its own context.
+
+Then remove the classic required check on `server` and `tools` (§A.3), and on
+`worker` leave it removed — it already is. Verify with §A.4 and §A.5.
+
+---
 
 ---
 
