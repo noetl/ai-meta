@@ -1,6 +1,7 @@
 # Externalised-result hydration — the fix, and what the four earlier attempts missed
 
-**Status:** fixes implemented, gated, proven in kind. noetl/server#437 + noetl/worker#320.
+**Status: SHIPPED AND VERIFIED IN PRODUCTION, 2026-09-16.** noetl/server#437 (v3.109.3) +
+noetl/worker#320 (v5.132.5) + noetl/travel#123 (hotel-cards v10). adiona/frontend#22 closed.
 **Supersedes** the fix sections of `HYDRATION-FIX.md`, `HYDRATION-STATE-OF-PLAY.md` and
 `HYDRATION-FINAL-LOCALIZATION.md` (their *forensics* still stand; their proposed fixes were
 one layer short — see §4).
@@ -202,3 +203,90 @@ stale events carrying `catalog_id=0` violated `event_catalog_id_fkey` and blocke
 insert queued behind them. Unblocked **additively** with one sentinel `noetl.catalog` row at
 `catalog_id=0` (path `_sentinel/unattributed-events`), marked safe to delete. Nothing was
 deleted. Remove it when kind no longer needs to drain that backlog.
+
+
+---
+
+# 10. Production rollout — 2026-09-16
+
+| | |
+|---|---|
+| `noetl/server` | **v3.109.3** `sha256:af84aa1d…` → `sts/noetl-server-rust-embedded`, 07:16Z |
+| `noetl/worker` | **v5.132.5** `sha256:14759cee…` → `deploy/noetl-worker-rust` + both system pools, 07:36Z |
+| `noetl/travel` | **hotel-cards v10** registered to the prod catalog |
+
+Rollback rows in `noetl/ops` `ci/manifests/noetl/ledger/` (noetl/ops#310) — the
+row above each is the target.
+
+**Order was measured, not assumed.** The kind matrix showed the worker fix alone
+leaves the read path returning 1 item, because the path that feeds a parent step
+is server-side. Server first, canary on the affected worker pool, then the
+system pools.
+
+## The proof, on the real stranded result
+
+```
+GET /api/result/resolve?ref=noetl://execution/358337687603650560/result/hotelbeds_dispatch/…
+  before:  HTTP 404 "result not found"    28 bytes   0.228 s
+  after:   HTTP 200                  214,811 bytes   1.42 s  (0.61 s warm)
+```
+
+Those bytes: **5 hotels, 509 images**, `status_code: 200`, `isError: false` —
+the search that had been sitting in GCS the whole time, and the same object the
+09-15 forensics measured at 214,805 bytes.
+
+## Live runs after rollout
+
+```
+hotels   3 cards   13 rooms   243 images   deref_error: null   no failed steps
+flights  50 offers  50/50 with airline logo, itineraries, baggage_options, conditions_options
+```
+
+## How much of the platform depended on the broken path
+
+```
+noetl_result_store_tier_fallback_total{outcome="served"} 45
+noetl_result_store_tier_fallback_total{outcome="miss"}    1
+```
+
+Forty-five result reads served by the fallback in the first hour — each a silent
+404 before today. **When that counter reaches zero, every producer is emitting
+`_uri` and the legacy mint can be retired.** That is the retirement signal.
+
+## 11. The bug underneath the bug
+
+With hydration working, `map_cards` crashed on the first real hotel:
+
+```
+TypeError: unsupported operand type(s) for -: 'str' and 'str'    (_price_bands)
+```
+
+HotelBeds returns money as strings. The adiona/frontend#22 rooms/bands code had
+**never once executed against live data** — `hotels` was always empty, so the
+`for hotel in hotels` body never ran. Fixed in noetl/travel#123, verified against
+the real payload in four shapes with the v9 code as a negative control.
+`rooms` 0 → 13, `images` 0 → 243.
+
+Worth keeping in view: **a bug that empties a collection hides every bug in the
+code that consumes it.** Two days of "hotels return nothing" concealed a crash
+that would have been obvious on the first working run. Expect more of these
+whenever a long-empty path starts carrying data again.
+
+## 12. Honest caveats
+
+* **3 hotels, not ~20.** `raw_total` = `hotels_total` = card count = 3. The
+  HotelBeds **test sandbox** returns a small fixed set (it answers a Barcelona
+  query with Monterey hotels). The `limit` → `max_hotels` threading works;
+  nothing downstream truncates. A larger number needs the production HotelBeds
+  environment, which is a credentials decision, not a code one.
+* **`resolve_canonical` is still Postgres-only** and therefore blind on a GCS
+  backend — the same limitation the legacy fallback just shed. Not widened here;
+  it deserves its own issue.
+* **`deploy/noetl-server-rust` is 0/0 and vestigial** but still carries
+  `NOETL_CATALOG_READ_SOURCE=verify`, while the workload actually serving has
+  `postgres`. Reading it gives a confidently wrong answer about prod. Delete or
+  annotate it.
+* **The kind event pipeline was stalled before this work**, unrelated: stale
+  events with `catalog_id=0` violating `event_catalog_id_fkey`. Unblocked
+  additively with one sentinel catalog row, marked safe to delete. Nothing was
+  deleted.
