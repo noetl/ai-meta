@@ -1,12 +1,74 @@
 # The event-log tier is `primary` on one zonal disk — options, and what each buys
 
-**Status: OWNER DECISION ARTIFACT. Nothing here has been executed. No prod
-change was made to produce it — every number is a read.**
+**Status: DECIDED 2026-09-16 — option A adopted as the recorded production
+stance; option D explicitly deferred. See §0. The body below is the analysis
+that decision rests on and is unchanged from when it was an open artifact; no
+prod change was made to produce it — every number is a read.**
 
 Prepared 2026-09-16. This is the **event-log half of the substrate question**
 that noetl/ai-meta#348 and the KV/object cutover proposal both defer to. It
 folds in noetl/ehdb#322 (bound the D1 window), because that issue is asking for
 a bound on a window whose shape this decision defines.
+
+---
+
+## 0. The decision (2026-09-16)
+
+**Adopted: A — accept and record.** The event-log tier stays `primary` on a
+single-zone disk. This is now the written production stance, not an open
+question: a zonal loss costs the tier and forces a rebuild, and **Postgres
+remains the authoritative business event log**, so the record itself survives
+that loss independently.
+
+What makes A a position rather than a shrug is that its load-bearing claim was
+measured, not assumed (§4.1), and the rebuild path it depends on is **built and
+deployed**, not hypothetical:
+
+* Postgres is authoritative on every business event-log read path — verified
+  live, and specifically searched for a #343-class "tier is the only copy"
+  finding. There is none.
+* The projection recovery ladder now has **Postgres as its final rung**
+  ([noetl/server#441](https://github.com/noetl/server/pull/441)), merged and
+  live in prod on `v3.112.3`. A tier that cannot answer no longer ends
+  recovery — the rebuild has its ingredients wired in, which is exactly the
+  gap §4.1 flagged as the caveat that made A weaker than it needed to be.
+* The serve gate stays armed: a tier-derived projection may not serve unless a
+  Postgres fold agrees with it, and #441's rung was deliberately kept **out of**
+  `events_for_recovery` so the comparator keeps comparing against Postgres
+  rather than against itself.
+
+So A is adopted **on the strength of the recovery rung**, and that pairing is
+the stance: *single-zone tier, Postgres-authoritative record, Postgres-backed
+rebuild.* Drop any one of the three and this decision should be revisited.
+
+**Deferred, explicitly: D — the durable segment stack with replicas.** D is the
+one option here that is **not cleanly reversible** (data written in the new
+format is unreadable by the old backend), it needs
+[noetl/ehdb#321](https://github.com/noetl/ehdb/issues/321)'s fencing spec first
+because replicas make election real, and it carries an on-disk migration. It is
+not rejected — the architecture documents point at it — but it is a **separate,
+dedicated owner decision** and is not implied by adopting A. Nothing in this run
+moves toward it.
+
+**B and C are untouched and remain available.** Both are cheap and reversible
+and either can be added on top of A later without revisiting it. B (snapshots)
+should not be taken until [noetl/ai-meta#262](https://github.com/noetl/ai-meta/issues/262)
+settles whether the tier reader tolerates a torn tail, or it buys an untested
+restore path. C (regional PD) needs a PVC migration and changes nothing about
+the single-writer model.
+
+**What adopting A changes operationally: nothing.** No storage class, no
+snapshot schedule, no backend flag. That is the point — the cost of A is that
+the exposure is now *written down and owned* instead of implicit.
+
+**Open questions this does NOT answer** (still owner-scoped): §4.2, what RPO is
+acceptable for the tier specifically; §4.3, whether a zonal outage is in scope
+for this deployment at all — four disks in `us-central1-f` suggests the current
+de-facto answer is no, and that may be deliberate.
+[noetl/ehdb#322](https://github.com/noetl/ehdb/issues/322) (bound the D1
+unreplicated window) stays open and is **answered by D, not by A** — under A
+that window is not bounded, it is total, and the honest recording of that is
+what A buys.
 
 ---
 
@@ -183,6 +245,11 @@ the one the architecture documents point toward. That tension is the decision.
    `us-central1-f` says the current answer is no, and that may be deliberate.
 
 ## 5. What I am not doing
+
+**Superseded in part by §0 — A is now chosen.** What remains true of this
+section: still not changing a storage class, still not adding a snapshot
+schedule, still not flipping a backend. Adopting A is a recording, not an
+action, and B, C and D all stay unexecuted.
 
 Not choosing. Not changing a storage class, not adding a snapshot schedule, not
 flipping a backend — the first two are cheap and reversible but they are still

@@ -205,16 +205,40 @@ Plan written, **nothing built**, held for owner review:
 
 ## Outstanding owner decisions (2026-09-16)
 
-1. `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` — merged OFF (worker#322). Measure with
-   `has_errored_step` FIRST, then canary.
-2. The four defect fixes above (#447 / #445 / #446 / #326).
+Owner said **"go with recommended"** on 2026-09-16; these are the resulting
+positions. Items marked ⏳ are still genuinely owner-scoped.
+
+1. `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` — **measured, then canaried.** Blast
+   radius **2/684 executions = 0.3%** (both `saqbit/playbooks/qaoa-maxcut`).
+   Flag now `true` on **`noetl-worker-rust` only**; the other two pools are
+   `<unset>`. ⏳ Fleet-wide flip is still an owner call.
+   ⚠ The flag is near-dormant in practice: playbooks work around step errors
+   with SQL gates, so the Err path is usually taken before the flag is read.
+   The first canary "failure" was a **false positive** — the flag-OFF control
+   failed identically.
+2. The four defect fixes (#447 / #445 / #446 / #326) — **all live in prod.**
+   server `v3.112.3`, pools + writer `v5.133.1`.
 3. **KV/object primary-serve cutover** — `kv-object-cutover/PROPOSAL.md`;
-   recommendation **do not flip**.
-4. **Substrate** — `substrate/EVENTLOG-DURABILITY.md`; only option D is
-   irreversible.
-5. **The `cmdbus-writer` pin** — now authorised to clear, but NOT yet done.
-6. **Branch protection** — all six Rust repos have PR CI; **none** has a
-   required check, so every green check is advisory.
+   recommendation **do not flip**, and it was **not flipped**. ⏳ Still open.
+4. **Substrate — DECIDED 2026-09-16: option A adopted, option D deferred.**
+   `substrate/EVENTLOG-DURABILITY.md` §0. Recorded stance is *single-zone tier,
+   Postgres-authoritative record, Postgres-backed rebuild* — A is defensible
+   **because** server#441's Postgres recovery rung is live; drop that rung and
+   revisit. **D is not cleanly reversible** (new on-disk format the old backend
+   cannot read) and needs ehdb#321 fencing first — ⏳ a separate, dedicated
+   owner decision, not implied by A. B (snapshots) and C (regional PD) stay
+   available and additive; B is blocked on ai-meta#262 (torn-tail tolerance).
+   Operationally A changes **nothing** — that is the point. ehdb#322's D1
+   window is answered by D, not A; under A it is not bounded, it is total.
+5. **The `cmdbus-writer` pin** — **cleared**, on an evidence-based GO analysis.
+   Writer now runs `v5.133.1`. Constraint recorded: **no pool ≤ v5.131.x.**
+6. **Branch protection** — **enabled** on the four repos that have CI:
+   server / worker / tools `required=[test]`, ehdb `required=[rust]`, all
+   `strict=true`, `enforce_admins=false` (emergency override kept, per owner).
+   ops and ai-meta are **deliberately unprotected**: neither has any CI
+   workflow, so a required check would make every PR permanently unmergeable.
+   Not a permissions problem — `admin=true` confirmed on all six.
+   ⏳ Follow-up: give ops/ai-meta CI first, then protect.
 
 ## Active Focus
 

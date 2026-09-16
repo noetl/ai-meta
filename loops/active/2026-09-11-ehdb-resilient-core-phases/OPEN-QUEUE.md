@@ -200,14 +200,20 @@ every downstream step*.
 | decision | artifact |
 | :-- | :-- |
 | the KV/object primary-serve cutover | `kv-object-cutover/PROPOSAL.md` — recommendation is **do not flip**; prerequisites now built, what remains is this decision, the writer pin, and noetl/ehdb#321 |
-| the event-log durability substrate | `substrate/EVENTLOG-DURABILITY.md` — four options costed with rollback stories; **only option D is not cleanly reversible**, and it is the one the architecture points toward |
+| ~~the event-log durability substrate~~ **DECIDED 2026-09-16** | `substrate/EVENTLOG-DURABILITY.md` §0 — **option A adopted** (accept and record), backed by server#441's live Postgres recovery rung; **option D explicitly deferred** as a separate owner call — it is the only option that is not cleanly reversible and it needs ehdb#321 fencing first. B/C remain available and additive. Nothing changed operationally. |
 | the `cmdbus-writer` pin | no artifact; needs the reason it was pinned |
 | flipping `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` | [noetl/worker#322](https://github.com/noetl/worker/pull/322) — code ready, default off; measure with `has_errored_step` first, then canary |
 
 ⚠ The two proposals are **the same question in different clothes**: the
 event-log tier is `primary` on a single-zone disk, and the kv/object shadow
-tiers now sit on that same substrate. Neither cutover question can be settled
-until the substrate one is.
+tiers now sit on that same substrate.
+
+**The substrate half is now answered (A), and it answers it by accepting the
+exposure rather than removing it.** So this does *not* unblock the KV/object
+cutover: A's safety net is that Postgres holds the authoritative business
+event log and can rebuild the tier. A primary-serve cutover is precisely the
+move that would make a tier the only copy on some path, which is the thing A
+relies on not being true. Recommendation stands: **do not flip.**
 
 ## Closed this session
 
