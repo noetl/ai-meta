@@ -1,5 +1,38 @@
 # Open work, and what each is waiting on
 
+## 🔴 PROD DEPLOY 2026-09-16 — attempted, rolled back, PAUSED
+
+**Prod is healthy on its pre-existing digests.** Server v3.110.0 was deployed at
+16:15Z and rolled back at 16:23Z: `server#443`'s `NULL::text AS content` against
+a non-Option row field returned **HTTP 500 on every `/api/catalog/list` call**.
+Restored to v3.109.5 and verified byte-for-byte (82,655,440 bytes, HTTP 200),
+`test/simple_loop` COMPLETED 8s, 0 ERROR lines.
+
+⚠ `server#442` WAS verified working in prod before the rollback — path-filtered
+`limit=5` returned **5 rows** where it had returned **1**. #441/#444 rode along
+without error. So three of the four are good; one broke.
+
+**Phase 1 is paused after the server step, deliberately.** Resuming needs
+[server#450](https://github.com/noetl/server/pull/450) merged + a new release.
+⚠⚠ **The writer pin has NOT been touched and there is no writer verdict.**
+
+### Before anyone moves the writer
+
+The writer (**v5.131.0**) is the tier-service **server**; the pools
+(**v5.132.5**) are its **clients** — the pools are already NEWER. The releases in
+between contain tier-service **frame-protocol** changes: #310 (split append/read
+timeout), #311 ("stop the tier service emitting frames its own client cannot
+read"), #313 (chunked batch append), #314 (direction-aware frame writer).
+
+⚠ Measured baseline to protect: the tier is **healthy today** despite that skew —
+0 frame/refusal lines on the writer in 30m, no client-side errors, appends
+flowing (batch 2725 / single 3793).
+
+⚠ Also note `deploy/noetl-server-rust` is at **0 replicas**; the live server is
+`sts/noetl-server-rust-embedded`, and BOTH services point at it.
+
+
+
 Updated 2026-09-16, after the merge round.
 
 ## ✅ Merged — thirteen PRs, all green on main
