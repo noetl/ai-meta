@@ -99,6 +99,42 @@ Runbooks: `ehdb.wiki/Runbook-Async-Event-Log-Mirror`,
   `NOETL_CATALOG_READ_SOURCE=verify` while the live one says `postgres` —
   diagnosing from it reproduces an already-fixed catalog split.
 
+## EHDB substrate — the thing to know before any tier work (2026-09-16)
+
+⚠ **The event-log tier is `primary` and RF=1.** Measured, not assumed:
+
+- `NOETL_EHDB_EVENTLOG_BACKEND` is **unset on every prod workload**, so
+  `EventLogStorageBackend::from_raw` fail-safes to `LocalReference`.
+- `worker/src/ehdb/tier_store.rs:207` `driver()` constructs a
+  `LocalReferenceEventLogDriver` **unconditionally** — the tier service has no
+  path to the durable segment stack at all.
+- `ehdb-reference`'s own doc on that backend: *"correct for `shadow`, **not
+  production-durable under `primary`**"*.
+- Shape today: one JSONL store per tier, on **one ReadWriteOnce PVC**, behind
+  **one** `cmdbus-writer` pod.
+
+⚠ **`ehdb_replica_domains_observed 0` is CORRECT, not a wiring bug.**
+`REPLICA_DOMAINS` is initialised only inside `build_durable_stack`, which is
+only called on the `DurableSegment` branch — which prod never takes. The Phase-3
+failure-domain guard is not dead; it guards a stack that is not deployed.
+**Do not force this metric off zero.** Doing so means either changing prod's
+event-log backend (a data-tier change behind the noetl/ehdb#321 gate) or calling
+the observation from the local-reference path, where replica domains are
+meaningless — a manufactured green light on a guard whose whole value is honesty.
+
+- **KV and object are not cutover candidates yet**: both answer **HTTP 501**
+  through the tier service (it serves eventlog only), and neither has a parity
+  comparator. Proposal + checklist:
+  `loops/active/2026-09-11-ehdb-resilient-core-phases/kv-object-cutover/PROPOSAL.md`.
+- ⚠ **`NOETL_RESULT_MINT_AUTHORITATIVE` is NOT a single flag.** Setting it arms
+  the result **materializer** (a tier writer) and the pod crashes on boot
+  without `NOETL_RESULT_MATERIALIZER_SOURCE`. The system pools carry five
+  companion vars. Attempted on `deploy/noetl-worker-rust` 2026-09-16 →
+  CrashLoopBackOff → rolled back, no outage (surge-free keeps one replica).
+  It is **retirement-only work, not urgent**: worker#320 already puts the
+  canonical `_uri` on every emitted result, so the tier fast path works on that
+  pool without the flag. noetl/ai-meta#347.
+
 ## Active Focus
 
 ### Cross-repo orchestration (durable)
