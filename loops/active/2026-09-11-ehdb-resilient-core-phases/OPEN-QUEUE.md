@@ -1,7 +1,7 @@
 # Open work, and what each is waiting on
 
-Updated 2026-09-16. Ten PRs/branches are open. **None has been self-merged and
-none is rolled to prod.** Seven are independently shippable; two are held on a
+Updated 2026-09-16. Eleven PRs/branches are open. **None has been self-merged and
+none is rolled to prod.** Eight are independently shippable; two are held on a
 decision that is not mine.
 
 ## Independently mergeable — nothing blocks review
@@ -15,6 +15,7 @@ decision that is not mine.
 | [noetl/worker#321](https://github.com/noetl/worker/pull/321) | each test thread gets its own metric and serve state (#299, #302) | **test-only**: both scopes are `#[cfg(test)]`, so no production path changes at all |
 | [noetl/ehdb#343](https://github.com/noetl/ehdb/pull/343) | the second-substrate choice, written up for the owner | docs only |
 | [noetl/server#443](https://github.com/noetl/server/pull/443) | `/api/catalog/list` stops shipping every body by default — 32 MB → 811 kB at the same 2539 rows (noetl/server#436) | server-only; no storage change, no config change |
+| [noetl/server#444](https://github.com/noetl/server/pull/444) | the embedded-shadow root actually fails closed when nothing is mounted (noetl/server#419) | server-only; verified it does NOT turn off the working prod shadow |
 
 
 All are kind-proven or workspace-green with two-sided negative controls. All are
@@ -82,7 +83,31 @@ false alarm, shipped), #284 (batch tier-append, already done — closed with the
 measurement), noetl/server#438 (resolve_canonical blind on GCS, shipped),
 adiona/frontend#22.
 
+## Closed with a measurement, no work needed
+
+**noetl/server#300 (PR-level test CI).** The premise no longer holds: `test.yml`
+runs `cargo test --all-targets --locked` on `pull_request` + push to `main`, and
+every Rust repo has it (server, worker, cli, tools, ehdb, gateway). The red test
+the issue cited as the cost is green on `main`.
+
+⚠ But the TITLE's claim still stands, and it is an **owner action**: `main` is
+**unprotected** in server, worker and ehdb (`404 Branch not protected`), so there
+are no required status checks. A red suite is visible and does not block. That
+needs branch protection / a ruleset, which changes merge policy for every
+contributor — surfaced, not done. Worth noting while 8 open PRs' green checks are
+advisory only.
+
 ## Measurement notes worth keeping
+
+**noetl/server#419 — the live risk was already gone.** The issue reports prod
+mounting no `/data`; it now mounts a 10Gi PVC, provisioned the day after filing.
+So the fix closes a latent trap, not an incident: any deploy without that PVC
+silently resumes writing to ephemeral storage. Scale from the mounted root —
+357 MB in 7 days (~51 MB/day) against a 1Gi ephemeral limit is ~3 weeks to
+eviction. ⚠ Verified the new guard does **not** turn off the working prod
+shadow, on both the steady-state and fresh-pod paths.
+
+
 
 **noetl/server#436 — the stated fix would not have fixed it.** The issue asked
 for `limit`/`offset` with a default page and a hard cap, plus
