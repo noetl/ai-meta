@@ -72,6 +72,20 @@ deliberately rather than inherited.
 
 ## 4. Ordered prerequisites for a KV/object flip
 
+> **Amended 2026-09-16 after building step 1 and finding it unbuildable.**
+> A step 0 was missing, and it invalidates the premise of the two steps after
+> it. See noetl/ai-meta#348.
+
+0. **A durable store for the kv/object shadow tiers.** Today they write to
+   `/tmp/ehdb` — the container's writable layer, with **no volumeMount** — so
+   the shadow data is destroyed on every pod roll. Measured across three pods:
+   each store was created within ~3 minutes of its own pod's start, and a pod
+   rolled at 08:49 had no store at all. `object_ops_total{mirror} 34` reads like
+   a tier accumulating evidence; it is a count since this pod started, against a
+   store that will not outlive it.
+   **A shadow tier exists to accumulate the evidence that justifies a cutover,
+   and this one cannot accumulate anything across a restart.**
+
 1. **A tier-service read path for kv/object.** Today they answer 501. A tier
    that cannot be read through the serving surface cannot serve. This is the
    `StoreTier` variant + store file work `tier_store.rs` names.
@@ -85,8 +99,22 @@ deliberately rather than inherited.
    tier onto the same single-copy store multiplies the exposure of a gap that is
    already there for the event log.
 
-Prerequisites 1 and 2 are **additive and reversible** — real forward progress
+Prerequisites 0, 1 and 2 are **additive and reversible** — real forward progress
 toward the cutover with no irreversible step. 3 is a document. 4 is owner-only.
+
+⚠ **0 blocks 1 and 2, not merely precedes them.** A read path over an ephemeral
+store advertises a surface that answers empty in a way indistinguishable from a
+misconfigured writer — the exact shape `store_tier.rs` refuses (*"a tier gains a
+variant in the same change set that gives it a store"*). And a comparator over
+it would report `missing_event` after every roll until the shadow caught up,
+which is noetl/ai-meta#346's lesson repeated on a new tier.
+
+⚠ **The cheap-looking fix is worse than the problem.** Pointing
+`NOETL_EHDB_LOCAL_REFERENCE_LOG` at a mounted volume does not work for the user
+pool: it runs 2+ replicas with no shared volume, so each would accumulate a
+*different* partial shadow — durable-looking and unmergeable. The store belongs
+behind the tier service on the writer's PVC, like the event log and the catalog
+log.
 
 ## 5. Rollback analysis — and why "reversible" is the wrong word
 
@@ -134,9 +162,16 @@ the flag followed.** That is the shape to repeat.
 
 ## 7. What I would do next instead
 
-Prerequisite 1, then 2 — the tier read path and the comparator. Both additive,
-both reversible, both prerequisites the cutover cannot skip, and the second one
-is the instrument that would make the flip decision evidence-based rather than a
-judgement call.
+**Prerequisite 0**, then 1, then 2 — a durable store for the kv/object shadow
+tiers behind the tier service, then the read path, then the comparator. All
+three additive, all three reversible, none of them the irreversible flip.
 
-That is forward progress toward the cutover without taking the irreversible step.
+The ordering is not a preference. 1 and 2 were attempted first and are not
+buildable on an ephemeral store; that attempt is what found §4.0.
+
+⚠ **Read the two "not ready" findings together.** §3 says the event-log tier is
+`primary` on a single-copy store. §4.0 says the kv and object shadow tiers are
+on ephemeral storage. Both are the same question wearing different clothes:
+**the EHDB tiers' durability substrate has not been decided**, and each tier has
+inherited a different provisional answer. The cutover question cannot be
+answered per-tier until that one is.
