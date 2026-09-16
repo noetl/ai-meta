@@ -22,11 +22,22 @@ been compacted into `memory/compactions/` and archived under
 Added ahead of the older snapshot below, which is dated **2026-06-09** and does
 not describe any of this. Where the two disagree, this section is current.
 
-- **Versions:** server **v3.83.1**, user-pool worker **v5.120.0**,
-  `cmdbus-writer` **v5.119.1** (held back deliberately — durable log + the
-  Option 1 runtime cache), system pools **v5.118.2**.
-- **Tiers:** eventlog **`primary` and serving**, projection / kv / object
-  `shadow`. ⚠ `NOETL_EHDB_VECTOR` is **not set at all**.
+- **Versions (measured 2026-09-16):** server **v3.109.4**, all three worker
+  pools **v5.132.5**. The 2026-08-20 numbers below this line are superseded.
+- **Tiers:** eventlog **`primary`**; kv / object `shadow`.
+  ⚠ `NOETL_EHDB_VECTOR` is **not set at all**.
+- ⚠ **Projection is TWO dials, and reading one gives the wrong answer.** The
+  worker-side `NOETL_EHDB_PROJECTION=shadow` is not the serve path. The serve
+  path is the server's `NOETL_EHDB_PROJECTION_READ_SOURCE=wal` +
+  `PROJECTION_SERVE_ON_BEHIND=true`, and it is **LIVE** — D3 measured
+  `served_tier` 19,823 / 19,847 = **99.88%** over a 22 h soak, with
+  `projection_refold_total{digest_mismatch}` **0** over 19,818 refolds.
+  Serving began when noetl/server#431 fixed the #335 double-apply, *before* the
+  flag was armed; the flag was never the blocker.
+- ⚠ **Counters reset with the pod.** On a freshly rolled server, refold and
+  projection-read counters read 0 because the refold path is not driven by
+  execution traffic (13 fresh executions produced 1 refold). A zero there is a
+  fresh window, not a regression.
 - **Async mirror LIVE:** `NOETL_EHDB_EVENTLOG_MIRROR_ASYNC=true` with
   `NOETL_EHDB_CROSSSTORE_PARITY_LAG_TOLERANCE_SECS=30`. Rollback is one flag —
   **set both or neither**; async on with the window at 0 makes the comparator
@@ -34,8 +45,14 @@ not describe any of this. Where the two disagree, this section is current.
 - **Measured:** `emit_mirror` 78.6 ms → **0.1 ms/call**; median warm Muno turn
   **16.9 s → 13.0 s**, ~89 s → ~13 s across the arc. Parity `match` 268 /
   `divergent` 0, conservation exact, `queue_full_inline` 0.
-- ⚠ **Option 2's batch flag is still OFF on prod** (`..._tier_append_records_total{path="batch"} 0`
-  on both replicas) — landed and now measurable, but inert. noetl/ai-meta#284.
+- ✅ **Option 2's batch flag is ON and carrying traffic** — corrected
+  2026-09-16, the "still OFF" note above was stale. Measured on
+  `deploy/noetl-worker-system-pool`:
+  `tier_append_records_total{path="batch"} 325 / {path="single"} 138`.
+  ⚠ `deploy/noetl-worker-rust` reads **0 on BOTH paths** — that pool performs no
+  tier appends at all, so arming `NOETL_EHDB_TIER_APPEND_BATCH` there is a
+  no-op, not a remaining action. noetl/ai-meta#284 should be closed against the
+  system pool rather than chased onto the user pool.
 - ⚠ **Alerting works and delivery is PROVEN** — 14 alert policies, 0 without a
   channel, verified by a real received email. The old "zero alerting on prod"
   note was **stale for two weeks** and was acted on before being checked; prod
@@ -47,6 +64,40 @@ not describe any of this. Where the two disagree, this section is current.
 
 Runbooks: `ehdb.wiki/Runbook-Async-Event-Log-Mirror`,
 `ops/runbooks/noetl-ehdb-mirror-async.md`.
+
+## Result tier + parity (2026-09-16)
+
+- **noetl/ai-meta#343 SHIPPED** — externalised results were stranded by a
+  per-pool `NOETL_RESULT_MINT_AUTHORITATIVE` split: one worker pool minted
+  legacy refs while the server had stopped writing the rows that resolve them.
+  Fixed in server **v3.109.3** (tier fallback in `ResultStoreService::resolve`,
+  covering all six read sites) + worker **v5.132.5** (producer emits the
+  canonical `_uri` unconditionally) + `hotel-cards` **v10**.
+  `noetl_result_store_tier_fallback_total{served}` read **45** in the first
+  hour — each one a silent 404 before. **That counter reaching zero is the
+  gate to retire the legacy mint** (noetl/ai-meta#347).
+- **noetl/ai-meta#346 RESOLVED — the comparator was wrong, not the tier.** The
+  cross-store oracle called a *late mirror arrival* an `order` divergence and
+  fired on 36.9% of executions with equal counts and 174/174 events matched.
+  The mirror is async behind a retrying drain and every tier reader sorts by
+  `event_id` first, so arrival order is not a property this design offers.
+  Server **v3.109.4** counts it as `arrival_reordered` instead of asserting it.
+  ⚠ Its `order` CONTROL had been planting the benign case, which is how the
+  check passed a ten-class battery while false-alarming on a third of prod.
+- ⚠ **The tier query param is `execution`, not `execution_id`.**
+  `/api/ehdb/tiers/eventlog?execution_id=…` silently falls through to a global
+  scan and answers about the wrong thing. This cost a measurement today.
+- ⚠ **`/api/ehdb/executions/{id}/events` reads `FROM noetl.event`** — Postgres,
+  not the tier, despite the `ehdb` prefix. Do not use it to characterise tier
+  contents; use `/api/ehdb/tiers/eventlog?execution=…`.
+- ⚠ **Prod's object tier is GCS**, kind's is Postgres. Any tier read written as
+  SQL against `noetl.object_store` passes in kind and is **blind on prod**.
+  Bit twice: caught pre-merge in #437, fixed for `resolve_canonical` in
+  noetl/server#438.
+- ⚠ **`deploy/noetl-server-rust` is 0/0 and vestigial.** Prod serves from
+  `sts/noetl-server-rust-embedded`. The dead deploy still says
+  `NOETL_CATALOG_READ_SOURCE=verify` while the live one says `postgres` —
+  diagnosing from it reproduces an already-fixed catalog split.
 
 ## Active Focus
 
