@@ -1,6 +1,6 @@
 # Open work, and what each is waiting on
 
-Updated 2026-09-16. Eight PRs/branches are open. **None has been self-merged and
+Updated 2026-09-16. Nine PRs/branches are open. **None has been self-merged and
 none is rolled to prod.** Six are independently shippable; two are held on a
 decision that is not mine.
 
@@ -14,6 +14,7 @@ decision that is not mine.
 | [noetl/ehdb#359](https://github.com/noetl/ehdb/pull/359) | the Arc forwarding impl dropped `failure_domain`, and nothing called the guard | library-only; restores an already-specified behaviour |
 | [noetl/worker#321](https://github.com/noetl/worker/pull/321) | each test thread gets its own metric and serve state (#299, #302) | **test-only**: both scopes are `#[cfg(test)]`, so no production path changes at all |
 | [noetl/ehdb#343](https://github.com/noetl/ehdb/pull/343) | the second-substrate choice, written up for the owner | docs only |
+
 
 All are kind-proven or workspace-green with two-sided negative controls. All are
 additive and reversible. They are waiting on review, not on a decision.
@@ -40,6 +41,25 @@ silently, but nothing accumulates).
 The code is done and kind-proven; only the deployment is blocked. The documented
 rollout sequence is in `kv-object-cutover/PROPOSAL.md` §8.
 
+## Ready to merge, but the FLIP is an owner decision
+
+| PR | what | what merging does | what flipping does |
+| :-- | :-- | :-- | :-- |
+| [noetl/worker#322](https://github.com/noetl/worker/pull/322) | a tool's error status emits `command.failed`, so a failed step stops the DAG (noetl/server#434) | **nothing** — byte-identical with `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` unset | fails runs that have been silently completing with a failed step |
+
+⚠ The flip does not introduce failures, it **surfaces existing ones**, in a
+volume nobody currently knows — the defect is precisely that those runs report
+success. `has_errored_step` (noetl/ai-meta#251) can count them from the existing
+event log **before** anything changes, which is the measurement to take first,
+then canary one pool. Rollback is one env var; nothing is written differently.
+
+Same shape as `NOETL_EXECUTION_STATUS_FROM_STEPS`, and for the same stated
+reason — a semantics change must be a deliberate flip, not a deploy side effect.
+⚠ But that flag is **not a substitute** for this one: it changes what the read
+boundary REPORTS, while downstream scheduling keys on the event TYPE. With it on
+and this off, a run reports FAILED *and still executes every downstream step* on
+a guard that already failed. Reporting FAILED while still running is not a gate.
+
 ## Owner decisions, with the artifacts prepared
 
 | decision | artifact |
@@ -47,6 +67,7 @@ rollout sequence is in `kv-object-cutover/PROPOSAL.md` §8.
 | the KV/object primary-serve cutover | `kv-object-cutover/PROPOSAL.md` — recommendation is **do not flip**; prerequisites now built, what remains is this decision, the writer pin, and noetl/ehdb#321 |
 | the event-log durability substrate | `substrate/EVENTLOG-DURABILITY.md` — four options costed with rollback stories; **only option D is not cleanly reversible**, and it is the one the architecture points toward |
 | the `cmdbus-writer` pin | no artifact; needs the reason it was pinned |
+| flipping `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` | [noetl/worker#322](https://github.com/noetl/worker/pull/322) — code ready, default off; measure with `has_errored_step` first, then canary |
 
 ⚠ The two proposals are **the same question in different clothes**: the
 event-log tier is `primary` on a single-zone disk, and the kv/object shadow
