@@ -1,12 +1,46 @@
 # Current Memory
 
-> ## ▶ START HERE — session handoff, 2026-08-29
+> ## ▶ START HERE — state as of 2026-09-16T16:45Z
 >
-> **[`docs/handoff/HANDOFF-2026-08-29.md`](../docs/handoff/HANDOFF-2026-08-29.md)**
-> is the current state snapshot: prod recovered (#311 pgbouncer fixed durably via
-> Secret Manager CSI), the catalog programme (steps 1–3 + backfill, PRs
-> `noetl/worker#289` + `noetl/server#371` open and inert), open decisions, and the
-> traps that will bite. Read it before touching prod or the catalog work.
+> **Prod is HEALTHY and running its pre-existing digests. A deploy was attempted
+> today, broke one endpoint, and was rolled back within ~6 minutes.**
+>
+> | workload | running | note |
+> | :-- | :-- | :-- |
+> | `sts/noetl-server-rust-embedded` | **v3.109.5** | the live server; BOTH services point here |
+> | `deploy/noetl-server-rust` | — | **0 replicas**, not serving |
+> | worker pools (3) | **v5.132.5** | |
+> | `sts/noetl-cmdbus-writer` | **v5.131.0** | ⚠ still PINNED; not moved |
+>
+> ### 🔴 The incident to know about before deploying anything
+>
+> `server#443` (catalog/list slimming) selects `NULL::text AS content` while
+> `CatalogEntry.content` was `String`. sqlx refuses that row **only against a
+> real database**, so it passed unit tests AND a throwaway-Postgres proof that
+> ran raw SQL — and returned **HTTP 500 on every `/api/catalog/list` call** in
+> prod. Rolled back v3.110.0 → v3.109.5; verified restored byte-for-byte.
+> Fix staged as **server#450** (adds a no-DB guard pairing every
+> `NULL::<ty> AS <col>` with an Option field). **v3.110.0 is marked DO NOT DEPLOY
+> in the ledger.**
+>
+> ⚠ Lesson, because this struct's own comments already record the same drift
+> twice (`version: i16` after an `i32` decode failure): *a test that renders SQL
+> is not a test that decodes it.*
+>
+> ### Where the deploy stands
+>
+> Phase 1 is **PAUSED after step 2**, deliberately. #442 was verified working in
+> prod before the rollback; #441/#444 rode along without error. Nothing after the
+> server step was started — **the writer pin has NOT been touched and there is no
+> writer verdict yet.** Resuming needs server#450 merged + a new release.
+>
+> ⚠ Before moving the writer, read `OPEN-QUEUE.md`: the writer (v5.131.0) is the
+> tier-service SERVER and the pools (v5.132.5) are its CLIENTS, and the releases
+> in between contain tier-service **frame-protocol** changes (#310/#311/#313/#314
+> — "stop the tier service emitting frames its own client cannot read"). The tier
+> is healthy today despite that skew; that is the baseline to protect.
+>
+> Superseded: `docs/handoff/HANDOFF-2026-08-29.md` (kept for history).
 >
 > Pointer lives here because `CLAUDE.md` step 4 makes a fresh session read
 > `memory/current.md` — a handoff nothing loads is a document, not a handoff.
@@ -134,6 +168,53 @@ meaningless — a manufactured green light on a guard whose whole value is hones
   It is **retirement-only work, not urgent**: worker#320 already puts the
   canonical `_uri` on every emitted result, so the tier fast path works on that
   pool without the flag. noetl/ai-meta#347.
+
+## Diagnosed defects + fix status (2026-09-16)
+
+Four defects found by reproducing `noetl/worker#316`, plus two found while
+deploying. **None of the four is fixed** — each needs a decision that is the
+owner's, and each carries a costed proposal on its issue.
+
+| issue | what | status |
+| :-- | :-- | :-- |
+| ⭐ [server#447](https://github.com/noetl/server/issues/447) | `orchestrate_in_flight` has ONE clear path (on apply), no timeout — any unapplied drive strands the execution **forever** | **the mechanism behind the #316 hang**; visibility shipped as server#448 (merged), the FIX is an owner call |
+| [server#445](https://github.com/noetl/server/issues/445) | a step consuming a large upstream field silently gets `{"_len": N}`; the server renders templates against the SUMMARISED context before the worker can hydrate | precondition **live in prod**; unfixed |
+| [server#446](https://github.com/noetl/server/issues/446) | the credential scrub replaces ANY 40+ char alphanumeric/base64 string with `[REDACTED]` — sha256 digests, base64 blobs — in the **data** path | precondition **live in prod**; ⚠ narrowing it is **security-adjacent** |
+| [worker#326](https://github.com/noetl/worker/issues/326) | tier-service silently loses events over the 1 MiB frame cap while logging `served_primary` | trigger not prod-reachable; unfixed |
+| [server#449](https://github.com/noetl/server/issues/449) | `catalog/list`'s `resource_type` filter is **case-sensitive** — prod holds both `Playbook` (875) and `playbook` (510) | ⚠ the GUI asks for `"Playbook"`, so its picker is missing **every `muno/` playbook** TODAY |
+| [server#450](https://github.com/noetl/server/pull/450) | the NULL-content decode fix for the incident above | **PR open**, blocks resuming the server deploy |
+
+⚠ #316 itself is NOT closed. A wedge reproduced, but under
+`NOETL_PERMANENT_LOG_LEAN=false` which prod does not run, and the reported
+executions show `inspect` *claimed then silent* whereas mine was *never issued*.
+Either two surfaces, or the claimed-then-silent case has a further cause.
+
+## server#203 — CQRS phase 2b (2026-09-16)
+
+Plan written, **nothing built**, held for owner review:
+`loops/active/2026-09-11-ehdb-resilient-core-phases/203-cqrs-phase-2b/PLAN.md`.
+
+* **2b-1 is already DONE** — endpoint, `NOETL_PROJECTOR_OWNS_SNAPSHOT` gate
+  (default false), and the orchestrator wiring all exist.
+* **2b-2 is not**, and its spec is stale in two ways: its sibling
+  (`system/event_materializer`) is described as a "playbook" but shipped as a
+  **worker background loop**, and ⚠⚠ **the `noetl_events` JetStream stream does
+  not exist** — only `NOETL_COMMANDS` does, and the materializer runs
+  `SOURCE=ehdb`. A projector written literally to spec would subscribe to
+  nothing and silently process zero events.
+
+## Outstanding owner decisions (2026-09-16)
+
+1. `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` — merged OFF (worker#322). Measure with
+   `has_errored_step` FIRST, then canary.
+2. The four defect fixes above (#447 / #445 / #446 / #326).
+3. **KV/object primary-serve cutover** — `kv-object-cutover/PROPOSAL.md`;
+   recommendation **do not flip**.
+4. **Substrate** — `substrate/EVENTLOG-DURABILITY.md`; only option D is
+   irreversible.
+5. **The `cmdbus-writer` pin** — now authorised to clear, but NOT yet done.
+6. **Branch protection** — all six Rust repos have PR CI; **none** has a
+   required check, so every green check is advisory.
 
 ## Active Focus
 
