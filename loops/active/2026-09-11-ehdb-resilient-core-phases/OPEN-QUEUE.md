@@ -1,5 +1,41 @@
 # Open work, and what each is waiting on
 
+## 🔓 THE WRITER PIN IS CLEARED (2026-09-16T17:3xZ)
+
+`sts/noetl-cmdbus-writer` moved **v5.131.0 → v5.133.0** and is **healthy**.
+
+**GO basis** (read from the code, not inferred): `PROTOCOL_VERSION` is **1** in
+v5.131.0, v5.132.5 and v5.133.0; `MAX_FRAME_BYTES` (requests) is **1 MiB**
+throughout; the only change is `MAX_REPLY_BYTES` (16 MiB), which **every client
+from v5.132.1 onward already reads at**. The move therefore *removes* the old
+asymmetry — before it, an OLD service was talking to NEW clients and worked only
+because the clients were more permissive.
+
+**Verified after the move:** `state_equivalence_mismatch_total`=0,
+`parity_mismatch`=0, `primary_divergence`=0 (eventlog + projection), `rejected`=0,
+`unavailable`=0, `served_primary`=223; writer 0 refusals / 0 ERROR / 0 restarts;
+mirror `dropped`=0 `degraded`=0 (599→750); `test/simple_loop` 8s,
+`muno/playbooks/hotel-cards` 24s, `muno/playbooks/flights-details` 32s — all
+COMPLETED.
+
+⚠⚠ **CONSTRAINT this introduces:** do **NOT** roll any worker pool back to
+≤ v5.131.x while the writer runs ≥ v5.132.0. That client reads replies at 1 MiB
+while the newer service may emit up to 16 MiB. v5.132.1 and later are safe, and
+the ledger's recorded rollback target (v5.132.1) satisfies this.
+
+## 🔴 tools#99 + tools#100 CANNOT be deployed — dependency pin
+
+Both are merged and released in **noetl-tools v4.0.1**, but the worker pins
+`noetl-tools = "~3.26.3"` and `Cargo.lock` holds **3.26.3**. Neither fix reaches
+production. Lifting it is a **3.x → 4.x major bump** (v4.0.0 carries
+`feat/330-non-exhaustive`), and the pin's own comment says it must move together
+with `noetl-executor`:
+
+> Lift this only together with `noetl-executor` … the two move as a pair.
+
+That is engineering work with breaking-change risk, **not** a deploy step.
+Surfaced rather than forced.
+
 ## 🔴 PROD DEPLOY 2026-09-16 — attempted, rolled back, PAUSED
 
 **Prod is healthy on its pre-existing digests.** Server v3.110.0 was deployed at
