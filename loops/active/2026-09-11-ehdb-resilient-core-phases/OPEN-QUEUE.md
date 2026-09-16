@@ -149,7 +149,39 @@ needs branch protection / a ruleset, which changes merge policy for every
 contributor — surfaced, not done. Worth noting while 8 open PRs' green checks are
 advisory only.
 
-## 🔴 The worker#316 chase — three defects filed, one verdict
+## 🔴 Diagnosed, proposal-staged, OWNER DECISION — four new issues
+
+None fixed, deliberately: each changes execution semantics or a security control.
+Every one carries a costed proposal on the issue.
+
+| issue | status | why it waits on the owner |
+| :-- | :-- | :-- |
+| ⭐ [server#447](https://github.com/noetl/server/issues/447) — leaked `orchestrate_in_flight` | **the mechanism behind the noetl/worker#316 hang** | relaxing the guard trades a silent permanent hang for possible duplicate work — which failure the system should prefer is a product call |
+| [server#445](https://github.com/noetl/server/issues/445) — large field → `{"_len": N}` stub | precondition **live in prod** | all three fixes change execution semantics for every playbook over the 100 KB budget |
+| [server#446](https://github.com/noetl/server/issues/446) — scrub eats sha256/base64 | precondition **live in prod** | ⚠ narrowing it **loosens a security control**: a 40-char unprefixed key currently caught would pass |
+| [worker#326](https://github.com/noetl/worker/issues/326) — >1 MiB tier loss | trigger not prod-reachable | changes what the tier does with data it currently drops — a durability decision |
+
+### ⭐ #447 is the one to fix regardless of anything else
+
+`orchestrate_in_flight` has **one clear path** (on apply, `events.rs:3980`), **no
+timeout and no expiry**. ⚠⚠ **The leak is CONFIG-INDEPENDENT.** My trigger used
+`NOETL_PERMANENT_LOG_LEAN=false` — which prod does not run — but the trigger is
+incidental: *any* unapplied drive strands the execution permanently. A worker
+dying mid-drive, a dropped notification, a pool with no healthy consumer. None
+of those are exotic, and each yields an execution that sits forever with a clean
+event log and no error.
+
+It also fits #316's reported 2+-replica correlation (more consumers, more ways to
+lose a drive) and explains why pinning one replica made it disappear — without
+shm being involved at all.
+
+⭐ Already measurable with existing metrics:
+`orchestrate_drive_total{dispatched} − {applied}` is the leaked-guard count
+(observed **10 vs 4**); a climbing `skipped_in_flight` against a flat `applied`
+is the signature. Nothing alerts on it. **Option 3 on the issue — surfacing that
+count — is additive, safe, and shippable without the semantics decision.**
+
+## 🔴 The worker#316 chase — how they were found
 
 **Verdict: a wedge IS reproducible.** My first "not reproducible" result was
 under-powered — #445 handed the consuming step a `{"_len": N}` stub, so the
