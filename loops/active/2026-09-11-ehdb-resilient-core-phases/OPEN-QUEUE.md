@@ -97,7 +97,49 @@ needs branch protection / a ruleset, which changes merge policy for every
 contributor — surfaced, not done. Worth noting while 8 open PRs' green checks are
 advisory only.
 
+## ⚠ My own miss, worth keeping
+
+**I pushed noetl/ehdb#360 red and reported it green.** I ran the suite and both
+negative controls locally, but never `cargo fmt --check` or `cargo clippy`.
+ehdb's CI gates both (`clippy --workspace --all-targets -- -D warnings`), so the
+PR sat red on gates unrelated to the change's correctness while I described it
+as "workspace-green".
+
+Swept every open branch afterwards: two server branches also added fmt dirt in
+my own files (#443, #444 — now fixed); the worker branches were clean. ⚠ Note
+`server` and `worker` run `cargo fmt` **non-gating**, because `main` itself is
+already fmt-dirty in `orchestrate-core/` — so a green check there does NOT mean
+formatted.
+
+**Also: a pre-existing CI flake, not mine.** `ehdb-feed`'s
+`append_to_subscriber_latency_and_parity` asserts an absolute wall-clock
+`p99 < 50_000 us`. It failed CI at 90121 us, passed on `main` AND on the branch
+locally with identical runtime (20.49s vs 20.47s), and passed on re-run. Its own
+comment says the bound is "generous so a loaded CI runner doesn't flake" — it is
+not. Same class as noetl/worker#299: a test whose verdict depends on the machine.
+
 ## Measurement notes worth keeping
+
+**noetl/worker#316 — the stated mechanism is impossible.** The issue attributes
+an indefinite consumer wedge to blocking on a cross-pod shared-memory attach.
+The worker has **no shm read path at all**: its only arrow-cache call is one
+`put_arrow_ipc`. The cache is write-only — staged by the producer, read by
+nobody — so a consumer cannot block attaching to it. The wedge is real; the
+framing has been sending the investigation the wrong way.
+
+Ruled out with evidence: control-plane HTTP (30s timeout, preserved across
+`with_server_url`), `emit_event_with_retry` (bounded, logs each attempt),
+`plugin.rs` (WASM only), and a stdin/stdout pipe deadlock (**probed directly and
+disproven** at 16 KB / 100 KB / 1.6 MB).
+
+Found instead: `noetl/tools` `python.rs:702-706` waits on
+`child.wait_with_output()` with **no bound** when a step configures no timeout,
+so any child hang wedges the command forever, silently — matching the symptom
+profile. ⚠ It does **not** explain the cross-pod correlation, and I am not
+presenting it as the root cause. Settling that needs the 3-replica kind repro
+with the wedged pod's stack sampled, not more code reading.
+
+
 
 **noetl/server#419 — the live risk was already gone.** The issue reports prod
 mounting no `/data`; it now mounts a 10Gi PVC, provisioned the day after filing.
