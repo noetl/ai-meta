@@ -37,6 +37,7 @@ owner-timed rollout. #443 in particular is a **wire change**: anything reading
 | [tools#99](https://github.com/noetl/tools/pull/99) | policy rules can see a transport failure — completes noetl/server#434's third symptom |
 | [worker#324](https://github.com/noetl/worker/pull/324) | the three HTTP clients with **no timeout** are bounded (materializer ×2, plugin) |
 | [tools#100](https://github.com/noetl/tools/pull/100) | a poll wait long enough for real Pub/Sub, and a clamp that stops truncating silently (noetl/tools#57) |
+| [worker#325](https://github.com/noetl/worker/pull/325) | test-only: pin the reference shapes observed in kind |
 
 ⚠ The care in #99 is the preservation half, not the fix: converting the `Err`
 into a result would have moved every postgres failure from `command.failed` to
@@ -142,6 +143,32 @@ are no required status checks. A red suite is visible and does not block. That
 needs branch protection / a ruleset, which changes merge policy for every
 contributor — surfaced, not done. Worth noting while 8 open PRs' green checks are
 advisory only.
+
+## 🔴 noetl/server#445 — found by the #316 reproduction, and worse than #316
+
+A step whose `input:` binds a LARGE field of an upstream result silently receives
+the summary stub `{"_len": N}` instead of the payload. Step `success`, execution
+`COMPLETED`, data wrong. **25/25 reproductions**, on a local `fix348` image AND a
+fresh build of current `main`, **both same-pod and cross-pod**.
+
+⚠ A small scalar from the SAME object resolves correctly (`{{ fetch.data.n }}` →
+1500000) while the payload it describes is a stub. So a step can look like it is
+reading real data.
+
+**Root cause:** the server renders the consuming step's templates against the
+*summarised* context, baking the stub into `tool_config.args` before the worker's
+reference-resolution pass runs. `input_binding.rs:21` states the design: "the
+server still renders the tool against the full context server-side". The worker's
+resolution is architecturally too late — instrumentation confirms it finds the
+candidate, decides to resolve, and succeeds, against args already frozen.
+
+⚠⚠ Not fixed deliberately. All three plausible fixes change execution semantics
+for every playbook that crosses the 100 KB budget — an owner decision, not mine.
+
+**noetl/worker#316 itself did NOT reproduce**: 25 executions, 17 genuinely
+cross-pod, zero wedges, on two images. The stated shm mechanism remains
+impossible (no read path). The search is now bounded to the unbounded
+`child.wait_with_output()` in `tools` `python.rs:702`.
 
 ## ⚠ Two more of my own mistakes, both the same shape
 
