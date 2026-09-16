@@ -1,5 +1,50 @@
 # Open work, and what each is waiting on
 
+## ✅ LIVE IN PROD (2026-09-16, end of run)
+
+| workload | version | carries |
+| :-- | :-- | :-- |
+| `sts/noetl-server-rust-embedded` | **v3.112.2** | #441 #442 #443 #444 #448 #450 **#451 readiness gate** #447 #445 |
+| worker pools ×3 | **v5.133.0** | #321 #322(off) #324 #325 **#323 durable shadow** |
+| `sts/noetl-cmdbus-writer` | **v5.133.0** | 🔓 **pin cleared** |
+
+All pods **0 restarts**, readiness gate passing, executions at baseline, 0 errors.
+
+## 🟡 MERGED, image still building — not yet deployed
+
+* **noetl/server#446** (scrub stops eating sha256/base64) — merged, awaiting AR
+* **noetl/worker#326** (oversize refusal terminal + loud) — merged, awaiting AR
+
+⚠ `publish-ar` was the slow stage on every release today — which is exactly what
+noetl/worker#222 is about.
+
+## 🔵 STAGED, not merged
+
+* [worker#328](https://github.com/noetl/worker/pull/328) — **DRAFT**, server#203
+  phase 2b-2 scaffolding. ⚠⚠ The drain is **not implemented and fails loud**
+  rather than running as a no-op; needs the owner's redelivery-policy answer.
+
+## ⚠ Honest verification gaps
+
+1. **#447's expiry never observed firing in prod** — healthy prod has zero stale
+   guards, and inducing a wedge there would be reckless. Evidence is the kind
+   reproduction + tests.
+2. **#445 verified for non-regression only** — reproducing it needs a >100KB
+   step→step consume; the probe playbooks are not in prod's catalog and
+   registering test playbooks there is a data change not worth making casually.
+3. **#348's kv half unexercised** — `object.jsonl` proven durable across a pod
+   roll; **no KV traffic** created `kv.jsonl`.
+4. **The readiness gate's decode-catch is not end-to-end proven** — its *halt*
+   mechanism is (demonstrated twice), but reproducing a #443-style decode failure
+   needs an image with both the probe and the bug, and that bug no longer
+   compiles.
+5. **tools#99/#100 undeployable** — worker pins `noetl-tools ~3.26.3`; fixes are
+   in v4.0.1.
+6. **noetl/server#434 is NOT fixed for users** — symptoms 1+2 behind
+   `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` (off), symptom 3 behind the pin above.
+
+
+
 ## 🔓 THE WRITER PIN IS CLEARED (2026-09-16T17:3xZ)
 
 `sts/noetl-cmdbus-writer` moved **v5.131.0 → v5.133.0** and is **healthy**.
