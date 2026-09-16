@@ -232,6 +232,17 @@ off (`feat/203-projector-loop`, worker#329's sibling). Key decisions:
 * **A distinct consumer group from the materializer's**, enforced at config
   time: sharing one splits the feed, so each consumer sees ~half the events and
   neither errors.
+* ✅ **KIND-PROVEN end to end** (worker#328 comment). Flag OFF: 0 projector log
+  lines, all counters 0, materializer still logging (the control). Flag ON:
+  drains, advances, acks — server `noetl_projection_advanced_total` and worker
+  `projector_advanced_total` moved **+4 each, identical absolute values**, so
+  causation not correlation. The live endpoint returns **200 with an empty
+  `advanced[]` and a populated `failed[]`** for a bogus id — the premise holds.
+  A second projector in its own group against an always-fails stub: `advanced=0
+  acked=0 held=26`, events visibly redelivering, while the healthy projector on
+  the same feed ran `advanced=15 acked=45 held=0`. A broken consumer stalls only
+  itself. ⚠ NOT proven live: the **mixed batch** (some acked, some held in ONE
+  batch) — unit-proven with controls only.
 * ⚠⚠ **The module was spawned by nobody.** `worker.rs` started the materializer
   and three siblings and never mentioned the projector, so flipping the flag
   would have started nothing — the same silent no-op the scaffolding refused to
@@ -286,6 +297,19 @@ positions. Items marked ⏳ are still genuinely owner-scoped.
    workflow, so a required check would make every PR permanently unmergeable.
    Not a permissions problem — `admin=true` confirmed on all six.
    ⏳ Follow-up: give ops/ai-meta CI first, then protect.
+   🔴🔴 **AND IT BROKE THE RELEASE PIPELINE.** semantic-release pushes
+   `chore(release): version X [skip ci]` straight to `main`; a required check
+   rejects that push (GH006), and `[skip ci]` means the check never runs on
+   that commit, so it is "expected" forever. **server, worker and tools all use
+   `@semantic-release/git`** — all three blocked. server/tools only look fine
+   because their commits that day were `ci:` and produced no release. cli is
+   unaffected only because cli was never one of the six protected repos.
+   Blocking now: worker#329 merged + green but unreleasable, so tools#99/#100
+   and server#434 symptom 3 do not reach users. Fix is owner-gated: a ruleset
+   with a bypass actor for the GitHub Actions app (attempted, **denied by the
+   safety classifier** as a repo-security change), or drop the required check.
+   ⚠ Before touching branch protection on any repo here, check whether its
+   release flow pushes to the protected branch.
 
 ## Active Focus
 
