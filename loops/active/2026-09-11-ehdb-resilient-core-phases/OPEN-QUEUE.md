@@ -119,6 +119,28 @@ symptom 3 still do not reach users.
 ⚠ Failure was atomic — no partial tag, no GitHub release, no AR image. Latest
 everywhere is still v5.133.1, which is what prod runs.
 
+### 📋 RUNBOOK: `release-pipeline/RELEASE-PIPELINE-FIX.md`
+
+Copy-pasteable, per repo, both paths, with verification steps and rollback:
+`loops/active/2026-09-11-ehdb-resilient-core-phases/release-pipeline/RELEASE-PIPELINE-FIX.md`
+
+* **Option A (recommended)** — ruleset with a bypass actor for the GitHub
+  Actions app (id 15368), then remove the classic required check. ⚠ The subtlety
+  the runbook leads with: **classic protection and rulesets are evaluated
+  together and the most restrictive wins**, so a ruleset bypass does NOT
+  override a classic rule — the classic check must come off or nothing changes.
+  Includes a verification that humans are still gated (`mergeStateStatus` must
+  read `BLOCKED` while `test` is pending).
+* **Option B (prepared, NOT executed)** — remove the check, cut the pending
+  worker release, re-add the check **before** deploying, then canary + verify
+  tools#99 / tools#100 / server#434 symptom 3 actually reach users. Marked
+  throughout as leaving a 15–40 minute ungated window and reversing an endorsed
+  decision.
+
+⚠ Correctness detail the runbook pins down: re-adding a removed status check is
+**not** `PATCH .../required_status_checks` (that 404s once it is gone) — it is a
+full `PUT` of the branch-protection object, and the exact body is given.
+
 **Both fixes are owner-gated and I did not force either:**
 
 1. **Forward (recommended):** replace classic protection with a **ruleset**
