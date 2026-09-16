@@ -4,16 +4,13 @@
 
 | workload | version | carries |
 | :-- | :-- | :-- |
-| `sts/noetl-server-rust-embedded` | **v3.112.2** | #441 #442 #443 #444 #448 #450 **#451 readiness gate** #447 #445 |
-| worker pools ×3 | **v5.133.0** | #321 #322(off) #324 #325 **#323 durable shadow** |
-| `sts/noetl-cmdbus-writer` | **v5.133.0** | 🔓 **pin cleared** |
+| `sts/noetl-server-rust-embedded` | **v3.112.3** | #441 #442 #443 #444 #448 #450 **#451 readiness gate** #447 #445 **#446** |
+| worker pools ×3 | **v5.133.1** | #321 #322(off) #324 #325 **#323 durable shadow** **#326** |
+| `sts/noetl-cmdbus-writer` | **v5.133.1** | 🔓 **pin cleared** |
+
+**PHASE 2 IS COMPLETE — all five diagnosed defects are fixed and deployed.**
 
 All pods **0 restarts**, readiness gate passing, executions at baseline, 0 errors.
-
-## 🟡 MERGED, image still building — not yet deployed
-
-* **noetl/server#446** (scrub stops eating sha256/base64) — merged, awaiting AR
-* **noetl/worker#326** (oversize refusal terminal + loud) — merged, awaiting AR
 
 ⚠ `publish-ar` was the slow stage on every release today — which is exactly what
 noetl/worker#222 is about.
