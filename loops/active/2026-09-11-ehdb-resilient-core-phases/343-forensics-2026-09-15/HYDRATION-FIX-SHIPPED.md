@@ -113,6 +113,58 @@ the consuming step with **zero locator keys leaked** — the inline path is unto
 the server ships first. It is safe against unpatched workers: it only adds a fallback on a
 path that currently answers 404.
 
+## 5b. The mistake that nearly shipped: the tier is GCS on prod, Postgres in kind
+
+The first two commits of FIX 3 read the tier with **SQL against
+`noetl.object_store`**. That would have found **nothing on production**.
+
+```
+NOETL_OBJECT_STORE_BACKEND=gcs
+NOETL_OBJECT_STORE_GCS_BUCKET=shastaratech-noetl-prod-results
+noetl_object_store_ops_total{backend="gcs",op="put"} 606
+noetl_object_store_ops_total{backend="gcs",op="get"} 142
+```
+
+kind runs the Postgres backend. So a fix that "passed in kind" would have been
+deployed to prod and changed nothing — **the fourth iteration of the same
+failure this whole issue is about: validated one layer short of the real one.**
+
+It was caught by asking one question that had not been asked: *where do the
+bytes actually live in production?* The answer was two `kubectl`/`gcloud`
+commands away and should have been step one.
+
+Resolution now goes through `ObjectBackend::list` + `get`, which serves both
+backends. That needs the §7 key **prefix** rather than a suffix match, so the
+placement is derived — env/region/cell and shard space from `NOETL_RESULT_CELL*`,
+the shard as `shard_key(tenant, project, execution_id) % shard_count` (which does
+**not** depend on step/frame/row/attempt — that is what makes a step-level prefix
+possible at all), and the date from the execution-id snowflake rather than the
+wall clock.
+
+A wrong derivation would make the fallback silently never fire — indistinguishable
+from the bug — so it is pinned against **nine real object keys**, five read out of
+the production GCS bucket and four from kind:
+
+```
+prod eid=358337687603650560 hotelbeds_dispatch shard=s0004 date=2026-09-15  OK
+prod eid=358387240549752832 hotelbeds_dispatch shard=s0004 date=2026-09-15  OK
+prod eid=351442299651104768 firestore_dispatch shard=s0004 date=2026-08-27  OK
+prod eid=358157628485935104 duffel_dispatch    shard=s0007 date=2026-09-15  OK
+prod eid=351442533462581248 firestore_dispatch shard=s0007 date=2026-08-27  OK
+kind eid=358488951972958208 emit               shard=s0184 date=2026-09-16  OK
+kind eid=358494482770956288 emit               shard=s0066 date=2026-09-16  OK
+kind eid=358494179833155584 fetch              shard=s0207 date=2026-09-16  OK
+kind eid=358494181552820224 emit               shard=s0090 date=2026-09-16  OK
+```
+
+Re-verified in kind afterwards: the derived prefix matches the live object
+exactly, so the prefix walk — not the Postgres suffix fallback — is the serving
+path. Verdict HYDRATED: 20 items, 10 rooms, 8 images, 0 bare refs.
+
+**Known limitation, not widened here:** the pre-existing `resolve_canonical`
+path has the same Postgres-only assumption and is therefore also blind on a GCS
+backend. Worth its own issue.
+
 ## 6. Gates (all verified red without the fix)
 
 * `noetl/worker` `parent_consuming_an_externalised_child_receives_the_hydrated_payload` —
