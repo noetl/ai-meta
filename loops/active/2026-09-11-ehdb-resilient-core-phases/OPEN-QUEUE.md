@@ -1,7 +1,7 @@
 # Open work, and what each is waiting on
 
-Updated 2026-09-16. Nine PRs/branches are open. **None has been self-merged and
-none is rolled to prod.** Six are independently shippable; two are held on a
+Updated 2026-09-16. Ten PRs/branches are open. **None has been self-merged and
+none is rolled to prod.** Seven are independently shippable; two are held on a
 decision that is not mine.
 
 ## Independently mergeable — nothing blocks review
@@ -14,6 +14,7 @@ decision that is not mine.
 | [noetl/ehdb#359](https://github.com/noetl/ehdb/pull/359) | the Arc forwarding impl dropped `failure_domain`, and nothing called the guard | library-only; restores an already-specified behaviour |
 | [noetl/worker#321](https://github.com/noetl/worker/pull/321) | each test thread gets its own metric and serve state (#299, #302) | **test-only**: both scopes are `#[cfg(test)]`, so no production path changes at all |
 | [noetl/ehdb#343](https://github.com/noetl/ehdb/pull/343) | the second-substrate choice, written up for the owner | docs only |
+| [noetl/server#443](https://github.com/noetl/server/pull/443) | `/api/catalog/list` stops shipping every body by default — 32 MB → 811 kB at the same 2539 rows (noetl/server#436) | server-only; no storage change, no config change |
 
 
 All are kind-proven or workspace-green with two-sided negative controls. All are
@@ -82,6 +83,22 @@ measurement), noetl/server#438 (resolve_canonical blind on GCS, shipped),
 adiona/frontend#22.
 
 ## Measurement notes worth keeping
+
+**noetl/server#436 — the stated fix would not have fixed it.** The issue asked
+for `limit`/`offset` with a default page and a hard cap, plus
+`include_content`. Measuring first showed rows are not the problem: `content` is
+55.9% of the response and `layout` a further **41.5%**, against **1.2%** for the
+identity fields callers list by. So `include_content` alone leaves 41.5%
+behind, and a row cap bounds nothing — the largest single prod entry is 509 KB,
+so a 100-row page can still exceed 50 MB. A bounded DEFAULT would additionally
+have truncated the GUI's playbook picker, which lists the whole catalog. What
+shipped drops 97.4% of the bytes and **zero** records.
+
+⚠ Also: the issue's 77.2 MB (1369 entries, 2026-09-13) no longer reproduces —
+today it is 32.9 MB at 2539 entries. The count nearly doubled while the average
+entry shrank. Same defect, different number.
+
+
 
 **noetl/worker#299/#302 — the run count that proved nothing.** The metric-state
 flake reproduces about **once in 25 full-suite runs at 32 test threads**. That is
