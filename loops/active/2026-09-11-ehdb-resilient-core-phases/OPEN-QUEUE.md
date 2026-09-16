@@ -43,6 +43,7 @@ owner-timed rollout. #443 in particular is a **wire change**: anything reading
 | PR | what |
 | :-- | :-- |
 | [worker#325](https://github.com/noetl/worker/pull/325) | test-only: pin the reference shapes observed in kind |
+| [server#448](https://github.com/noetl/server/pull/448) | ⭐ surface leaked orchestrate in-flight guards — makes noetl/server#447's silent wedge visible and alertable; **observation only, no semantics change** |
 
 ⚠ The care in #99 is the preservation half, not the fix: converting the `Err`
 into a result would have moved every postgres failure from `command.failed` to
@@ -178,8 +179,11 @@ shm being involved at all.
 ⭐ Already measurable with existing metrics:
 `orchestrate_drive_total{dispatched} − {applied}` is the leaked-guard count
 (observed **10 vs 4**); a climbing `skipped_in_flight` against a flat `applied`
-is the signature. Nothing alerts on it. **Option 3 on the issue — surfacing that
-count — is additive, safe, and shippable without the semantics decision.**
+is the signature. Nothing alerts on it. **Option 3 — surfacing it — is BUILT and staged as
+[server#448](https://github.com/noetl/server/pull/448)** (CI green, not merged).
+Kind-proven against a real leak: `stale` flips 0→1 at the threshold and
+`oldest_seconds` grows without bound while `held` stays 1. ⚠ The FIX still needs
+your decision; the PR only makes the leak visible.
 
 ## 🔴 The worker#316 chase — how they were found
 
