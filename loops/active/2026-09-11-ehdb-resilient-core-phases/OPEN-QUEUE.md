@@ -23,7 +23,7 @@ COMPLETED.
 while the newer service may emit up to 16 MiB. v5.132.1 and later are safe, and
 the ledger's recorded rollback target (v5.132.1) satisfies this.
 
-## 🔴 tools#99 + tools#100 CANNOT be deployed — dependency pin
+## 🔴 tools#99 + tools#100 — MERGED BUT UNDEPLOYABLE (owner-scoped follow-up)
 
 Both are merged and released in **noetl-tools v4.0.1**, but the worker pins
 `noetl-tools = "~3.26.3"` and `Cargo.lock` holds **3.26.3**. Neither fix reaches
@@ -33,8 +33,14 @@ with `noetl-executor`:
 
 > Lift this only together with `noetl-executor` … the two move as a pair.
 
-That is engineering work with breaking-change risk, **not** a deploy step.
-Surfaced rather than forced.
+**Status: merged but undeployable, pending a coordinated `noetl-tools` 4.x +
+`noetl-executor` bump — owner-scoped follow-up.** Not attempted here: it is
+engineering work with breaking-change risk, not a deploy step.
+
+⚠ Consequence to be explicit about: noetl/server#434 is **not actually fixed in
+production**. Its symptom 3 (`do: retry` inert) is fixed in code and cannot
+reach prod until this bump lands; symptom 1 remains behind the
+`NOETL_EXECUTION_FAIL_ON_STEP_ERROR` flag. The issue should stay open.
 
 ## 🔴 PROD DEPLOY 2026-09-16 — attempted, rolled back, PAUSED
 
