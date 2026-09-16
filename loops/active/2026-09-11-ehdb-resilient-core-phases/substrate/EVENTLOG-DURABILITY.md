@@ -162,6 +162,21 @@ the one the architecture documents point toward. That tension is the decision.
    the substrate does not mean accepting that a zonal loss destroys the
    projection — it means accepting a rebuild step that already has its
    ingredients.
+
+   ✅ **And that wiring step is now built and kind-proven** —
+   [noetl/server#441](https://github.com/noetl/server/pull/441), open for review.
+   The recovery ladder gains Postgres as its final rung, so a tier that cannot
+   answer no longer ends recovery. RED→GREEN on one execution:
+   `wal_present false → true`, `wal_verdict stored_behind_spine → match`, with
+   `recovery_fold{source="postgres",outcome="folded"}` appearing only on the new
+   build. The comparator was verified unchanged **at runtime**, not merely by a
+   source guard: `refold_endpoint` still reports `spine_refused` on the same
+   execution rather than quietly succeeding via Postgres.
+
+   ⚠ The rung is deliberately NOT in `events_for_recovery`, which the comparator
+   folds — putting it there would let a tier missing events fold correctly from
+   Postgres, agree with the stored record, and disappear from the one comparator
+   that exists to find it. Server-only; independent of the writer pin.
 2. **What RPO is acceptable for the tier specifically**, given the business
    record is in Postgres?
 3. **Is a zonal outage in scope at all** for this deployment? Four disks in
