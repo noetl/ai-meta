@@ -92,6 +92,61 @@ variant elsewhere breaks a resolve the same way, still on the release commit.
 deploys. Symptom 3 unblocks with it; symptom 1 remains behind
 `NOETL_EXECUTION_FAIL_ON_STEP_ERROR`.
 
+## ✅ v6.0.0 DEPLOYED — tools#99 / server#434 symptom 3 VERIFIED LIVE (2026-09-16)
+
+`noetl-tools 4.0.1` + `noetl-executor 0.10.0` are in production.
+`sha256:8c0d56ac…` on `deploy/noetl-worker-rust`, both system pools and
+`sts/noetl-cmdbus-writer`. Canary first (a real `qaoa-maxcut` run COMPLETED),
+then the rest one at a time. 6/6 pods, 0 restarts. Rollback target recorded:
+`v5.133.1 sha256:8109155b…`.
+
+### ⚠⚠ The verification nearly went out WRONG — read this before trusting the probe
+
+`saqbit/probe/retry` reports **FAILED on v6.0.0, exactly as it did on
+v5.133.1**. Taken at face value that reads as "the fix did not land", and the
+standing instruction was to roll back on precisely that signal.
+
+**It landed.** The worker log:
+
+```
+noetl_tools::tools::task_sequence: task_sequence: retry exhausted
+    task=fail_first attempts=3
+```
+
+`ControlAction::Retry` is only selected once a rule MATCHES, which requires the
+sub-task's Rust `Err` to have become a `ToolResult` the rule loop can see — the
+whole of tools#99. Pre-4.x the dispatch was `.await?` **before** that loop, and
+`postgres` fails *only* via `Err`, so that line was unreachable for this probe.
+Zero retries before, three after. **That is the flip.**
+
+⚠ The string `retry exhausted` exists in 3.26.3 too, so the log line alone is
+not proof — the proof is the pre-4.x `.await?` making the arm unreachable.
+Checked rather than assumed.
+
+### Why the probe still says FAILED — its criterion is wrong, not the fix
+
+`do: retry` re-runs the failing **sub-task** (`fail_first`), not the whole step.
+The probe's recovery depends on its sibling `bump` incrementing the counter
+between attempts, but `bump` is a different sub-task and is never re-run. So
+`n` stays 1 and `1 / (n - 1)` divides by zero on all three attempts.
+
+The probe's stated criterion — *"retry WORKS: COMPLETED, counter reaches 2"* —
+assumed retry re-runs the STEP. It does not. **The probe needs rewriting so the
+retried sub-task can succeed on its own**; until then it cannot demonstrate the
+fix it was written for, and `saqbit/playbooks/qaoa-maxcut`'s comment calling
+`do: retry` inert is now stale.
+
+⚠ Honest limit: what is verified is that **the rule fires and retries happen**.
+An end-to-end *recovery* — a retry that succeeds and completes the run — is
+**not** demonstrated in prod, because no existing playbook is shaped to show it.
+
+### tools#100 — deployed, NOT live-verified, and deliberately not faked
+
+Zero Pub/Sub topics or subscriptions exist in the project, and **zero of 224**
+catalog playbooks reference pubsub. No production user is on that code path, so
+there is no live reproduction to run — and the same fact means its 1s → 5s
+default change carries no prod risk. Unit-verified upstream only.
+
 ## 🚨🚨 `noetl/worker` MAIN HAS NO REQUIRED STATUS CHECK RIGHT NOW (2026-09-16)
 
 **State: `required_status_checks` REMOVED from `noetl/worker` `main`. Deliberate.
