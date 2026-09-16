@@ -35,6 +35,7 @@ owner-timed rollout. #443 in particular is a **wire change**: anything reading
 | PR | what |
 | :-- | :-- |
 | [tools#99](https://github.com/noetl/tools/pull/99) | policy rules can see a transport failure — completes noetl/server#434's third symptom |
+| [worker#324](https://github.com/noetl/worker/pull/324) | the three HTTP clients with **no timeout** are bounded (materializer ×2, plugin) |
 
 ⚠ The care in #99 is the preservation half, not the fix: converting the `Err`
 into a result would have moved every postgres failure from `command.failed` to
@@ -116,6 +117,18 @@ are no required status checks. A red suite is visible and does not block. That
 needs branch protection / a ruleset, which changes merge policy for every
 contributor — surfaced, not done. Worth noting while 8 open PRs' green checks are
 advisory only.
+
+## ⚠ A negative control that lied
+
+While building worker#324's guard, my first RED control **passed** — and the
+guard was not at fault. `sed '0,/re/'` is a **GNU extension that BSD sed silently
+ignores**, so the planted defect never landed and I was testing unmodified
+source. Re-planted in Python with an asserted match count, the guard fails at
+`materializer.rs:252` naming the exact line.
+
+⚠⚠ The failure mode is the dangerous one: a negative control that *cannot* fail
+looks identical to a passing test. Every plant on this machine should assert that
+the substitution actually happened — `sed -i ''` on macOS is not GNU sed.
 
 ## ⚠ My own miss, worth keeping
 
