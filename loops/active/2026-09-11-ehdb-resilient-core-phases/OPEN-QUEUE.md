@@ -1,18 +1,26 @@
 # Open work, and what each is waiting on
 
-Updated 2026-09-16. Four branches are open. **None has been self-merged and none
-is rolled to prod.** Two are independently shippable; two are held on a decision
-that is not mine.
+Updated 2026-09-16. Eight PRs/branches are open. **None has been self-merged and
+none is rolled to prod.** Six are independently shippable; two are held on a
+decision that is not mine.
 
 ## Independently mergeable — nothing blocks review
 
 | PR | what | why it is independent |
 | :-- | :-- | :-- |
 | [noetl/server#441](https://github.com/noetl/server/pull/441) | Postgres as the recovery ladder's final rung — a tier that cannot answer no longer ends recovery | server-only; no tier storage format, no worker change, no config change |
+| [noetl/server#442](https://github.com/noetl/server/pull/442) | the execution path filter is applied before the candidate window, not after — it was returning false empties | server-only; one query shape, no storage or config change |
 | [noetl/ehdb#360](https://github.com/noetl/ehdb/pull/360) | a truncated TAIL record is skipped and counted; anything else still fails the open | library-only; changes a read posture, adds no dependency, no deployment coupling |
+| [noetl/ehdb#359](https://github.com/noetl/ehdb/pull/359) | the Arc forwarding impl dropped `failure_domain`, and nothing called the guard | library-only; restores an already-specified behaviour |
+| [noetl/worker#321](https://github.com/noetl/worker/pull/321) | each test thread gets its own metric and serve state (#299, #302) | **test-only**: both scopes are `#[cfg(test)]`, so no production path changes at all |
+| [noetl/ehdb#343](https://github.com/noetl/ehdb/pull/343) | the second-substrate choice, written up for the owner | docs only |
 
-Both are kind-proven or workspace-green with two-sided negative controls. Both
-are additive and reversible. They are waiting on review, not on a decision.
+All are kind-proven or workspace-green with two-sided negative controls. All are
+additive and reversible. They are waiting on review, not on a decision.
+
+⚠ [noetl/worker#222](https://github.com/noetl/worker/pull/222) is also open but
+is **not** mine to merge on evidence: it stops `publish-ar` reddening every
+release, and that is only correct while noetl/worker#211 stays undecided.
 
 ## Held on the `cmdbus-writer` pin decision
 
@@ -51,3 +59,29 @@ noetl/ai-meta#343 (hydration, shipped + verified in prod), #346 (parity
 false alarm, shipped), #284 (batch tier-append, already done — closed with the
 measurement), noetl/server#438 (resolve_canonical blind on GCS, shipped),
 adiona/frontend#22.
+
+## Measurement notes worth keeping
+
+**noetl/worker#299/#302 — the run count that proved nothing.** The metric-state
+flake reproduces about **once in 25 full-suite runs at 32 test threads**. That is
+too rare for a run-count comparison to distinguish a fix from luck, and it did
+not: a 40-run fixed-vs-broken comparison came back **0 failures on BOTH sides**.
+Both fixes in #321 are therefore proven against their mechanism — an explicit
+sibling thread, deterministic RED 5/5 and 3/3 — not against a green streak.
+
+Two corrections from that item, recorded because the wrong version was the
+intuitive one:
+
+1. #299 looked **already fixed** at the default thread count (6/6, then 8/8
+   clean). It was not; the suite still flaked at 32 threads, through *other*
+   tests. The first read was under-powered.
+2. A guard banning exact-value metric assertions outright was **measured wrong**
+   and discarded: a planted `assert_eq!(series_value(&text, health), Some(1))`
+   passed 8/8, because that series is written by exactly one test. What is
+   enforced instead is the one load-bearing assumption — every `#[tokio::test]`
+   under `src/ehdb/` stays on a current-thread runtime.
+
+A **third** process-wide race was found while measuring the first and is fixed in
+the same PR: `projection::LAST_SERVE_STATE` had no guard at all, and at 32
+threads `the_flip_is_never_silent_in_either_direction` read `"not_primary"` where
+it had just written `"served_primary"`.
