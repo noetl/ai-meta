@@ -1,66 +1,60 @@
 # Open work, and what each is waiting on
 
-Updated 2026-09-16. Eleven PRs/branches are open. **None has been self-merged and
-none is rolled to prod.** Eight are independently shippable; two are held on a
-decision that is not mine.
+Updated 2026-09-16, after the merge round.
 
-## Independently mergeable — nothing blocks review
+## ✅ Merged this round — ten PRs, all green on main
 
-| PR | what | why it is independent |
+| PR | what | prod impact of the MERGE |
 | :-- | :-- | :-- |
-| [noetl/server#441](https://github.com/noetl/server/pull/441) | Postgres as the recovery ladder's final rung — a tier that cannot answer no longer ends recovery | server-only; no tier storage format, no worker change, no config change |
-| [noetl/server#442](https://github.com/noetl/server/pull/442) | the execution path filter is applied before the candidate window, not after — it was returning false empties | server-only; one query shape, no storage or config change |
-| [noetl/ehdb#360](https://github.com/noetl/ehdb/pull/360) | a truncated TAIL record is skipped and counted; anything else still fails the open | library-only; changes a read posture, adds no dependency, no deployment coupling |
-| [noetl/ehdb#359](https://github.com/noetl/ehdb/pull/359) | the Arc forwarding impl dropped `failure_domain`, and nothing called the guard | library-only; restores an already-specified behaviour |
-| [noetl/worker#321](https://github.com/noetl/worker/pull/321) | each test thread gets its own metric and serve state (#299, #302) | **test-only**: both scopes are `#[cfg(test)]`, so no production path changes at all |
-| [noetl/ehdb#343](https://github.com/noetl/ehdb/pull/343) | the second-substrate choice, written up for the owner | docs only |
-| [noetl/server#443](https://github.com/noetl/server/pull/443) | `/api/catalog/list` stops shipping every body by default — 32 MB → 811 kB at the same 2539 rows (noetl/server#436) | server-only; no storage change, no config change |
-| [noetl/server#444](https://github.com/noetl/server/pull/444) | the embedded-shadow root actually fails closed when nothing is mounted (noetl/server#419) | server-only; verified it does NOT turn off the working prod shadow |
+| [worker#321](https://github.com/noetl/worker/pull/321) | per-test metric + serve state (#299/#302) | none — `#[cfg(test)]` only |
+| [worker#322](https://github.com/noetl/worker/pull/322) | a tool's error status stops the DAG | **none — gate default OFF** |
+| [server#441](https://github.com/noetl/server/pull/441) | Postgres as the recovery ladder's final rung | behaviour change ⚠ not rolled |
+| [server#442](https://github.com/noetl/server/pull/442) | path filter before the candidate window | behaviour change ⚠ not rolled |
+| [server#443](https://github.com/noetl/server/pull/443) | catalog/list bodies off by default | **wire change** ⚠ not rolled |
+| [server#444](https://github.com/noetl/server/pull/444) | embedded root fails closed | none — guard only |
+| [ehdb#359](https://github.com/noetl/ehdb/pull/359) | Arc impl dropped `failure_domain` | library only |
+| [ehdb#360](https://github.com/noetl/ehdb/pull/360) | torn tail skipped, anything else still fails | library only |
+| [ehdb#343](https://github.com/noetl/ehdb/pull/343) | second-substrate write-up | docs |
+| [ops#310](https://github.com/noetl/ops/pull/310) | digest ledger seeded with the rollback targets | none — nothing applies `ledger/` |
 
+`main` after the merges: **worker** 19 binaries ok / 0 clippy errors; **server**
+14 ok / 0 clippy errors; **ehdb** 80 ok / fmt clean / clippy clean.
 
-All are kind-proven or workspace-green with two-sided negative controls. All are
-additive and reversible. They are waiting on review, not on a decision.
+⚠ **Merged is not deployed, and nothing was.** semantic-release cut versions and
+the release workflows built images to Artifact Registry. No workflow in any repo
+contains a deploy step. Verified against prod directly: every running pod's image
+digest is **byte-identical** to the pre-merge baseline, with 0 restarts and pod
+ages of 30h / 4h18m. Prod stays on its current digests until an explicit rollout.
 
-⚠ [noetl/worker#222](https://github.com/noetl/worker/pull/222) is also open but
-is **not** mine to merge on evidence: it stops `publish-ar` reddening every
-release, and that is only correct while noetl/worker#211 stays undecided.
+⚠ The three behaviour-changing ones (#441, #442, #443) still want a canary and an
+owner-timed rollout. #443 in particular is a **wire change**: anything reading
+`content`/`layout` from `/api/catalog/list` now gets `null`.
 
-## Held on the `cmdbus-writer` pin decision
+## Ready for review, but DEPLOY-GATED on the writer pin
 
-| branch | what |
-| :-- | :-- |
-| `noetl/worker` `feat/348-durable-kv-object-shadow-store` | kv/object shadow tiers get a durable store on the writer's PVC + the tier-service read path |
-| `noetl/server` `feat/348-kv-object-parity-comparator` | the per-tier parity comparator + its gated endpoint |
+| PR | what | why it must not merge yet |
+| :-- | :-- | :-- |
+| [worker#323](https://github.com/noetl/worker/pull/323) | the durable kv/object shadow store + the live mirrors routed to it | on a `cmdbus-writer` that predates it, **every shadow append is refused** (`append_failed`, not lost — but nothing accumulates). Merging would put an un-deployable-without-the-writer change into a release someone might roll by accident rather than choose. |
 
-**Why held:** the prod rollout requires moving `sts/noetl-cmdbus-writer`, which
-runs a deliberately different digest from the worker pools
-(`sha256:c13b2957…` vs v5.132.5 `sha256:14759cee…`). `memory/current.md` records
-it as held back on purpose and the reason is not written down anywhere I could
-find. **Rollout order is load-bearing** — on a writer that predates the change
-every shadow append is refused (correctly labelled `append_failed`, not lost
-silently, but nothing accumulates).
-
-The code is done and kind-proven; only the deployment is blocked. The documented
-rollout sequence is in `kv-object-cutover/PROPOSAL.md` §8.
+⚠ **Queue correction.** This file previously listed *two* held #348 branches. Only
+one is outstanding. The server-side kv/object parity comparator and the ehdb
+`event_id` pin bump are **already on main** and inert there — the comparator's
+endpoint is gated. Rebased onto current main: 19 binaries ok, 0 clippy errors.
 
 ## Ready to merge, but the FLIP is an owner decision
 
-| PR | what | what merging does | what flipping does |
-| :-- | :-- | :-- | :-- |
-| [noetl/worker#322](https://github.com/noetl/worker/pull/322) | a tool's error status emits `command.failed`, so a failed step stops the DAG (noetl/server#434) | **nothing** — byte-identical with `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` unset | fails runs that have been silently completing with a failed step |
+| flag | PR | what flipping does |
+| :-- | :-- | :-- |
+| `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` | worker#322 (merged, OFF) | fails runs that have been silently completing with a failed step |
 
-⚠ The flip does not introduce failures, it **surfaces existing ones**, in a
-volume nobody currently knows — the defect is precisely that those runs report
-success. `has_errored_step` (noetl/ai-meta#251) can count them from the existing
-event log **before** anything changes, which is the measurement to take first,
-then canary one pool. Rollback is one env var; nothing is written differently.
-
-Same shape as `NOETL_EXECUTION_STATUS_FROM_STEPS`, and for the same stated
-reason — a semantics change must be a deliberate flip, not a deploy side effect.
-⚠ But that flag is **not a substitute** for this one: it changes what the read
-boundary REPORTS, while downstream scheduling keys on the event TYPE. With it on
-and this off, a run reports FAILED *and still executes every downstream step* on
-a guard that already failed. Reporting FAILED while still running is not a gate.
+⚠ Confirmed OFF on merged `main` three ways: unset → `unwrap_or_default()` → no
+match → `false`; the test passes on main; and the variable appears in **no** ops
+manifest. The flip surfaces existing failures in a volume nobody knows, because
+the defect is that those runs report success — measure with `has_errored_step`
+first, then canary one pool. ⚠ `NOETL_EXECUTION_STATUS_FROM_STEPS` is **not** a
+substitute: it changes what the read boundary REPORTS while scheduling keys on the
+event TYPE, so with it on and this off a run reports FAILED *and still executes
+every downstream step*.
 
 ## Owner decisions, with the artifacts prepared
 
