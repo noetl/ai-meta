@@ -106,6 +106,30 @@ live modes come from code defaults rather than any manifest.
 
 ## Closed with a measurement, no work needed
 
+**noetl/server#344 + #345** (EHDB parity rounds 01/02) — both delivered; verified
+against their acceptance lists in code, and #344 against **prod**:
+`mirrored=1772` with **five other outcome arms reading a real 0**, and
+`lag_seconds_count` equal to `mirrored` (so no silent path). That is the
+"closed set pinned at 0 unconditionally" criterion demonstrated rather than
+asserted.
+
+**noetl/ehdb#320** (scope: four engines) — ⚠ `SCOPE.md` claims it "supersedes"
+the README/AGENTS framing, and *supersedes is a claim, not evidence*. Read the
+superseded docs: README leads with "four engines" and marks Qdrant/ClickHouse
+explicitly out of scope, AGENTS matches. Delivered everywhere, not just in the
+normative doc.
+
+**noetl/tools#94** — the tools twin of server#300. `test.yml` runs on
+`pull_request` with fmt + clippy, i.e. **stricter than server's or worker's**,
+whose fmt steps are non-gating because their `main` is already dirty. Same
+remaining gap: `main` is unprotected, so nothing blocks a merge.
+
+⚠ Branch protection is now the single outstanding item across **six** repos
+(server, worker, cli, tools, ehdb, gateway) and wants one owner decision applied
+once — not six issues.
+
+
+
 **noetl/server#300 (PR-level test CI).** The premise no longer holds: `test.yml`
 runs `cargo test --all-targets --locked` on `pull_request` + push to `main`, and
 every Rust repo has it (server, worker, cli, tools, ehdb, gateway). The red test
