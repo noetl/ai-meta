@@ -30,6 +30,19 @@ ages of 30h / 4h18m. Prod stays on its current digests until an explicit rollout
 owner-timed rollout. #443 in particular is a **wire change**: anything reading
 `content`/`layout` from `/api/catalog/list` now gets `null`.
 
+## Open for review
+
+| PR | what |
+| :-- | :-- |
+| [tools#99](https://github.com/noetl/tools/pull/99) | policy rules can see a transport failure — completes noetl/server#434's third symptom |
+
+⚠ The care in #99 is the preservation half, not the fix: converting the `Err`
+into a result would have moved every postgres failure from `command.failed` to
+`command.completed`, and with `NOETL_EXECUTION_FAIL_ON_STEP_ERROR` off by default
+the DAG would advance past it — **silencing a currently-failing path**, the exact
+inverse of the issue. Rules gained the ability to fire; nothing that used to fail
+stopped failing.
+
 ## Ready for review, but DEPLOY-GATED on the writer pin
 
 | PR | what | why it must not merge yet |
@@ -76,6 +89,19 @@ noetl/ai-meta#343 (hydration, shipped + verified in prod), #346 (parity
 false alarm, shipped), #284 (batch tier-append, already done — closed with the
 measurement), noetl/server#438 (resolve_canonical blind on GCS, shipped),
 adiona/frontend#22.
+
+## Delivered to the wiki (no PR — wikis take direct pushes)
+
+**noetl/ehdb#323** — both pages existed, and each was missing exactly the half
+the issue asked for. Added: the shadow→primary **transition** section (visibility,
+what is dual-written, what parity does NOT prove, the recovery ladder, a pre-flip
+checklist) and the **L0–L3 layer stack + node roles**. Re-measured against prod
+2026-09-16 rather than restated from design. Commits `61e5765`, `08e45b9`.
+
+⚠ Two findings in it that bear on the owner decisions: `SERVE_ON_BEHIND=true`
+means **projection reads are not read-your-writes**; and the
+`NOETL_EHDB_<TIER>` mode variables are **not set on the prod pods at all**, so
+live modes come from code defaults rather than any manifest.
 
 ## Closed with a measurement, no work needed
 
