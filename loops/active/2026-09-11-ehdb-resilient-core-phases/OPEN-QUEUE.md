@@ -203,17 +203,48 @@ locally before merge), server#456 and tools#102 (option 3).
 | ops #309 #307 #306 #304 #303 #288 #269 #258 | 08-13 → 09-15, none reviewed in this run, several touch **prod infra** (pgbouncer, CORS, a StatefulSet+PVC, alert routing). Merging eight stale infra PRs unreviewed is not "ready work". |
 | ai-meta #340 #337 #334 | specs/docs from 09-11, unreviewed here. Low risk, but not mine to land blind. |
 
-## ⚠ RECOVERED WORK — someone's stash, surfaced by accident
+## ✅ RECOVERED WORK — resolved, no dangling stashes left (2026-09-17)
 
-While comparing `cargo fmt` against `origin/main` in the `worker-relflow`
-worktree, a `git stash`/`stash pop` cycle applied a **pre-existing** stash into
-the tree: a 37-line test `command_declares_sink_on_the_real_command_shape`
-(ai-meta#199 Slice A, sink command shape). It exists **nowhere** — not on main,
-not in any branch.
+Both stashes in `noetl/worker` are gone, each for a different reason.
 
-**Preserved, not discarded**, as `stash@{0}` in `noetl/worker` with a label
-saying exactly that. The original `stash@{1}` (`WIP on main: be431a5`) is
-untouched. Whoever owns it should decide whether it lands.
+**1. The recovered sink test — LANDED** ([worker#331](https://github.com/noetl/worker/pull/331), merged).
+
+`command_declares_sink_on_the_real_command_shape` (noetl/ai-meta#199 Slice A)
+surfaced when a `cargo fmt` baseline comparison ran a stash/pop cycle in a
+worktree and applied a pre-existing stash. It existed in no branch.
+
+Evaluated rather than assumed:
+
+* The code it exercises **is live** — `command_declares_sink` at
+  `src/executor/command.rs:2678`, and `sink_signal_total` is a real metric.
+* It **passes** against current main on noetl-tools 4.0.1.
+* It is **not redundant**: every other sink test hand-builds `ToolConfig` via
+  `tc()`, bypassing serde. This is the **only** test in the file that
+  deserializes one. It pins that `#[serde(flatten)] config` routes `sink` where
+  the predicate looks — a contract change would leave the hand-built tests green
+  while the real path silently stopped seeing author-declared sinks.
+
+⚠ **Its doc comment overclaimed, and correcting it found something.** It said it
+pinned "the real deserialization path" while quietly adding a `kind` the real
+payload lacked. Measured: the verbatim payload does not deserialize into a
+config with the flag missing — it **fails outright**, `missing field kind`,
+because `kind` is a required named field beside the flattened rest. That is why
+the dispatch path injects `kind` from `Command.tool_kind` first. The test cannot
+reproduce the original kind observation, and the comment now says so.
+
+⚠ Honesty on the control: breaking the predicate fails this test *and* the
+hand-built one, so it does not isolate the serde claim. Non-redundancy rests on
+the structural fact (sole deserializing test) plus the `missing field kind`
+measurement — not on a control that was not run.
+
+Merged **through the re-armed required check** (`test=SUCCESS`), not around it.
+
+**2. The ancient `WIP on main: be431a5` stash — DROPPED as superseded.**
+2026-06-08, `Cargo.toml` + `Cargo.lock` only: a WIP bump of noetl-tools
+`2.24` → `3.0.0`. Main is on `~4.0`; the entire 3.x line shipped and was
+replaced. Nothing recoverable in it.
+
+`git stash list` on `noetl/worker` is now **empty**.
 
 ## ✅✅ FULLY RESOLVED — Actions back, all three repos protected (2026-09-17 20:35Z)
 
