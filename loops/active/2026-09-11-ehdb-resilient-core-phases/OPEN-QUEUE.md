@@ -169,6 +169,52 @@ built. Headlines:
   `pull_request` trigger and make its status the required check. Restores the
   merge gate, needs no PAT, does not touch arm64.
 
+## ✅✅ OPTION 3 PROVEN ON A REAL FEATURE RELEASE — v6.1.0 (2026-09-17 19:51Z)
+
+worker#328 (the projector) merged → `feat(projector)` → semantic-release cut a
+genuine **minor** release. The numbers that matter:
+
+| | value |
+| :-- | :-- |
+| main SHA at merge | `3bccf8c3` |
+| main SHA after the release | **`3bccf8c3` — unchanged** |
+| commits pushed to main by the bot | **zero** |
+| tag `v6.1.0` points at | `3bccf8c3` |
+| `Cargo.toml` floor on main | **`6.0.0`** — now two releases behind, by design |
+
+Under the old config this is exactly where semantic-release would have pushed
+`chore(release): version 6.1.0 [skip ci]` to `main` and been rejected by a
+required check. It cut the release and pushed nothing.
+
+⚠ v6.0.1 did **not** prove this — it was a hand-cut no-op. **v6.1.0 does**: a
+real releasable commit, a real version bump, no push.
+
+## 🔀 PR RECONCILIATION (2026-09-17)
+
+**Merged:** worker#328 (projector, flag-gated OFF, kind-proven; 862 tests green
+locally before merge), server#456 and tools#102 (option 3).
+**Already in:** worker#323 (merged 2026-09-16, deployed this run).
+
+**Deliberately NOT merged — needs owner review, not agent judgement:**
+
+| PR | why held |
+| :-- | :-- |
+| [worker#222](https://github.com/noetl/worker/pull/222) | 6 weeks stale, touches only `release.yml` and would conflict with option 3. Its intent — make `publish-ar` **non-blocking** — would *weaken* the gate for a job that now succeeds reliably (v6.0.1 and v6.1.0 both green). **Recommend closing.** |
+| ops #309 #307 #306 #304 #303 #288 #269 #258 | 08-13 → 09-15, none reviewed in this run, several touch **prod infra** (pgbouncer, CORS, a StatefulSet+PVC, alert routing). Merging eight stale infra PRs unreviewed is not "ready work". |
+| ai-meta #340 #337 #334 | specs/docs from 09-11, unreviewed here. Low risk, but not mine to land blind. |
+
+## ⚠ RECOVERED WORK — someone's stash, surfaced by accident
+
+While comparing `cargo fmt` against `origin/main` in the `worker-relflow`
+worktree, a `git stash`/`stash pop` cycle applied a **pre-existing** stash into
+the tree: a 37-line test `command_declares_sink_on_the_real_command_shape`
+(ai-meta#199 Slice A, sink command shape). It exists **nowhere** — not on main,
+not in any branch.
+
+**Preserved, not discarded**, as `stash@{0}` in `noetl/worker` with a label
+saying exactly that. The original `stash@{1}` (`WIP on main: be431a5`) is
+untouched. Whoever owns it should decide whether it lands.
+
 ## ⚠⚠ ACTIONS IS HALF-BACK — `push` runs, `pull_request` DOES NOT (2026-09-17 17:40Z)
 
 Owner added a payment card. **Actions partially recovered**, and the asymmetry
