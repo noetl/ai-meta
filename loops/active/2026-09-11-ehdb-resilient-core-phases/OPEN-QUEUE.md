@@ -215,66 +215,30 @@ not in any branch.
 saying exactly that. The original `stash@{1}` (`WIP on main: be431a5`) is
 untouched. Whoever owns it should decide whether it lands.
 
-## ⚠⚠ ACTIONS IS HALF-BACK — `push` runs, `pull_request` DOES NOT (2026-09-17 17:40Z)
+## ✅✅ FULLY RESOLVED — Actions back, all three repos protected (2026-09-17 20:35Z)
 
-Owner added a payment card. **Actions partially recovered**, and the asymmetry
-is the whole story:
+**The `pull_request` run path recovered.** Verified rather than assumed: a
+throwaway probe PR on `server` and `tools` each fired a real `pull_request` run
+and both went **`test` success**; worker had already shown one at 19:51:04Z.
+Probes closed, branches deleted, zero open PRs left behind on either repo.
 
-| event | creates runs? | evidence |
-| :-- | :-- | :-- |
-| `push` | ✅ **yes** | worker `test`+`Semantic Release` at 16:28Z (the #330 merge), `release-worker` at 16:36Z (my tag) |
-| `pull_request` | ❌ **no** | server#456, tools#102 and worker's own branch: **0 runs**. Closing and reopening server#456 produced nothing. |
+**Required `test` check RE-ARMED on all three**, and this time it is safe with
+**no ruleset, no PAT, and no GitHub plan change** — because option 3 means the
+release bot never pushes to `main` at all:
 
-Not approval-gating: `action_required` count is 0 on both repos, and
-`can_approve_pull_request_reviews=true` with `default_workflow_permissions=write`.
+| repo | required | strict | force-push / deletion | `@semantic-release/git` on main |
+| :-- | :-- | :-- | :-- | :-- |
+| `noetl/worker` | `test` | ✅ | blocked | **absent** |
+| `noetl/server` | `test` | ✅ | blocked | **absent** |
+| `noetl/tools`  | `test` | ✅ | blocked | **absent** |
+| `noetl/ehdb`   | `rust` | ✅ | blocked | n/a — never pushed to main |
 
-### ✅ RESOLVED 19:30Z — server/tools unfrozen, option 3 merged everywhere
+`enforce_admins=false` retained on all, per the owner's standing instruction to
+keep the emergency override.
 
-Required `test` check removed from `noetl/server` and `noetl/tools` (force-push
-and deletion protection kept), server#456 and tools#102 merged. **All three
-option-3 repos now have the check OFF**, pending the `pull_request` path.
-Exact re-arm commands: `release-pipeline/RELEASE-PIPELINE-FIX.md`.
-
-**Push-path verification on both:** `test` **success** and `Semantic Release`
-**success**, `main` SHA unchanged (`980e8825` / `e66e49c2`), and both `main`
-branches now carry the 3-plugin option-3 `.releaserc.json`.
-
-⚠ **What that does and does not prove.** Those Semantic Release runs were
-**no-ops** — the only commits were `ci:`, which is not a releasing type (server
-is still v3.112.3, tools still v4.0.1, floors unchanged). So "main unchanged" is
-NOT by itself evidence of option 3 here: the old config would not have pushed
-either when no release is due. What is established for server/tools is that the
-option-3 config is on main, the guards enforce it, and `test` passes. **The full
-path — stamp → build → publish with no main push — is proven end to end on
-`worker` only** (v6.0.1), and will be exercised on server/tools at their next
-real release. Not claiming more than that.
-
-⚠ `ehdb` keeps its `rust` required check and is therefore **also unmergeable**
-while the PR path is down. Left alone deliberately — it has no semantic-release
-and never pushed to main, so option 3 does not apply; removing its protection
-would be scope creep. Remove/restore the same way if an ehdb PR must land first.
-
-### 🔴 (historical) CONSEQUENCE: `server` and `tools` COULD NOT MERGE ANYTHING
-
-Both still carry a required `test` check. `pull_request` creates no run, so that
-check can never report. **Every PR on server and tools is unmergeable**, which
-is strictly worse than worker's open gate — and it is the exact failure this
-queue has been warning about, now live.
-
-`gh pr merge --admin` (the `enforce_admins=false` override) was attempted and
-**refused by the agent's safety gate** as a protection bypass. Not worked around.
-
-**Owner's call, two options:**
-
-1. Wait for the `pull_request` path to recover (may follow the billing fix on
-   its own — `push` already has).
-2. Temporarily drop the required check on `server` and `tools`, exactly as was
-   done on `worker`, to restore mergeability. Reversible; the runbook's §B.3
-   body re-adds it.
-
-⚠ **Worker's required check was NOT re-armed**, deliberately. The owner's
-condition was "if Actions is back" — it is only half back, and re-arming would
-put worker in the same frozen state as server and tools.
+**The original conflict is gone.** Branch protection and the release pipeline
+coexist, proven on a real feature release (v6.1.0): the tag cut, the artifacts
+published on both architectures, and `main` never moved.
 
 ## ✅ OPTION 3 PROVEN THROUGH ACTIONS, AND ROLLED OUT
 
