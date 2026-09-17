@@ -37,6 +37,76 @@ OAuth scope; this session's token has org `role=admin` but not that scope, and
 
 **So §A.2 below is wrong as written for the repo level.** Use §A.2-ORG instead.
 
+## ✅ OPTION 3 APPLIED (worker) — and 🛑 BLOCKED ON A CI OUTAGE (2026-09-17)
+
+Owner ruled out billing (no Team upgrade, no org ruleset) and chose **option 3:
+the release stops pushing to `main`.** Implemented for `noetl/worker` in
+[worker#330](https://github.com/noetl/worker/pull/330).
+
+**The design: the TAG becomes authoritative.**
+
+* `.releaserc.json` drops `@semantic-release/git` (the push), plus
+  `@semantic-release/exec` and `@semantic-release/changelog`, which existed
+  only to produce files for that commit.
+* `verify-version` no longer asserts `tag == Cargo.toml` — that equality held
+  only *because* of the push.
+* `ci/stamp-version.sh` writes the release version into `Cargo.toml` **in the
+  runner** before either artifact job builds, and asserts the write took.
+* semantic-release's dispatch of `release.yml` now passes
+  `steps.semantic.outputs.new_release_version` instead of reading `Cargo.toml`.
+
+⚠ **Price, stated plainly:** `Cargo.toml`'s committed `version` and
+`CHANGELOG.md` stop advancing in the repo. `Cargo.toml` is a FLOOR; the tag is
+the truth; notes live in the GitHub Release.
+
+⚠ **The silent failure this introduces, and its guard:** `CARGO_PKG_VERSION` is
+compiled in and reported as `noetl_worker_build_info{version=...}`. A build from
+a stale floor compiles, deploys and passes health checks while reporting the
+PREVIOUS version forever. `every_artifact_build_job_stamps_the_version` parses
+`release.yml` and requires every container-building job to run the stamp; it
+also asserts its own job-split and builder-detector matched something, so it
+cannot pass vacuously. `semantic_release_does_not_push_to_main` fails if the git
+plugin returns. Both have negative controls. 852 tests pass locally.
+
+### 🛑 WHY IT IS NOT YET PROVEN OR ROLLED OUT
+
+**GitHub Actions has created no workflow run in ANY `noetl` repo since
+2026-09-16T21:22Z** (checked 07:45Z on 09-17, ~10.5 hours):
+
+| repo | last run |
+| :-- | :-- |
+| worker | 2026-09-16T21:22Z |
+| server / tools / cli | 2026-09-16T20:39Z |
+| ehdb | 2026-09-16T12:44Z |
+
+worker#330 has **no checks at all**; closing and reopening the PR produced no
+run. Not a repo-config problem: workflows are `state=active`, Actions
+`enabled=true allowed=all`, zero `queued` and zero `waiting` runs, and
+githubstatus.com reports Actions **operational**. Events are simply not
+producing runs for this org — most plausibly an **Actions spending limit or
+payment condition on the org account**, which halts run creation silently.
+Owner-only either way; the billing REST endpoints now return `410 moved`.
+
+**Consequences, and what is deliberately NOT being done:**
+
+1. Steps that need a real release to prove — "a release cuts cleanly without a
+   main push" and "the gate and the release coexist" — **cannot be run.**
+2. **Worker's required status check is NOT being re-added.** With no runner
+   creating `test`, a required check would never report: every PR becomes
+   permanently unmergeable *and* the release stays broken. That is strictly
+   worse than the current open gate.
+3. `server` and `tools` are **not** being converted yet — the change should be
+   proven by one real release on `worker` first.
+
+### When Actions is working again
+
+1. Merge worker#330 (its `test` must go green first).
+2. Land any `fix:`/`feat:` commit on worker `main` and watch the release: it
+   must tag, build, and publish **with no push to `main`**, and the image's
+   `noetl_worker_build_info{version=...}` must equal the new tag.
+3. Only then re-add worker's classic required check (§B.3 body).
+4. Then repeat 1-3 for `server` and `tools`.
+
 ### 🛑 A.2-FINAL — THE RULESET FIX IS UNAVAILABLE ON THIS PLAN (2026-09-16, tested)
 
 Both halves were tested with `admin:org` present and `kadyapam` confirmed

@@ -147,6 +147,48 @@ catalog playbooks reference pubsub. No production user is on that code path, so
 there is no live reproduction to run — and the same fact means its 1s → 5s
 default change carries no prod risk. Unit-verified upstream only.
 
+## 🛑 GITHUB ACTIONS IS CREATING NO RUNS FOR THIS ORG (2026-09-17 07:45Z)
+
+**Nothing has run in any `noetl` repo since 2026-09-16T21:22Z** — ~10.5 hours.
+worker#330 has no checks at all; close/reopen produced no run.
+
+Not repo config: workflows `state=active`, Actions `enabled=true allowed=all`,
+**0 queued / 0 waiting**, and githubstatus.com reports Actions **operational**.
+Events are not producing runs — most plausibly an **Actions spending limit or
+payment condition on the org account**, which halts run creation silently.
+Owner-only; the billing REST endpoints now return `410 moved`.
+
+⚠ **This blocks the release-pipeline fix from being proven, and it is why
+worker's required check is still OFF.** With nothing creating the `test` check,
+re-adding it would make every PR permanently unmergeable *and* leave the release
+broken — strictly worse than the current open gate.
+
+## ✅ OPTION 3 IMPLEMENTED — the release no longer pushes to `main` (worker#330)
+
+Owner ruled out billing; option 3 is applied for `noetl/worker` in
+[worker#330](https://github.com/noetl/worker/pull/330), open and green locally
+(852 tests).
+
+The tag is now authoritative: `@semantic-release/git` removed (with `exec` and
+`changelog`, which only fed that commit), `verify-version` no longer asserts
+`tag == Cargo.toml`, `ci/stamp-version.sh` stamps the version **in the runner**
+before each artifact build, and the release dispatch uses
+`new_release_version` rather than reading the now-stale `Cargo.toml`.
+
+⚠ Price: `Cargo.toml`'s `version` and `CHANGELOG.md` stop advancing in-repo.
+Cargo.toml is a FLOOR; notes live in the GitHub Release.
+
+⚠ Silent failure it introduces: `CARGO_PKG_VERSION` is compiled in and reported
+as `noetl_worker_build_info{version=...}`, so a build from the stale floor
+deploys happily reporting the PREVIOUS version. Guarded by
+`every_artifact_build_job_stamps_the_version` (which also asserts it is not
+matching vacuously) and `semantic_release_does_not_push_to_main`, both with
+negative controls.
+
+**Not yet done, deliberately:** not merged (no CI), not proven by a real
+release, worker's check not re-added, and `server`/`tools` not converted — that
+should follow one proven release on worker.
+
 ## 🚨🚨 `noetl/worker` MAIN HAS NO REQUIRED STATUS CHECK RIGHT NOW (2026-09-16)
 
 **State: `required_status_checks` REMOVED from `noetl/worker` `main`. Deliberate.
