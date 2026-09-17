@@ -37,6 +37,68 @@ OAuth scope; this session's token has org `role=admin` but not that scope, and
 
 **So §A.2 below is wrong as written for the repo level.** Use §A.2-ORG instead.
 
+## 🚨 ALL THREE REPOS: REQUIRED CHECK TEMPORARILY OFF (2026-09-17 19:30Z)
+
+| repo | required check | force-push / deletion protection | option 3 |
+| :-- | :-- | :-- | :-- |
+| `noetl/worker` | **OFF** | on | ✅ merged + proven by a real release |
+| `noetl/server` | **OFF** | on | ✅ merged (#456) |
+| `noetl/tools`  | **OFF** | on | ✅ merged (#102) |
+| `noetl/ehdb`   | `rust`, still ON | on | n/a — never pushed to main |
+
+**Why all three are off:** GitHub Actions is **half recovered**. `push` events
+create runs; **`pull_request` events do not** (verified repeatedly, latest
+19:26Z). A required check that nothing reports makes every PR permanently
+unmergeable — which is exactly what happened to `server` and `tools`, and is why
+their checks were removed to unfreeze them.
+
+⚠ `ehdb` keeps its `rust` check. It is not broken by this — it has no
+semantic-release and pushes nothing to main — but **its PRs cannot merge either**
+while the `pull_request` path is down. Left alone deliberately: removing
+protection from a repo that does not need option 3 would be scope creep. If an
+ehdb PR needs to land before the path recovers, remove and restore it the same
+way.
+
+### RE-ARM — run this once `pull_request` runs fire again
+
+Check the path first:
+
+```bash
+gh api "repos/noetl/worker/actions/runs?event=pull_request&per_page=1" \
+  --jq '.workflow_runs[0].created_at'
+# a timestamp NEWER than 2026-09-16 means the PR path is back
+```
+
+Then, per repo (`test` for server/worker/tools):
+
+```bash
+for r in server worker tools; do
+  cat > /tmp/reprotect-$r.json <<'JSON'
+{
+  "required_status_checks": { "strict": true, "contexts": ["test"] },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_linear_history": false,
+  "required_conversation_resolution": false
+}
+JSON
+  gh api "repos/noetl/$r/branches/main/protection" -X PUT --input "/tmp/reprotect-$r.json" \
+    --jq '"'"'\(.url|split("/")[5]): required=\(.required_status_checks.contexts) strict=\(.required_status_checks.strict)'"'"'
+done
+```
+
+⚠ `PUT` the whole protection object — `PATCH .../required_status_checks` 404s
+once the requirement has been deleted. The body above is field-for-field what
+these repos had.
+
+✅ **After option 3, a plain required check is SAFE on all three** — no ruleset,
+no PAT, no org plan change. The release bot no longer pushes to `main`, so the
+conflict that started this document is gone. Verify with one PR per repo:
+`mergeStateStatus` must read `BLOCKED` while `test` is pending.
+
 ## ✅ OPTION 3 APPLIED (worker) — and 🛑 BLOCKED ON A CI OUTAGE (2026-09-17)
 
 Owner ruled out billing (no Team upgrade, no org ruleset) and chose **option 3:

@@ -182,7 +182,33 @@ is the whole story:
 Not approval-gating: `action_required` count is 0 on both repos, and
 `can_approve_pull_request_reviews=true` with `default_workflow_permissions=write`.
 
-### 🔴 CONSEQUENCE, HAPPENING NOW: `server` and `tools` CANNOT MERGE ANYTHING
+### ✅ RESOLVED 19:30Z — server/tools unfrozen, option 3 merged everywhere
+
+Required `test` check removed from `noetl/server` and `noetl/tools` (force-push
+and deletion protection kept), server#456 and tools#102 merged. **All three
+option-3 repos now have the check OFF**, pending the `pull_request` path.
+Exact re-arm commands: `release-pipeline/RELEASE-PIPELINE-FIX.md`.
+
+**Push-path verification on both:** `test` **success** and `Semantic Release`
+**success**, `main` SHA unchanged (`980e8825` / `e66e49c2`), and both `main`
+branches now carry the 3-plugin option-3 `.releaserc.json`.
+
+⚠ **What that does and does not prove.** Those Semantic Release runs were
+**no-ops** — the only commits were `ci:`, which is not a releasing type (server
+is still v3.112.3, tools still v4.0.1, floors unchanged). So "main unchanged" is
+NOT by itself evidence of option 3 here: the old config would not have pushed
+either when no release is due. What is established for server/tools is that the
+option-3 config is on main, the guards enforce it, and `test` passes. **The full
+path — stamp → build → publish with no main push — is proven end to end on
+`worker` only** (v6.0.1), and will be exercised on server/tools at their next
+real release. Not claiming more than that.
+
+⚠ `ehdb` keeps its `rust` required check and is therefore **also unmergeable**
+while the PR path is down. Left alone deliberately — it has no semantic-release
+and never pushed to main, so option 3 does not apply; removing its protection
+would be scope creep. Remove/restore the same way if an ehdb PR must land first.
+
+### 🔴 (historical) CONSEQUENCE: `server` and `tools` COULD NOT MERGE ANYTHING
 
 Both still carry a required `test` check. `pull_request` creates no run, so that
 check can never report. **Every PR on server and tools is unmergeable**, which
