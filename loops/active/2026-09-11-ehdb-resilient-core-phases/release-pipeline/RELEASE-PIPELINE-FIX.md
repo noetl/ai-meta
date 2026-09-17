@@ -1,25 +1,69 @@
 # RUNBOOK — unblock the release pipeline on `noetl/server`, `noetl/worker`, `noetl/tools`
 
-**Status: OWNER ACTION REQUIRED.**
+**Status: ✅ RESOLVED 2026-09-17. No owner action outstanding.**
 
-Written 2026-09-16. **Updated the same day — Option A was attempted with owner
-authorization and Option B was then executed on `noetl/worker`.** Read §A.0b and
-the banner below before using this file.
+Kept as the record of how it was solved and why the obvious fixes were not
+available. Nothing below needs doing.
 
-> 🚨 **`noetl/worker` `main` currently has NO required status check.** Option B
-> was run to release the pending worker build (v6.0.0, deployed and verified);
-> the check is deliberately NOT restored, because restoring the plain classic
-> check re-breaks the next release identically. `server`, `tools` and `ehdb` are
-> untouched and still protected. Force-push and deletion protection on worker
-> are still on.
->
-> 🛑 **The ruleset fix was attempted with `admin:org` and is UNAVAILABLE on this
-> plan** — see §A.2-FINAL. Repo-level rulesets reject the Actions app as a
-> bypass actor (422, re-tested with the scope); org-level rulesets need GitHub
-> Team (403, org is Free). Four remaining paths are listed there; three are
-> owner decisions.
+## ✅ THE SAGA, CLOSED
 
-### ⚠ A.0b — WHAT ACTUALLY HAPPENED WHEN OPTION A WAS TRIED
+**The conflict:** a required status check on `main` rejected semantic-release's
+`chore(release): version X [skip ci]` push (`GH006`), and because that commit
+carries `[skip ci]` the check never ran on it — it stayed `expected` forever.
+Protection and releases could not coexist.
+
+**What was NOT available, each tested rather than assumed:**
+
+| fix | why not |
+| :-- | :-- |
+| ruleset + Actions-app bypass, repo level | **422** — the Actions app cannot be a bypass actor on a repository ruleset. Retested **with `admin:org`**: identical, so never a scope problem |
+| ruleset, org level | **403 Upgrade to GitHub Team** — `noetl` is on the free plan |
+| admin PAT for semantic-release | works, but trades an ephemeral token for a long-lived one. Declined |
+
+**What solved it — option 3: the release stops pushing.** `@semantic-release/git`
+removed (with `exec` and `changelog`, which only fed its commit); the **tag is
+authoritative**; `ci/stamp-version.sh` writes the version in the runner before
+anything builds or publishes. Applied to **worker, server and tools**. `ehdb`
+never pushed to main and needed nothing.
+
+**Proven, not argued:**
+
+* **v6.1.0** — a real `feat` release. `main` SHA `3bccf8c3` **before and after**,
+  zero bot commits, tag on that same SHA, `Cargo.toml` floor still `6.0.0`. All
+  7 jobs green including native arm64 and the GHCR manifest.
+* **v6.0.1** — cut entirely by hand during the Actions freeze (Cloud Build submit
+  + GitHub API), proving the flow survives without Actions at all.
+* **The gate blocks**: a probe PR read `mergeStateStatus=BLOCKED` with `test`
+  pending, and `gh pr merge` was **refused** — *"the base branch policy prohibits
+  the merge"*.
+* **The gate passes**: worker#331 and #332 both merged **through** a green
+  required `test` check.
+
+**Final state — all four repos protected, and it costs nothing:**
+
+```
+worker  required=["test"]  strict=true  enforce_admins=false
+server  required=["test"]  strict=true  enforce_admins=false
+tools   required=["test"]  strict=true  enforce_admins=false
+ehdb    required=["rust"]  strict=true  enforce_admins=false
+```
+
+**No ruleset. No PAT. No GitHub plan change.** The release bot simply no longer
+pushes to `main`, so there is nothing for protection to reject.
+
+⚠ **The one thing still only structural, stated plainly:** a *release-cutting*
+semantic-release run has not yet happened **while** a required check is armed.
+v6.1.0 cut at 19:51Z; the checks were armed at ~20:35Z. What has been observed
+under an armed check is a `Semantic Release` run that completed successfully and
+pushed nothing (the #331 merge at 22:12Z) — but it had no release to cut. The
+coexistence is structural rather than empirical: with `@semantic-release/git`
+gone there is no push for protection to reject, and the
+`semantic_release_does_not_push_to_main` guard fails the build if it returns.
+The next real feature release on any of the three completes the demonstration.
+
+---
+
+### ⚠ A.0b### ⚠ A.0b — WHAT ACTUALLY HAPPENED WHEN OPTION A WAS TRIED
 
 The safety classifier permitted it once the owner authorized it explicitly.
 **GitHub refused it:**
