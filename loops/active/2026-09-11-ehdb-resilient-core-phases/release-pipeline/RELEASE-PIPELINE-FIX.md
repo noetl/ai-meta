@@ -7,10 +7,17 @@ authorization and Option B was then executed on `noetl/worker`.** Read §A.0b an
 the banner below before using this file.
 
 > 🚨 **`noetl/worker` `main` currently has NO required status check.** Option B
-> was run to release the pending worker build; the check was deliberately NOT
-> restored, because restoring the plain classic check re-breaks the next release
-> identically. `server`, `tools` and `ehdb` are untouched and still protected.
-> Force-push and deletion protection on worker are still on.
+> was run to release the pending worker build (v6.0.0, deployed and verified);
+> the check is deliberately NOT restored, because restoring the plain classic
+> check re-breaks the next release identically. `server`, `tools` and `ehdb` are
+> untouched and still protected. Force-push and deletion protection on worker
+> are still on.
+>
+> 🛑 **The ruleset fix was attempted with `admin:org` and is UNAVAILABLE on this
+> plan** — see §A.2-FINAL. Repo-level rulesets reject the Actions app as a
+> bypass actor (422, re-tested with the scope); org-level rulesets need GitHub
+> Team (403, org is Free). Four remaining paths are listed there; three are
+> owner decisions.
 
 ### ⚠ A.0b — WHAT ACTUALLY HAPPENED WHEN OPTION A WAS TRIED
 
@@ -29,6 +36,47 @@ OAuth scope; this session's token has org `role=admin` but not that scope, and
 `gh auth refresh -s admin:org` is an interactive credential grant — owner-only.
 
 **So §A.2 below is wrong as written for the repo level.** Use §A.2-ORG instead.
+
+### 🛑 A.2-FINAL — THE RULESET FIX IS UNAVAILABLE ON THIS PLAN (2026-09-16, tested)
+
+Both halves were tested with `admin:org` present and `kadyapam` confirmed
+`role=admin` on the org. **Neither works, and the reasons are now definitive
+rather than suspected:**
+
+| path | result |
+| :-- | :-- |
+| `POST /repos/noetl/<r>/rulesets` with the Actions app as bypass | **422** — `Actor GitHub Actions integration must be part of the ruleset source or owner organization`. **Re-tested WITH `admin:org`: identical.** So this was never a scope problem — the Actions app simply cannot be a bypass actor on a *repository* ruleset. |
+| `POST /orgs/noetl/rulesets` | **403** — `Upgrade to GitHub Team to enable this feature.` `orgs/noetl` is `plan=free`. |
+
+All four repos are **public**, so repository rulesets are otherwise available on
+Free — it is specifically the **bypass actor** that is not, and the org-level
+ruleset that would allow it is **a paid feature**.
+
+**This is a billing/plan gate, not a role or scope gate.** Nothing in this
+runbook's Option A can be applied on the current plan.
+
+### The four remaining paths, and who can take them
+
+1. **Upgrade `noetl` to GitHub Team**, then apply §A.2-ORG unchanged.
+   *Owner — billing.* Cleanest; keeps the gate and unblocks the bot.
+2. **Give semantic-release an admin PAT** instead of `secrets.GITHUB_TOKEN`.
+   `enforce_admins: false` already lets admins bypass, so this works today at no
+   cost. *Owner — credential.* Downside: every release then carries a human's
+   admin rights.
+3. **Stop the release flow pushing to `main` at all.** `@semantic-release/git`
+   is what pushes the `chore(release): version X [skip ci]` commit; a
+   release-PR pattern (or deriving the version from the tag) removes the
+   conflict permanently and costs nothing. *This is a code change an agent can
+   implement* — but it changes the team's release process, so it is the owner's
+   call to authorise, not to assume.
+4. **Leave the required check off on `worker`** — the current state.
+
+⚠ **Do NOT apply §B.3 (re-add worker's classic check) until one of 1-3 is in
+place.** §B.3's safety depended on a bypass existing. Without one it simply
+re-breaks the release pipeline, which is the failure this whole document is
+about.
+
+---
 
 ### A.2-ORG — the corrected Option A
 

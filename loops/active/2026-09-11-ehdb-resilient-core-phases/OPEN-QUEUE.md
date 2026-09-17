@@ -160,20 +160,35 @@ noetl/tools   main  required=["test"] strict=true   (UNCHANGED, still protected)
 noetl/ehdb    main  required=["rust"] strict=true   (UNCHANGED, still protected)
 ```
 
-**Why it is off.** The recommended fix — a ruleset with the GitHub Actions app
-(id 15368) as a bypass actor — was attempted with explicit owner authorization
-and **GitHub itself refused it**:
+**Why it is off — and the answer is now definitive (tested 2026-09-16 with
+`admin:org` granted).**
 
-```
-422 Validation Failed
-Actor GitHub Actions integration must be part of the ruleset source or owner organization
-```
+| path | result |
+| :-- | :-- |
+| repo-level ruleset + Actions-app bypass | **422** `Actor GitHub Actions integration must be part of the ruleset source or owner organization` — **re-tested WITH `admin:org`: identical**, so this was never a scope problem |
+| org-level ruleset | **403** `Upgrade to GitHub Team to enable this feature` — `orgs/noetl` is `plan=free` |
 
-A repository-level ruleset will not accept the Actions app as a bypass actor; it
-has to be an **organization-level** ruleset. Creating one needs the `admin:org`
-OAuth scope, which this session's token does not carry, and acquiring it is an
-interactive credential grant — owner-only. So the permanent fix is still
-owner-gated, for a different reason than before.
+`kadyapam` is `role=admin` on the org and the token now carries `admin:org`, so
+this is **neither a role nor a scope gate — it is a billing/plan gate.** All
+four repos are public, so repository rulesets are otherwise available; it is
+specifically the *bypass actor* that is not, and the org ruleset that would
+allow it is a paid feature.
+
+**Four remaining paths** (detail in `release-pipeline/RELEASE-PIPELINE-FIX.md`
+§A.2-FINAL):
+
+1. **Upgrade `noetl` to GitHub Team**, then apply §A.2-ORG. *Owner — billing.*
+2. **Admin PAT for semantic-release** instead of `GITHUB_TOKEN`; works today at
+   no cost because `enforce_admins:false`. *Owner — credential.* Every release
+   then carries a human's admin rights.
+3. **Stop the release flow pushing to `main`** (release-PR pattern, or derive
+   the version from the tag). Removes the conflict permanently, costs nothing,
+   and **an agent can implement it** — but it changes the release process, so
+   it needs owner authorisation rather than assumption.
+4. **Leave the check off on `worker`** — the current state.
+
+⚠ Worker's classic check was **NOT** re-added. Doing so without a bypass simply
+re-breaks the release pipeline — the exact failure this section exists for.
 
 **Why it is STAYING off rather than being restored.** Restoring the plain
 classic check re-breaks the next release immediately and identically. Turning it
