@@ -147,7 +147,38 @@ catalog playbooks reference pubsub. No production user is on that code path, so
 there is no live reproduction to run — and the same fact means its 1s → 5s
 default change carries no prod risk. Unit-verified upstream only.
 
-## 🛑 GITHUB ACTIONS IS CREATING NO RUNS FOR THIS ORG (2026-09-17 07:45Z)
+## 📋 Cloud Build migration — SCOPED, recommendation is DON'T (yet)
+
+`release-pipeline/CLOUD-BUILD-MIGRATION-SCOPING.md`. Read-only pass; nothing
+built. Headlines:
+
+* ⚠ **The premise does not hold.** There are **no Cloud Build triggers and no
+  GitHub connections** — Cloud Build is a build *executor invoked by Actions*
+  (`gcloud builds submit` from `publish-ar`). The GitHub-facing half is
+  greenfield, so the migration is **not** incremental beyond the image build.
+* ⚠ **arm64 cannot move.** Cloud Build has no arm64 machine type; QEMU is 6-10x
+  slower, which is the regression ai-meta#44 fixed. Keeping arm64 on Actions
+  leaves the dependency; dropping it breaks local kind on Apple Silicon.
+* ⚠ **It forces a long-lived PAT.** semantic-release uses the ephemeral
+  `GITHUB_TOKEN` inside Actions; Cloud Build has no equivalent. If a PAT is
+  acceptable there, using it on Actions is a one-line fix with no migration.
+* ⚠ **Free -> paid.** Actions standard *and* arm64 runners are free for public
+  repos, and all four active repos are public. This is GCP spend, not a GitHub
+  plan change.
+* ✅ **The one worthwhile hedge:** move only `test` to a Cloud Build
+  `pull_request` trigger and make its status the required check. Restores the
+  merge gate, needs no PAT, does not touch arm64.
+
+## 🛑 GITHUB ACTIONS IS CREATING NO RUNS FOR THIS ORG (2026-09-17 16:09Z, ~19h)
+
+⚠ **Correction to the earlier read.** A *spending limit* was called most likely;
+that is now the **weaker** explanation. Measured since: the org's **6 private
+repos have never run Actions at all**, so minutes exhaustion is ruled out, and
+the 27 public repos draw on the free-for-public-repos allowance. Actions is
+enabled at org AND repo level, 0 queued / 0 waiting, githubstatus operational.
+That points to an **account-level billing/payment or trust-and-safety
+condition** — visible only on GitHub's billing/settings pages. Owner-only; the
+billing REST endpoints return `410 moved`.
 
 **Nothing has run in any `noetl` repo since 2026-09-16T21:22Z** — ~10.5 hours.
 worker#330 has no checks at all; close/reopen produced no run.
