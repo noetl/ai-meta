@@ -1,5 +1,57 @@
 # Open work, and what each is waiting on
 
+## 🔴🔴 PROJECTOR CANARY → REGRESSION → ROLLED BACK (2026-09-18 02:2xZ)
+
+**`NOETL_PROJECTOR_ENABLED` was enabled on both system pools, caused projection-tier
+divergence, and was UNSET. Prod is back to projector-off.**
+
+### The mechanics were perfect. The interaction was not.
+
+Canary on one pool, then both:
+
+| signal | result |
+| :-- | :-- |
+| drained / acked | 517/517 and 179/179 — nothing held |
+| held | **0** on both members |
+| double-advance | **none** — member advances 119 + 59 = **178**, server `projection_advanced_total` = **178**, exact |
+| executions | all COMPLETED throughout |
+
+### ⚠ And yet: the parity comparator caught a real divergence
+
+| counter | before | during | after rollback |
+| :-- | --: | --: | --: |
+| `crossstore_divergence{kind=checksum,tier=projection}` | 1 | 2 → 9 → **10** | **10, frozen** |
+| `projection_serve_refusal{reason=digest_mismatch}` | **0** earlier this session | **27** | — |
+
+Causal: checksum climbed **only** while the projector ran, and stopped dead on
+rollback — two further executions moved it not at all, and
+`projection_advanced_total` froze at 451.
+
+### ⚠⚠ THE DESIGN CLAIM THAT TURNS OUT TO BE WRONG
+
+The module header says blast radius is "zero until two flags are flipped" —
+`PROJECTOR_ENABLED` **and** the server-side `PROJECTOR_OWNS_SNAPSHOT`. That reads
+as double-gating. It is not.
+
+`OWNS_SNAPSHOT` controls whether the **orchestrator stops self-writing**. With it
+OFF and the projector ON, the orchestrator keeps writing `projection_snapshot`
+**and the projector writes it too** — two writers on the same row. The second
+flag does not make the projector inert; it makes it **contend**.
+
+So "projector on, owns-snapshot off" is **not a safe intermediate state**, which
+is exactly what a staged rollout would naturally reach for.
+
+✅ **Nothing was served wrong.** The serve gate refused 27 times on
+`digest_mismatch` — a tier-derived projection may not serve unless a Postgres
+fold agrees, and it didn't, so it didn't serve. The guard did its job.
+
+### What this means for the projector
+
+It is **not** a simple reversible flag flip. Enabling it safely requires
+`OWNS_SNAPSHOT` in the same change — which is the irreversible-ish serve-path
+decision, and an owner call. The code stays merged and inert (shipped in v6.1.0);
+the flip needs a plan that moves both flags together, kind-proven first.
+
 ## ✅ LIVE IN PROD (2026-09-16, end of run)
 
 | workload | version | carries |
