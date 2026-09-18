@@ -1,5 +1,100 @@
 # Open work, and what each is waiting on
 
+## 🛑 CUTOVER + SUBSTRATE D — PRE-FLIGHT RESULT: ONE IS GATED, ONE IS NOT IMPLEMENTED (2026-09-18)
+
+Authorization is not the blocker. **Established by reading the tree, not by judgement:**
+
+### ehdb#321 — the spec IS merged; the MECHANISM is not
+
+`docs/spec/writer-election-and-fencing.md` (219 lines) and
+`docs/spec/lease-election-k8s-binding.md` are **on `ehdb` main**. So the issue's
+literal acceptance ("written spec merged") is satisfied and #321 is arguably
+closeable on that criterion alone.
+
+But the gate the spec states for itself is stricter:
+
+> ⛔ No **further** tier is promoted to primary-serve until this document is
+> merged **and its mechanism implemented**.
+
+And the spec's own §2, from a tree search: **"No epoch, fencing token, lease or
+election exists anywhere."** Single-writer is enforced *only* by
+`statefulset/noetl-cmdbus-writer replicas: 1`, which the spec itself calls
+"an orchestration preference, not a mutual-exclusion primitive."
+
+What implementing it actually requires (spec §4.2 + the K8s binding):
+
+1. `put_segment` / `append_delta` must **take the writer's epoch** and return a
+   typed `StaleEpoch` rejection instead of overwriting unconditionally.
+2. The shared store must **persist `highest_epoch` per shard, atomically with
+   the bytes** — a marker updated afterwards leaves a window.
+3. The segment key must carry the epoch. It is currently
+   `noetl.ehdb.seg.{shard:08x}.{segment_id:016x}` — 40 chars, fixed width,
+   **asserted by a test**. Changing it is itself a format migration.
+4. A **`kube`/HTTP client dependency this workspace deliberately does not have**.
+   The binding doc's own section is titled *"Why it is not built yet"*: pulling
+   in `k8s-openapi`, `tower`, `hyper` and a TLS stack is **"a dependency
+   decision, not an implementation detail, and it belongs to the owner."**
+
+⚠ Item 4 is therefore gated on a storage-contract change plus a dependency
+decision the spec explicitly reserves to the owner.
+
+### Item 4 (KV/object) — reversible by design, rollback path CONFIRMED
+
+The good news, and it is documented in `src/ehdb/kv.rs` rather than assumed:
+
+* **Two independent rollback levers.** Flip `NOETL_EHDB_KV` back to
+  `shadow`/`off` → the incumbent NATS-KV path is authoritative again
+  **instantly, no redeploy**. Plus a compile-time kill switch.
+* **"Zero data loss: the primary path only ever appends to the derived EHDB
+  `KeepAll` KV stream and never mutates/deletes anything NATS-KV owns"** — so
+  the old store is intact and a cutover is genuinely reversible.
+* `PRIMARY_SERVE_ACTIVATED = true` on both `kv` and `object` — the builds *can*
+  serve primary; it is purely the runtime flag.
+
+So the rollback path the owner asked about **is established**. The only thing
+missing is the fencing mechanism.
+
+### Item 5 (substrate D) — ⛔ NOT IRREVERSIBLE. **NOT IMPLEMENTED.**
+
+This is the finding that changes the task:
+
+```rust
+fn driver(cfg: &TierStoreConfig, tier: StoreTier) -> LocalReferenceEventLogDriver {
+    LocalReferenceEventLogDriver::new(...)   // concrete type, no backend match
+}
+```
+
+`tier_store::driver()` returns `LocalReferenceEventLogDriver` **unconditionally**
+— it is the concrete return type, not a trait object, and nothing branches on
+`NOETL_EHDB_EVENTLOG_BACKEND`. The tier service (`event_bus.rs`, running on
+`cmdbus-writer`) writes through exactly that.
+
+Meanwhile `src/ehdb/query.rs` **does** have an `EventLogStorageBackend::DurableSegment`
+read arm (lines 460, 527).
+
+**So setting `NOETL_EHDB_EVENTLOG_BACKEND=durable_segment` in prod would not
+migrate anything. It would make the READ path expect a format the WRITE path
+never produces** — a read/write split on a tier that is `primary` and RF=1.
+
+⚠ **The data exposure, stated exactly as required:** the event-log tier would
+become unreadable through the durable path while appends continue in
+local-reference format. It is **recoverable, not permanent loss** — Postgres
+remains authoritative for the business event log (verified §4.1) and
+server#441's Postgres recovery rung is live in prod — but it breaks prod's
+primary tier **for zero benefit**, because no migration occurs.
+
+That is not the irreversible-but-intended end state the owner consented to. It
+is a broken configuration. **Not flipped.**
+
+### What it would take to actually do item 5
+
+Implement the durable write path: a backend-dispatching `driver()` (trait object
+or enum), a `DurableSegmentEventLogDriver` write implementation, and a real
+migration that reads the existing local-reference tier and rewrites it in
+segment format — with the fencing epoch from #321 already in the key, since
+doing the key-format migration twice would be absurd. Sequenced **after** #321's
+mechanism, which the spec says gates it because replicas make election real.
+
 ## 🔴🔴 PROJECTOR CANARY → REGRESSION → ROLLED BACK (2026-09-18 02:2xZ)
 
 **`NOETL_PROJECTOR_ENABLED` was enabled on both system pools, caused projection-tier
