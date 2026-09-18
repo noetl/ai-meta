@@ -184,3 +184,70 @@ contains.
 
 **Prod was not touched by any of this — reads only.** Kind is restored to both
 projector flags ON, as the handover left it.
+
+---
+
+## Stage 1 attempt — root cause found and PARTIALLY closed. Bar NOT met.
+
+**Prod untouched. The change is on `noetl/server` branch
+`fix/verifier-reference-policy` (d1bb0820), deployed to KIND ONLY.**
+
+### What was wrong, exactly
+
+`events_from_postgres_hydrated` hydrated with a hardcoded `keep_refs = false`;
+`advance_snapshot` folds with `keep_refs = config.refs_in_state`, **default
+true**. Two representations of the same events ⇒ the digests could not agree on
+any result over the 512-byte floor.
+
+Every other hydrate call site threads the policy (`events.rs:2264, 2292, 2472,
+2587, 2588`, and `3410`/`3436` from `state.config.refs_in_state`). Only the
+verification leg and `ehdb_tier_repair.rs:185` pass a literal.
+
+⭐ **The guard covering that call site asserted `result_store, false` — it pinned
+the bug**, and would have failed any correct fix. That is the fourth guard in
+this program's history found enforcing the class it was meant to prevent.
+
+### Proof the fix does something real
+
+`diff_paths` for `muno/probe/big-parent`, before → after:
+
+```
+BEFORE  data/_ref, data/_uri, result/reference        (tier only)
+        data/count, data/hotels, data/meta, status    (postgres only)
+AFTER   data/_store, data/data, data/status           (one side only)
+```
+
+The reference-vs-inline split is **gone**. Tests: 3/3 mutants caught on a green
+baseline with 0 compile-error false positives; full lib suite 1124 passed.
+
+### 🛑 Why stage 1 is still BLOCKED
+
+Deployed to kind, **3 × `big-parent` still leaves `digest_mismatch` at 13**
+(≈4.3/execution, against ≈4.3/execution before). The bar is 0. **Do not enable
+the projector in prod.**
+
+A residual asymmetry remains: `_store` plus the `extracted` block (`data`,
+`status`) present on one side only.
+
+### ⚠ The instrument caveat for whoever continues
+
+`/api/ehdb/projection-fold/diff/{id}` folds the tier's **events**, not the
+**snapshot**. `grant_for_behind` compares the stored *snapshot* digest against a
+bounded Postgres fold. So the diff endpoint is **not on the serve path** and must
+not be used to declare `digest_mismatch` closed — it changed when I fixed the
+event-fold asymmetry while the serve-path counter did not. Instrument the serve
+path itself (log `stored_version`, `stored_digest`, `bounded.version`,
+`bounded.digest` at `ehdb_projection_fold.rs:1639`) before the next attempt, and
+make a numeric prediction on a fixed population first.
+
+Useful facts for that: `same_version: true` and
+`input_event_diffs_post_normalisation: []` on the failing execution, with
+identical `input_fields_*` on both sides — so the inputs agree and the divergence
+is produced **during the fold or the write**, not by a missing event.
+
+### Also worth fixing with it
+
+* `ehdb_tier_repair.rs:185` passes the same hardcoded `false`. The repair path
+  therefore writes a representation the orchestrator would not — a candidate
+  explanation for #343's "repair closed the COUNT gap and opened a CONTENT one".
+* `fold()` omits `normalise_null_json`; `fold_with_body()` calls it.
