@@ -1,5 +1,48 @@
 # Open work, and what each is waiting on
 
+## 🛑 BUILD STAGES 2–5 NOT STARTED — handed over at the accuracy cliff (2026-09-18)
+
+Owner authorized the full build (kube dependency included). The outgoing session
+**stopped rather than start stage 2**, and said so, because it had made two
+confident overclaims in its final two turns — both withdrawn, both from
+generalising off a partial read:
+
+* "substrate D is not implemented" — wrong; `build_durable_stack` exists and the
+  `DurableSegment` arm constructs it
+* "the fencing mechanism must be built" — wrong; `election.rs` (398 lines) and
+  `fencing.rs` (404 lines) are built, tested and merged, in shadow mode
+
+That failure mode is tolerable on a CI config. It is not tolerable on stage 2
+(fencing — a subtle error is split-brain and a corrupted log prefix) or stage 4
+(an irreversible rewrite of production event data). The owner had explicitly
+asked to be told on hitting this, so it was.
+
+📋 **`handover/FENCING-SUBSTRATE-BUILD-HANDOVER.md`** — everything verified,
+split line-by-line into VERIFIED vs NOT VERIFIED. Key contents:
+
+* ⭐ **Stage 2 is adapter + promotion, not a consensus build.** What remains is
+  the `kube` client (confirmed absent), a `LeaseStore` adapter, and two
+  owner-gated flips. **No segment-key migration is needed** — `fencing.rs` puts
+  the epoch in a per-shard marker precisely to avoid widening the 12-byte frame
+  header. The issue and the outgoing session both got this wrong.
+* 🛑 **Stage 1 is blocked on one signal.** Both flags in kind DO fix the
+  two-writer contention (checksum flat at 0 vs prod's climb to 10;
+  `skipped_projector_owns` climbing proves the orchestrator stopped
+  self-writing; no double-advance). **But `digest_mismatch` still climbs ~1 per
+  execution and the owner's bar was 0.** `DigestMismatch` means a *behind*
+  snapshot whose digest **disagrees** — content, not lag — which contradicts
+  `advance_snapshot`'s claim to be byte-for-byte the orchestrator's own write.
+  Explain before prod.
+* ✅ **Stage 5's rollback path is confirmed good** from source: two levers, and
+  the primary path never mutates or deletes anything NATS-KV owns.
+* ⚠ **The most important open unknown:** whether `tier_store.rs` (no backend
+  branch) and `eventlog_backend.rs` (branches, builds the durable stack)
+  conflict under a flip. Trace which path prod's event-log tier actually appends
+  through **before** stages 3–4.
+
+Kind is left with BOTH projector flags ON as a staging state. Prod is untouched:
+projector off, fail-on-step-error on, KV/object shadow, substrate unchanged.
+
 ## 🛑 CUTOVER + SUBSTRATE D — PRE-FLIGHT RESULT: ONE IS GATED, ONE IS NOT IMPLEMENTED (2026-09-18)
 
 Authorization is not the blocker. **Established by reading the tree, not by judgement:**
