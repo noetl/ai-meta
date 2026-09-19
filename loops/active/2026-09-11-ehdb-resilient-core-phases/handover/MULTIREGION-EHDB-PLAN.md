@@ -1,4 +1,4 @@
-# Omni / multi-dimensional / cross-regional EHDB — design + phased plan
+# Multi-region EHDB — design + phased plan
 
 **DESIGN ONLY. No prod change, no code change, no merge, no running config touched
 by this document.** Written 2026-09-18 against `ehdb@b8b9975`, `server@main`,
@@ -135,7 +135,7 @@ tier, not dangerous.
 must land in `tier_store.rs`, not `eventlog_backend.rs`.** The latter is the
 reference implementation to reuse, on a path prod does not take.
 
-### 1.3 The L0 engine — what is already Cockroach-shaped
+### 1.3 The L0 engine — the distributed-storage pieces that already exist
 
 ⚠⚠ **Read §0 first.** Everything in this table is real and is **not on the
 production event-log tier's path**. It is the bus engines' store.
@@ -239,7 +239,7 @@ Searched **129 `.rs` files under `ehdb/crates/`**, case-insensitive, with
 | Term | Hits | Reading |
 | :-- | --: | :-- |
 | `hlc`, `hybrid logical` | **0** | no hybrid logical clock |
-| `truetime`, `external consist` | **0** | no clock-uncertainty concept |
+| `truetime`, `external consist` | **0** | no clock-uncertainty concept |  <!-- search terms, not architecture names -->
 | `commit_ts` | **0** | no commit timestamp |
 | `leaseholder`, `follower_read` | **0** | no leaseholder/follower-read vocabulary |
 | `raft` | 11, **all prose** (`election.rs:23-26`, `lib.rs:85`, `catalog.rs:32`, test docs) | explicitly *not* built, by decision |
@@ -289,9 +289,10 @@ posture, and each struct a new field touches must be checked individually.
 **C1 — EHDB has no consensus and will not grow one for storage.**
 `lib.rs:85` makes the immutable-part/N-way-copy choice explicit and retires
 per-shard Raft. Immutable objects never conflict, so copy needs no agreement.
-Therefore: **do not port Cockroach's Raft ranges.** Port its *placement*,
-*leaseholder*, *MVCC read* and *survival-goal* concepts, which are separable
-from its replication mechanism.
+Therefore: **do not build consensus-replicated key ranges.** Take the
+*replica placement*, *writer-lease leadership*, *timestamped read* and
+*survival-goal* capabilities, which are separable from that replication
+mechanism.
 
 **C2 — ordering is leaderful per shard, and that is load-bearing.**
 Gaplessness and ascending order hold *because* one writer serialises
@@ -313,44 +314,55 @@ Everything in §3–§6 is the consequence of these three.
 
 ---
 
-## 3. Concept → EHDB-primitive mapping
+## 3. Capability → EHDB-primitive mapping
+
+> **Prior art — where these ideas come from.** The capabilities below are not
+> invented here. Hybrid logical clocks come from Kulkarni et al. (2014);
+> externally-consistent distributed transactions over a bounded-uncertainty
+> clock were demonstrated by Google's Spanner; lease-holder replication with
+> closed timestamps, follower reads, locality-aware placement and multi-region
+> survival goals are the shape CockroachDB popularised. This is the only place
+> those products are named. **Nothing in EHDB's architecture is named after
+> them** — every capability below carries a descriptive name, and the design
+> decisions are EHDB's own (in particular the refusal of consensus-replicated
+> storage, §2 C1, which both of those systems depend on).
 
 `REUSE` = the primitive exists and is extended additively.
 `NEW` = genuinely new code.
 `DECLINE` = deliberately not built, with the reason.
 
-### 3.1 Spanner
+### 3.1 Clock, timestamps and read freshness
 
-| Spanner concept | EHDB primitive | Verdict | Notes |
+| Capability | EHDB primitive | Verdict | Notes |
 | :-- | :-- | :-- | :-- |
-| **TrueTime** (GPS/atomic, hardware ε) | — | **DECLINE** | No TrueTime hardware, and no credible path to one on GKE Autopilot. |
+| **Hardware clock with a bounded ε** (GPS / atomic) | — | **DECLINE** | We have none, and no credible path to one on GKE Autopilot. |
 | **Clock substrate** | `HlcClock` beside `SnowflakeGenerator` (`server/src/snowflake.rs`) | **NEW (small)** | 48-bit physical ms ‖ 16-bit logical. Recommended substrate — see fork F1. |
 | **Commit timestamp** | `EventRecord.commit_hlc: Option<u64>` (`dataset.rs:164`) | **NEW field, REUSE carrier** | Additive per §1.9. **Never** replaces `global_sequence`, which stays the sort key. |
-| **External consistency** | HLC + uncertainty interval + **fail-closed max-offset halt** | **NEW** | Achieved by *restart-on-uncertainty* (Cockroach's method), not commit-wait — see F1. The halt needs a peer set, which is why D8/gossip is a prerequisite. |
+| **External consistency** | HLC + uncertainty interval + **fail-closed max-offset halt** | **NEW** | Achieved by *restart-on-uncertainty* (retry a read falling inside the interval at a higher timestamp), not commit-wait — see F1. The halt needs a peer set, which is why D8/gossip is a prerequisite. |
 | **Commit-wait** | opt-in `NOETL_EHDB_COMMIT_WAIT_MS` | **NEW, default 0 (off)** | Only meaningful with a *trusted* ε. Offered as a knob, recommended off. |
 | **Bounded-staleness read** | closed timestamp derived from `UnreplicatedTracker` + sealed-part watermark | **REUSE** ⭐ | `unreplicated.rs` already computes *"age of the oldest acked-but-not-yet-durable record"* — the exact quantity a closed timestamp needs. |
 | **Exact-staleness read** | read at HLC `ts`; parts pruned by `[min,max]` sort key via `catalog.rs` | **REUSE + NEW predicate** | Pruning machinery exists; the ts→sequence resolution is new. |
 | **Placement / leader-region policy** | `Locality` on `ReplicaTarget` (`engine.rs:230`) + lease holder attribute | **REUSE + NEW field** | |
 | **Survival goal (zone / region)** | `L0Config::require_distinct_domains: bool` (`engine.rs:111`) → `SurvivalGoal` | **REUSE, widened** | Today's `true` maps exactly to `SurvivalGoal::Zone`. |
-| **Paxos groups per split** | — | **DECLINE** | C1. |
-| **Read-only / read-write txns** | — | **DECLINE** | See §3.2 distributed txns. |
+| **Consensus group per partition** | — | **DECLINE** | C1. |
+| **Multi-key read-only / read-write transactions** | — | **DECLINE** | See §3.2 distributed txns. |
 
-### 3.2 CockroachDB
+### 3.2 Partitioning, replication, placement and leadership
 
-| Cockroach concept | EHDB primitive | Verdict | Notes |
+| Capability | EHDB primitive | Verdict | Notes |
 | :-- | :-- | :-- | :-- |
-| **Range** (a key span) | **Shard** — `shard_for_i64` XxHash64 seed 0 % `shard_count` (`affinity.rs`) | **REUSE** | Fixed hash partition, not a splittable span. No rebalancer, no split/merge — and none is planned. |
-| **Leaseholder** | The shard's elected writer (`election.rs` `LeaseRecord.holder`) | **REUSE** ⭐ | Already exists with the right semantics; it is just not authoritative yet. |
+| **Key-span partition** | **Shard** — `shard_for_i64` XxHash64 seed 0 % `shard_count` (`affinity.rs`) | **REUSE** | Fixed hash partition, not a splittable span. No rebalancer, no split/merge — and none is planned. |
+| **Single-writer lease holder per partition** | The shard's elected writer (`election.rs` `LeaseRecord.holder`) | **REUSE** ⭐ | Already exists with the right semantics; it is just not authoritative yet. |
 | **Lease epoch / fencing token** | `LeaseRecord.transitions` + the per-shard fencing marker (`fencing.rs`) | **REUSE** ⭐ | And, per C3, the marker is out-of-band so its payload can grow. |
-| **Raft replication of the log** | — | **DECLINE** | C1. Replaced by: immutable-part N-way copy + cold-load + fungible writer. |
-| **Zone configs** | `FailureDomain` + `validate_replica_domains` + `require_distinct_domains` | **REUSE, widened** | |
+| **Consensus-replicated log** | — | **DECLINE** | C1. Replaced by: immutable-part N-way copy + cold-load + fungible writer. |
+| **Placement policy per replica set** | `FailureDomain` + `validate_replica_domains` + `require_distinct_domains` | **REUSE, widened** | |
 | **Locality-aware placement** | `Locality { region, zone, domain }` on `ReplicaTarget` | **NEW field over REUSE** | `FailureDomain::Remote{provider,bucket}` already models an off-node domain. |
-| **Follower reads** | non-owner read already **cold-loads read-only** (`affinity.rs`) | **REUSE** ⭐ | Needs only a closed-timestamp gate to become a *correct* follower read. |
+| **Reads served by a non-leader replica** | non-owner read already **cold-loads read-only** (`affinity.rs`) | **REUSE** ⭐ | Needs only a closed-timestamp gate to become a *correct* follower read. |
 | **MVCC** | — | **DECLINE, and note why it is not needed** | D1 is an append-only log: history is intrinsic. "Read at ts" = "read the prefix ≤ ts", not a version chain. Derived tiers (D3/D4) get snapshot semantics from *re-folding the log at ts*, which is already how D3 works. |
-| **Distributed txns / 2PC over consensus** | — | **DECLINE** | The write unit is a single-shard append; there is no multi-shard atomic requirement in the D1–D10 set. Building 2PC would be exactly the "reinvent a subtle algorithm that fails silently" case [`self-sufficiency.md`](../../../../agents/rules/self-sufficiency.md) forbids. **If** a cross-execution atomic requirement ever appears, it is a new RFC, not a phase here. |
+| **Distributed transactions / 2PC over consensus** | — | **DECLINE** | The write unit is a single-shard append; there is no multi-shard atomic requirement in the D1–D10 set. Building 2PC would be exactly the "reinvent a subtle algorithm that fails silently" case [`self-sufficiency.md`](../../../../agents/rules/self-sufficiency.md) forbids. **If** a cross-execution atomic requirement ever appears, it is a new RFC, not a phase here. |
 | **Closed timestamps** | derived from seal watermark + `UnreplicatedTracker` | **REUSE** | |
-| **Survivability (ZONE vs REGION)** | `SurvivalGoal` | **NEW enum over REUSE** | ⚠ Asymmetric — see §3.3. |
-| **Node liveness / gossip** | D8 `RuntimeDataset` + `ehdb-gossip` (foca) | **REUSE, both inert** | Adoption plan, not construction. |
+| **Survival goal (ZONE vs REGION)** | `SurvivalGoal` | **NEW enum over REUSE** | ⚠ Asymmetric — see §3.3. |
+| **Node liveness / membership gossip** | D8 `RuntimeDataset` + `ehdb-gossip` (foca) | **REUSE, both inert** | Adoption plan, not construction. |
 
 ### 3.3 Cross-regional — and the one honest asymmetry
 
@@ -378,7 +390,7 @@ be wrong for most of this plan's life, so every phase states which half it buys.
 
 ## 4. The dimensional model — six axes, three resolvers
 
-"Omni / multi-dimensional" is only affordable if the axes **compose in data**
+A multi-dimensional configuration surface is only affordable if the axes **compose in data**
 rather than multiplying in code. The rule this plan holds to:
 
 > ⛔ **No axis may introduce a branch inside a tier driver.**
@@ -624,7 +636,7 @@ nothing in them touches the store's replication or placement.
 | `NOETL_EHDB_TIER_BACKEND` | `local_reference` | `local_reference`\|`l0` — puts the tier on the L0 store at all | byte-identical differential run under the default; cross-backend read refused, not misparsed | ⚠ the `primary` tier's store | `local_reference` |
 | `NOETL_EHDB_LOCALITY` | unset | region/zone recorded on replicas | manifest diff; rollback-binary read | manifest bytes | unset |
 | `NOETL_EHDB_HLC` | `off` | `off`\|`shadow`\|`on` — commit-HLC stamping | 100 % stamped; mutate-to-constant shows nothing reads it; offset gauge pinned 0 | +8 B/record | `off` |
-| `NOETL_EHDB_COMMIT_WAIT_MS` | `0` | Spanner-style commit-wait | latency histogram; **recommended to stay 0** | write latency | `0` |
+| `NOETL_EHDB_COMMIT_WAIT_MS` | `0` | wait out the clock-uncertainty interval before acking | latency histogram; **recommended to stay 0** | write latency | `0` |
 | `NOETL_EHDB_READ_CONSISTENCY` | `strong` | `strong`\|`bounded`\|`exact` | prefix property on a fixed population, numeric prediction first | read path | `strong` |
 | `NOETL_EHDB_SURVIVAL_GOAL` | `zone` | `zone`\|`region` placement refusal | refusal test that fails when the check is removed; domain-unreachable read test with a negative control | **engine open can fail** | `zone` |
 | `NOETL_EHDB_FENCING` | `shadow` | `shadow`\|`enforce` — Invariant F | stale-epoch write refused in kind, `stale_epoch` in logs | ⚠⚠ **can refuse prod writes** | `shadow` |
@@ -650,13 +662,13 @@ unwinding earlier phases.
 
 | Option | Pro | Con |
 | :-- | :-- | :-- |
-| **A. HLC** (48-bit physical ‖ 16-bit logical) | No coordination; degrades to a Lamport clock under skew; the standard choice absent TrueTime; small and testable | Ordering is causal + approximate-real-time, not externally consistent without an uncertainty protocol |
+| **A. HLC** (48-bit physical ‖ 16-bit logical) | No coordination; degrades to a Lamport clock under skew; the standard choice when there is no bounded-ε hardware clock; small and testable | Ordering is causal + approximate-real-time, not externally consistent without an uncertainty protocol |
 | **B. Global sequencer** | A true total order | A single global coordinator is a cross-region round trip on the write path **and** exactly the external-service dependency [`self-sufficiency.md`](../../../../agents/rules/self-sufficiency.md) forbids |
 | **C. Commit-wait on NTP ε** | Genuine external consistency | Only as sound as ε; an unmeasured ε buys a false guarantee — worse than none |
 
 ⭐ **Recommended: A, with C available as an off-by-default knob.**
-External consistency is approached the way Cockroach does it — an *uncertainty
-interval* plus a **fail-closed max-offset halt**, not a wait. Two commitments
+External consistency is approached with an *uncertainty interval* plus a
+**fail-closed max-offset halt**, not a wait. Two commitments
 that make it honest rather than decorative:
 
 1. ε is **configured and observed**, with `ehdb_clock_offset_millis` pinned at 0.
@@ -728,7 +740,7 @@ shape that produced the frozen `noetl.execution.status` column
 
 ## 8. What this plan deliberately does not do
 
-- **No Raft, no Paxos, no 2PC, no distributed transactions.** C1, and the
+- **No consensus protocol, no 2PC, no distributed transactions.** C1, and the
   no-multi-shard-atomicity reading of the D1–D10 set.
 - **No general-purpose database features.** The layered-platform RFC's program
   invariant binds every layer: no arbitrary schemas, no DDL, no cost-based
@@ -764,8 +776,8 @@ actually goes wrong here:
 
 ## 10. Summary for a reader with two minutes
 
-1. **`ehdb-l0` is already half of Cockroach's storage layer** — immutable
-   parts, N-way replica sets, a manifest that is a replica-location catalog,
+1. **`ehdb-l0` already has half of what a distributed store needs** —
+   immutable parts, N-way replica sets, a manifest that is a replica-location catalog,
    failure domains that fail closed, cold-load, and a per-shard writer lease
    with a fencing epoch. What it lacks is **locality metadata, a clock, and a
    read-freshness gate**.
@@ -774,10 +786,12 @@ actually goes wrong here:
    seal and no replication. Converging the tier onto L0 (**M0.5**) is a
    prerequisite for the placement and replication phases, and is the work
    already scoped as stage 3.
-2. It will **never be Cockroach's consensus layer**, by an explicit decision
-   recorded in `lib.rs:85`. So the port is of placement, leaseholder, MVCC-read
-   and survival-goal concepts — not of Raft.
-3. The clock should be **HLC**, not TrueTime and not a global sequencer, with
+2. It will **never grow a consensus layer for storage**, by an explicit
+   decision recorded in `lib.rs:85`. So what is added is replica placement,
+   writer-lease leadership, timestamped reads and survival goals — not a
+   replicated log.
+3. The clock should be **HLC**, not bounded-ε hardware and not a global
+   sequencer, with
    external consistency approached via an uncertainty interval and a
    **fail-closed offset halt** that needs D8/gossip to exist first.
 4. Multi-dimensionality is affordable because four new axes feed **three pure

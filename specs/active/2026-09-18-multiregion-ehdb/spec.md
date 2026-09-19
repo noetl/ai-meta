@@ -1,15 +1,15 @@
 ---
-spec: 2026-09-18-omni-multiregion-ehdb
+spec: 2026-09-18-multiregion-ehdb
 status: draft
 created: 2026-09-18T19:20:00Z
 owner: claude-opus-5 (ai-meta session 2026-09-18)
 ---
 
-# Omni / multi-region EHDB — umbrella spec
+# Multi-region EHDB — umbrella spec
 
 **Planning only. No prod change, no running config touched, nothing merged to
 `main`.** Design source:
-[`OMNI-MULTIREGION-EHDB-PLAN.md`](../../../loops/active/2026-09-11-ehdb-resilient-core-phases/handover/OMNI-MULTIREGION-EHDB-PLAN.md).
+[`MULTIREGION-EHDB-PLAN.md`](../../../loops/active/2026-09-11-ehdb-resilient-core-phases/handover/MULTIREGION-EHDB-PLAN.md).
 
 This is the umbrella. One spec per phase lives beside it:
 
@@ -37,8 +37,10 @@ a tier that is already `primary` in production.
 
 ## Goals
 
-- Port the **placement, leaseholder, MVCC-read and survival-goal** concepts from
-  Spanner and CockroachDB onto EHDB's existing primitives.
+- Add **replica placement, writer-lease leadership, timestamped reads and
+  region survival goals** to EHDB, built on its existing primitives.
+  (Prior art for these ideas is credited once in the plan doc's *Prior art*
+  note; nothing in this architecture is named after another product.)
 - Every capability behind a flag, default OFF/SHADOW, additive on disk,
   independently shippable and independently reversible.
 - Region-survivable **reads**.

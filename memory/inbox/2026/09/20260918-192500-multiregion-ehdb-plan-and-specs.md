@@ -1,18 +1,19 @@
-# Omni/multi-region EHDB: plan + 12 specs, and four grounding corrections
+# Multi-region EHDB: plan + 12 specs, and four grounding corrections
 - Timestamp: 2026-09-18T19:25:00Z
 - Author: Claude
-- Tags: ehdb,multiregion,design,specs,cockroach,spanner,hlc,fencing,l0,grounding
+- Tags: ehdb,multiregion,design,specs,hlc,closed-timestamp,fencing,l0,grounding
 
 ## Summary
 
-Design-only session. Produced a CockroachDB/Spanner → EHDB concept mapping, a
-dimensional model, a phased plan and 12 specs. **No prod change, no code
-change, nothing merged.** Branch `design/omni-multiregion-ehdb`.
+Design-only session. Produced a capability → EHDB-primitive mapping, a
+dimensional model, a phased plan and 12 specs. (Naming: nothing here is branded
+after another product; prior art is credited once in the plan doc.) **No prod change, no code
+change, nothing merged.** Branch `design/multiregion-ehdb`.
 
 Artefacts:
 
-- `loops/active/2026-09-11-ehdb-resilient-core-phases/handover/OMNI-MULTIREGION-EHDB-PLAN.md`
-- `specs/active/2026-09-18-omni-multiregion-ehdb/` — `spec.md` (umbrella) +
+- `loops/active/2026-09-11-ehdb-resilient-core-phases/handover/MULTIREGION-EHDB-PLAN.md`
+- `specs/active/2026-09-18-multiregion-ehdb/` — `spec.md` (umbrella) +
   M0, M0.5, M1, M2a, M2, M3, M4, M5, M6, M7, M8.
 
 ## The four grounding corrections — the durable value of the session
@@ -74,12 +75,12 @@ multi-region support would be the recurring error.
 
 ## Decisions taken inline (not blocked on)
 
-- **HLC**, not TrueTime (no hardware) and not a global sequencer (a cross-region
+- **HLC**, not bounded-ε hardware clocks (we have none) and not a global sequencer (a cross-region
   round trip on the write path, and the external-service dependency
   `self-sufficiency.md` forbids). External consistency via restart-on-uncertainty
   + a **fail-closed max-offset halt** — which needs a peer set, which is why D8 /
   foca adoption (M2a) is a hard prerequisite rather than a nice-to-have.
-- **Leaderful per shard, never Raft ranges** (immutable parts do not conflict;
+- **Leaderful per shard, never consensus-replicated ranges** (immutable parts do not conflict;
   `ehdb-l0/src/lib.rs:85` already retires per-shard Raft).
 - **Re-derive** cross-region projections from the replicated log; do not
   replicate derived tiers.
