@@ -32,13 +32,18 @@ One spec per phase lives beside this one:
 | S0 | ✅ **met** | `noetl/ehdb` `feat/slm-context-s0-frame-invariants` @ `bdf9b5a` — 14 tests |
 | S1 | ◐ types landed; emission pending | `noetl/ehdb` `feat/slm-context-s1-s2-events-fold` @ `9a293da` — 6 tests |
 | S2 | ◐ fold landed; shadow-compare pending | same commit — 13 tests |
-| S3 | ⏸ **stopped** — blocked on forks F2 and F4 | — |
+| S3 | ◐ **propose-only met**; execute-mode is the owner gate | `noetl/ehdb` `feat/slm-context-s3-propose-gate` @ `a3ac326` — 21 tests |
 | S4–S6 | not started | — |
 
-S1/S2 landed as the crate `ehdb-slm-context`: types plus one pure function,
-**inert by construction** because nothing calls it. Emission and the fold call
-site are server wiring and come after S3's forks are settled, since what a
-generated step may be (F2) determines what the emission path carries.
+S1–S3 landed as the crate `ehdb-slm-context`: types, one pure fold, and a pure
+admission gate. **Inert by construction** — nothing calls it, and the gate has
+no execution path at all. Forks settled 2026-09-19: **F2 = catalog entry** under
+a dedicated prefix; **F4 = the `propose` arm is active, execution owner-gated**.
+
+⏸ **Stopped at the owner gate.** The remaining work is flipping execute-mode on,
+which needs the owner's confirm, `DslValidator` implemented in `noetl-server`
+over its two `pub` parser fns, the register→call path wired, and ⚠ a **tagged
+`ehdb` release** — the server pins ehdb by tag, so it cannot consume a branch.
 
 ## Problem
 

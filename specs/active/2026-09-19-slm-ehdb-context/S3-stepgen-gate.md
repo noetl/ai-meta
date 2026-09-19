@@ -8,7 +8,8 @@ owner: claude-opus-5 (ai-meta session 2026-09-19)
 # S3 — Propose → validate → admit, with all five gates
 
 Phase of [`spec.md`](spec.md). **Planning only.** Depends on **S2**.
-**Forks F2 and F4 must be settled before implementation.**
+**Forks settled by the owner 2026-09-19: F2 = catalog entry (APPROVED); F4 = the
+`propose` arm is the ACTIVE default and execution is owner-gated.**
 
 ## Scope
 
@@ -37,12 +38,12 @@ the rejection rate can be measured before anything runs.
 
 ## The five gates
 
-1. **DSL schema validation.** ⚠ **Reuse the parser, do not reimplement it.**
-   `repos/server/src/playbook/parser.rs` is **VERIFIED** to validate steps and
-   loop config (`:378–409`). **ASSUMED** it is callable as a library from an
-   admission path; S3's first task is to check. If it is only reachable over
-   HTTP, the gate becomes register-with-dry-run and this spec records that.
-   Two validators that disagree is worse than one that is strict.
+1. **DSL schema validation.** ⭐ **VERIFIED callable — the ASSUMED row is
+   resolved.** `parse_playbook` (`parser.rs:15`) and `validate_playbook`
+   (`parser.rs:164`) are **both `pub`**, so no HTTP dry-run fallback is needed.
+   The gate takes an injected `DslValidator` trait; `ehdb-slm-context` never
+   grows a DSL opinion of its own. Two validators that disagree is worse than
+   one that is strict.
 2. **Tool-kind allowlist.** A generated step may use only listed kinds. The
    registry has **VERIFIED** 20 kinds (`repos/tools/src/tools/mod.rs:90–109`);
    the default admits 3.
@@ -112,8 +113,28 @@ Flag to `off`. Admitted-but-unexecuted catalog entries are inert; a cleanup pass
 may soft-delete them (catalog soft delete is **VERIFIED live** per the memory
 index, reversible via `POST /api/catalog/restore`).
 
-## Exit criteria
+## Exit criteria — ◐ PROPOSE-ONLY MET; execute-mode is the owner gate
 
-A1–A6 green on kind, all four RED controls demonstrated from a green baseline,
-F2 and F4 recorded as decided, and the `parser.rs`-callable-as-library question
-answered in the Gates table above.
+**Landed:** `noetl/ehdb` branch `feat/slm-context-s3-propose-gate`, commit
+`a3ac326`, module `gate`. 21 tests (43 in the crate).
+
+⛔ **Nothing executes, and not because a flag says so.** There is no execution
+path in the crate — no function registers a catalog entry, runs a step, or does
+I/O. `StepGenMode::Execute` parses and behaves as `Propose`;
+`Admission::executed` is always `false`, asserted.
+
+Met: A1 (`off` considers nothing), A2 (exactly one outcome per proposal, across
+every gate), A3 (rejection carries a countable rule), A4 (side-effectful kinds
+await approval and are **not** admitted), A6 (`auth:` refused however nested).
+A5's three bounds are enforced by the gate reading the fold's `Budget`.
+
+RED→GREEN, six plants, revert verified after each. ⭐ P5 — setting
+`executed: true` — fails exactly `nothing_executes_even_in_execute_mode`, which
+is what makes the owner gate load-bearing rather than declarative.
+
+**The only remaining work is flipping execute-mode on**, which needs:
+1. the owner's explicit confirm (especially for `python`);
+2. `DslValidator` implemented in `noetl-server` over the two `pub` parser fns;
+3. the register→call path wired (`catalog.rs:49` → `playbook.rs:99`);
+4. ⚠ **a tagged `ehdb` release** — `noetl-server` pins ehdb by TAG
+   (`Cargo.toml:106-107`, `v0.2.0`), so it cannot consume a branch.
