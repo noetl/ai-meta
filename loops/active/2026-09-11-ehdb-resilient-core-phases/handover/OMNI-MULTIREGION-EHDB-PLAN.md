@@ -28,6 +28,69 @@ denominator.
 
 ---
 
+## 0. ⚠⚠ Correction issued 2026-09-18, after this document's first commit
+
+**Found while writing the specs, and it invalidates an implicit assumption in
+§1.3, §5 and §10 of the version first committed. Recorded rather than silently
+rewritten, because the mistake is the same class the rest of this document
+warns about.**
+
+> **The `primary`-serving event-log TIER does not run on `ehdb-l0` at all.**
+
+**VERIFIED:**
+
+- `worker/src/ehdb/tier_store.rs:207 driver()` returns
+  `ehdb_reference::LocalReferenceEventLogDriver`
+  (`ehdb/crates/ehdb-reference/src/eventlog.rs:339`), whose own doc says it
+  *"composes the existing append-only stream primitives (`LocalReferenceRuntime`
+  + `ehdb_stream`)"*.
+- **`ehdb-reference` does not depend on `ehdb-l0`.** Its `[dependencies]` are
+  arrow-{array,ipc,schema}, ehdb-{catalog,core,retrieval,storage,stream,system,transaction},
+  serde, serde_json, twox-hash. No `ehdb-l0`.
+- `ehdb-stream`'s only dependencies are `ehdb-core`, `serde`, `serde_json`. Its
+  storage is `OpenOptions::new().append(true)` + `BufReader::lines()` —
+  a line-oriented append-only file. Occurrence counts in
+  `crates/ehdb-stream/src/lib.rs`: `replica` **0**, `seal` **0**,
+  `manifest` **0**, `fsync` **0**, `sync_data` 1.
+- The L0 engine *is* in the same process — `worker/src/event_bus.rs:258`
+  opens `L0Engine::<D1EventLog>::open(...)`, and the tier service is spawned
+  from that same file (`:321` config, `:358 serve_tier`). But it is a
+  **separate storage stack serving a different port**, not the tier's store.
+
+### What this changes
+
+Every primitive §1.3 celebrates — `ReplicaTarget` / N-way copy, `FailureDomain`,
+`UnreplicatedTracker`, sealed parts + manifest, `seal_max_age`, cold-load — is
+**real, and is on the two BUS engines (cmdbus, eventbus), not on the tier that
+serves `primary`**. So phases M1 / M4 / M7 as first written would extend a store
+the production event-log tier does not use. They would have been inert on the
+tier for exactly the reason `NOETL_EHDB_EVENTLOG_BACKEND` is inert (§1.2) —
+a flag on a path prod does not take.
+
+⚠ The §1.3 note about `NOETL_EHDB_SEAL_MAX_AGE_MS` stays correct as written
+(two call sites, both **buses**) but must not be read as bounding the tier's
+durability window. **The tier has no seal, no parts and no replication at all.**
+
+### The fix to the plan
+
+A prerequisite phase is inserted: **M0.5 — tier-store L0 convergence**, which
+gives `tier_store::driver()` a backend dispatch so the tier can be served by an
+L0-backed driver. This is the same work
+[`TRACE-RESULTS.md`](TRACE-RESULTS.md) already identified as stage 3
+(*"the durable write path must be implemented in `tier_store.rs`, not in
+`eventlog_backend.rs`"*) — this document now depends on it rather than
+duplicating it.
+
+**M0.5 gates M1, M4 and M7.** M2 / M2a / M3 / M5 / M6 / M8 are unaffected: the
+HLC field rides the record body, fencing is out-of-band in the per-shard marker,
+and routing/leadership sit above the store.
+
+⭐ The generalisable lesson, which is this program's own recurring one: *"the
+primitive exists" and "the primitive is on the path" are independent questions,
+and only the second one decides whether a phase does anything.*
+
+---
+
 ## 1. Ground truth — what EHDB is today
 
 ### 1.1 The tier model
@@ -73,6 +136,9 @@ must land in `tier_store.rs`, not `eventlog_backend.rs`.** The latter is the
 reference implementation to reuse, on a path prod does not take.
 
 ### 1.3 The L0 engine — what is already Cockroach-shaped
+
+⚠⚠ **Read §0 first.** Everything in this table is real and is **not on the
+production event-log tier's path**. It is the bus engines' store.
 
 **VERIFIED** in `ehdb/crates/ehdb-l0/`:
 
@@ -430,12 +496,23 @@ and this program's own scar tissue:
 | **Rollback** | revert |
 | **Why first** | Every later phase is "give a resolver a non-default input". If the identity is not proven here, no later phase's rollback is trustworthy. |
 
+### M0.5 — Tier-store L0 convergence — **prerequisite for M1 / M4 / M7**
+
+| | |
+| :-- | :-- |
+| **Flag** | `NOETL_EHDB_TIER_BACKEND` = `local_reference` \| `l0`, default `local_reference` |
+| **Entry** | M0 exit |
+| **Exit** | (a) `tier_store::driver()` dispatches on the flag instead of returning a concrete type (`tier_store.rs:207`); (b) under `l0` the tier is served by an L0-backed driver; (c) under `local_reference` the produced bytes and the `EventLogAppendOutcome` are **byte-identical to today**, proven by a differential run over a fixed population; (d) a read written by one backend is refused rather than silently misparsed by the other |
+| **Blast radius** | ⚠ the store under a `primary`-serving tier. Highest-risk phase before M5 |
+| **Rollback** | flag → `local_reference` |
+| **Note** | This is stage 3 from `TRACE-RESULTS.md`, not new scope. This plan consumes it. Without it, M1 / M4 / M7 are inert on the tier — see §0 |
+
 ### M1 — Locality metadata, enforced nowhere
 
 | | |
 | :-- | :-- |
 | **Flag** | `NOETL_EHDB_LOCALITY` (e.g. `region=us-central1,zone=us-central1-a`), default unset |
-| **Entry** | M0 exit |
+| **Entry** | M0 **and M0.5** exit — otherwise this is inert on the tier (§0) |
 | **Exit** | (a) `Locality` recorded on `ReplicaTarget` and in `ReplicaLocation`; (b) unset ⇒ `FailureDomain::Undeclared`-equivalent, which **already fails closed** (`failure_domain.rs`) — a locality-less replica can never be *shown* independent; (c) `require_distinct_domains` behaviour bit-identical; (d) manifests written with locality are read by a **rollback binary** without error (the §1.9 expand-first check, run explicitly) |
 | **Blast radius** | manifest bytes grow by a small optional field; nothing reads it |
 | **Rollback** | unset the flag; the field is `Option` + `skip_serializing_if`, so new manifests serialise byte-identically again |
@@ -474,7 +551,7 @@ inert in prod. ⚠ *"Does it exist" and "does it work" are independent questions
 | | |
 | :-- | :-- |
 | **Flag** | `NOETL_EHDB_SURVIVAL_GOAL` = `zone` \| `region`, default `zone` |
-| **Entry** | M1 exit + at least one genuinely remote substrate implementing `DurableSubstrate` with `FailureDomain::Remote` |
+| **Entry** | M0.5 + M1 exit + at least one genuinely remote substrate implementing `DurableSubstrate` with `FailureDomain::Remote` |
 | **Exit** | (a) `zone` is behaviourally identical to today's `require_distinct_domains: true`; (b) under `region`, `validate_replica_domains` **refuses** a replica set whose members share a region — proven by a test that *fails* when the check is removed; (c) a sealed part remains readable after one domain is made unreachable (kind: unmount / deny the path), with a negative control showing the test can detect the absence; (d) `ehdb_replica_placement_violations_total{goal}` pinned at 0 for both label values |
 | **Blast radius** | engine **open** can now refuse to start on a misconfigured replica set. This is the first phase that can fail a deploy — deliberately placed after the read-side phases and before anything touching writes |
 | **Rollback** | flag → `zone` |
@@ -527,10 +604,15 @@ inert in prod. ⚠ *"Does it exist" and "does it work" are independent questions
 ### Phase dependency
 
 ```
-M0 ─► M1 ─┬─► M2 (needs M2a) ─► M3 ─┐
-          └─► M4 ──────────────────┬┴─► M5 ─┬─► M6 ─► M7 ─► M8
- M2a ─────────────────────────────┘         └─ (M5 gates everything right of it)
+                 ┌─► M2 (needs M2a) ─► M3 ─┐
+M0 ─┬─► M0.5 ─► M1 ─► M4 ─────────────────┼─► M5 ─► M6 ─► M7 ─► M8
+    └─► M2a ──────────────────────────────┘
+     ▲                                     ▲
+     │ M0.5 gates M1/M4/M7 (§0)            │ M5 gates everything to its right
 ```
+
+M2 / M2a / M3 do **not** need M0.5: the HLC field rides the record body, and
+nothing in them touches the store's replication or placement.
 
 ---
 
@@ -539,6 +621,7 @@ M0 ─► M1 ─┬─► M2 (needs M2a) ─► M3 ─┐
 | Flag | Default | Enables | Proven by | Blast radius | Rollback |
 | :-- | :-- | :-- | :-- | :-- | :-- |
 | *(none — M0)* | — | resolver identity | mutation battery, green baseline + positive control | none | revert |
+| `NOETL_EHDB_TIER_BACKEND` | `local_reference` | `local_reference`\|`l0` — puts the tier on the L0 store at all | byte-identical differential run under the default; cross-backend read refused, not misparsed | ⚠ the `primary` tier's store | `local_reference` |
 | `NOETL_EHDB_LOCALITY` | unset | region/zone recorded on replicas | manifest diff; rollback-binary read | manifest bytes | unset |
 | `NOETL_EHDB_HLC` | `off` | `off`\|`shadow`\|`on` — commit-HLC stamping | 100 % stamped; mutate-to-constant shows nothing reads it; offset gauge pinned 0 | +8 B/record | `off` |
 | `NOETL_EHDB_COMMIT_WAIT_MS` | `0` | Spanner-style commit-wait | latency histogram; **recommended to stay 0** | write latency | `0` |
@@ -681,11 +764,16 @@ actually goes wrong here:
 
 ## 10. Summary for a reader with two minutes
 
-1. EHDB is **already half of Cockroach's storage layer** — immutable parts,
-   N-way replica sets, a manifest that is a replica-location catalog, failure
-   domains that fail closed, cold-load, and a per-shard writer lease with a
-   fencing epoch. What it lacks is **locality metadata, a clock, and a
+1. **`ehdb-l0` is already half of Cockroach's storage layer** — immutable
+   parts, N-way replica sets, a manifest that is a replica-location catalog,
+   failure domains that fail closed, cold-load, and a per-shard writer lease
+   with a fencing epoch. What it lacks is **locality metadata, a clock, and a
    read-freshness gate**.
+   ⚠⚠ **But L0 is not what serves the `primary` event-log tier** (§0) — that is
+   `ehdb-reference` over a line-oriented append-only file with no parts, no
+   seal and no replication. Converging the tier onto L0 (**M0.5**) is a
+   prerequisite for the placement and replication phases, and is the work
+   already scoped as stage 3.
 2. It will **never be Cockroach's consensus layer**, by an explicit decision
    recorded in `lib.rs:85`. So the port is of placement, leaseholder, MVCC-read
    and survival-goal concepts — not of Raft.
