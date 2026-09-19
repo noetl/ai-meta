@@ -1,5 +1,5 @@
 ---
-spec: 2026-09-18-omni-multiregion-ehdb-M2
+spec: 2026-09-18-multiregion-ehdb-M2
 status: draft
 created: 2026-09-18T19:20:00Z
 owner: claude-opus-5 (ai-meta session 2026-09-18)
@@ -15,8 +15,9 @@ Introduce a Hybrid Logical Clock, stamp a commit HLC on every append, and read
 it nowhere. M2 establishes the clock; M3 is the first phase that uses it.
 
 **Recommended over the alternatives (fork F1), decided inline:** HLC, not
-TrueTime (no hardware), not a global sequencer (a cross-region round trip on
-the write path and exactly the external-service dependency
+GPS/atomic-clock hardware (we have none, and no path to it on GKE Autopilot),
+and not a global sequencer (a cross-region round trip on the write path, and
+exactly the external-service dependency
 [`self-sufficiency.md`](../../../agents/rules/self-sufficiency.md) forbids).
 
 ## Flags
@@ -67,7 +68,9 @@ meaningful; the sequence is not, and must stop being read as a global order.
 
 ## External consistency — the honest version
 
-Achieved by **restart-on-uncertainty** (Cockroach's method), not commit-wait.
+Achieved by **restart-on-uncertainty** — a read that falls inside the
+uncertainty interval is retried at a higher timestamp — rather than by waiting
+out the interval on every commit.
 Two commitments make it a mechanism rather than a decoration:
 
 1. ε is **configured and observed**: `ehdb_clock_offset_millis` gauge, **pinned

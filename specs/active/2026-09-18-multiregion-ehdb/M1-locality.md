@@ -1,5 +1,5 @@
 ---
-spec: 2026-09-18-omni-multiregion-ehdb-M1
+spec: 2026-09-18-multiregion-ehdb-M1
 status: draft
 created: 2026-09-18T19:20:00Z
 owner: claude-opus-5 (ai-meta session 2026-09-18)

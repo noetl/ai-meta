@@ -7,8 +7,8 @@ before it, and the corrections are the point.
 | :-- | :-- | :-- | :-- |
 | 1 | [`FENCING-SUBSTRATE-BUILD-HANDOVER.md`](FENCING-SUBSTRATE-BUILD-HANDOVER.md) | Stages 1–5 (projector, fencing, durable write path, migration, cutover). Written at the accuracy cliff | carries **two withdrawn claims**, both marked |
 | 2 | [`TRACE-RESULTS.md`](TRACE-RESULTS.md) | The two gating traces, resolved by measurement | supersedes #1's open unknowns |
-| 3 | [`OMNI-MULTIREGION-EHDB-PLAN.md`](OMNI-MULTIREGION-EHDB-PLAN.md) | Cockroach/Spanner → EHDB design + phased plan. **Read its §0 correction first** | §0 corrects §1.3/§5/§10 of its own first commit |
-| 4 | [`../../../../specs/active/2026-09-18-omni-multiregion-ehdb/`](../../../../specs/active/2026-09-18-omni-multiregion-ehdb/) | 12 implementable specs, one per phase | derived from #3, post-correction |
+| 3 | [`MULTIREGION-EHDB-PLAN.md`](MULTIREGION-EHDB-PLAN.md) | Multi-region EHDB design + phased plan. **Read its §0 correction first** | §0 corrects §1.3/§5/§10 of its own first commit |
+| 4 | [`../../../../specs/active/2026-09-18-multiregion-ehdb/`](../../../../specs/active/2026-09-18-multiregion-ehdb/) | 12 implementable specs, one per phase | derived from #3, post-correction |
 
 ⚠ **The handover at #1 points at the wrong path for itself.** These documents
 are at `loops/active/2026-09-11-ehdb-resilient-core-phases/handover/`, not
