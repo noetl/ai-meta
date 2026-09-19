@@ -91,7 +91,21 @@ exactly the signature of a mechanism that exists and cannot fire.
 Flag to `off`. Events already written are additive and harmless — they are read
 by nothing until S2.
 
-## Exit criteria
+## Exit criteria — ◐ PARTIAL (types landed; emission is server wiring)
 
-A1–A4 green on kind, the RED control demonstrated, the size floor replaced by a
-measured value, and `slm.step.*` declared but not yet emitted.
+**Landed:** `noetl/ehdb` branch `feat/slm-context-s1-s2-events-fold`, commit
+`9a293da` — the crate `ehdb-slm-context`, module `event`. Seven payload kinds
+including `slm.step.*` and `slm.context.summarised`, declared so the
+compatibility story is settled once. Every optional is `#[serde(default)]` +
+`skip_serializing_if`; an unrecognised `kind` parses to `Unknown` rather than
+failing; a recognised kind with a broken body still errors. 6 tests.
+
+⚠ **A defect these tests caught in their own subject:** `sampling` had
+`#[serde(default)]` without `skip_serializing_if`, so an unset value serialised
+as `"sampling":null` instead of vanishing. Fixed.
+
+**Still open, and deliberately so:** A1–A4 concern *emission* at the `kind: mcp`
+call site, which is server/worker wiring, not substrate. The types are inert
+until something calls them — a stronger statement than a flag default. The size
+floor is still the ASSUMED 64 KiB and **must be measured before emission**, not
+before the types exist.

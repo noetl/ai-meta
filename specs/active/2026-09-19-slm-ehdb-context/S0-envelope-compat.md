@@ -36,18 +36,37 @@ This is the cheapest possible falsification of the whole plan.
 | File | Current state | Change |
 | :-- | :-- | :-- |
 | `ehdb-reference/src/fencing.rs` | **VERIFIED via handover** — `FRAME_HEADER_LEN` is a fixed 12 bytes, byte-identical with `durable_eventlog.rs`; widening it makes existing segments unreadable (C3) | **none.** S0 asserts it is unchanged |
-| the event record body type | **ASSUMED** — not read in this session; S0's first act is to locate it and record the path here | add a test-only `Option<T>` field |
-| `repos/server/src/handlers/event_write.rs` (`EventRow`) | **VERIFIED** it exists — `execute.rs` calls `crate::handlers::event_write::EventRow::new` | round-trip under test |
+| `ehdb-stream/src/lib.rs:156` `StreamRecord` | ⚠ **VERIFIED — and it refutes this spec's premise.** It carries `#[serde(deny_unknown_fields)]`. An older reader **rejects** a record with an added envelope field; it does not ignore it | **none.** Do not touch it |
+| `StreamRecord.payload: Vec<u8>` | **VERIFIED** — opaque bytes | this is the additive path |
+| `ehdb-l0/src/frame.rs:22` | **VERIFIED** — `pub const FRAME_HEADER_LEN: usize = 12` | asserted by test |
+| `ehdb-reference/src/durable_eventlog.rs:98` | ⚠ **VERIFIED** — declares its **own private** `FRAME_HEADER_LEN = 12` and `FRAME_MAGIC`, and hand-builds the header at `:841-843`. `ehdb-reference` has **no `ehdb-l0` dependency**, so nothing linked the two | asserted by its own unit test |
 
-⚠ The middle row is the honest state: I did not read the body type this session.
-S0 must not begin by assuming its shape.
+## ⚠ Finding — this spec's A1 premise was wrong
+
+A1 asked whether an added `Option<T>` body field round-trips, expecting either
+"yes" or "yes but lossy". The real answer is **neither: it is rejected.**
+`StreamRecord` is `deny_unknown_fields`, which is correct for an envelope and is
+left alone. It moves the additive path to where it already was — the opaque
+`payload`. The rule every later phase inherits:
+
+- ⛔ **never add a field to `StreamRecord`** — a format break, loud on read;
+- ✅ **add context data inside `payload`**, versioned, `#[serde(default)]` +
+  `skip_serializing_if`, proven compatible in both directions.
+
+## ⚠ Finding — the frame format is implemented twice, unlinked
+
+`fencing.rs` calls the format *"shared byte-identically with
+`durable_eventlog.rs`"*. True of the **values**, false of the **mechanism**:
+they are two independent literals in crates that do not depend on each other. A
+change to one was silent in the other, and the failure mode is unreadable
+segments, not a compile error. Each crate now pins itself to the same
+written-down literal.
 
 ## Acceptance criteria
 
-- **A1** — a body with an unknown `Option<T>` field round-trips through the
-  current serde without error and **without dropping the unknown field** on
-  re-serialise, or, if it does drop it, that is recorded here as a finding and
-  S1's design changes to suit.
+- **A1** — ⚠ **superseded by the finding above.** Restated as implemented: the
+  envelope **rejects** unknown fields (asserted), and the **payload** grows
+  forward- and backward-compatibly (asserted both directions).
 - **A2** — `FRAME_HEADER_LEN` is asserted equal to 12 by a test that fails if it
   changes.
 - **A3** — a log written with the extra field is readable by a build without it.
@@ -73,7 +92,14 @@ Nothing to roll back — S0 ships a test. If A1 fails, the rollback is to the
 **design**: S1 moves to an out-of-band per-shard marker (the C3 escape hatch)
 and this spec records why.
 
-## Exit criteria
+## Exit criteria — ✅ MET
 
-A1–A4 green, the RED control demonstrated, and the event body type's real path
-written into the Touch-points table above, replacing the ASSUMED row.
+A1–A4 green, the RED control demonstrated, and the ASSUMED row replaced by the
+verified path.
+
+**Landed:** `noetl/ehdb` branch `feat/slm-context-s0-frame-invariants`,
+commit `bdf9b5a`. 14 tests (7 `ehdb-l0` integration, 3 `ehdb-reference` unit,
+4 `ehdb-stream`). RED→GREEN from a green baseline, three planted defects:
+`FRAME_HEADER_LEN` 12→13 in `ehdb-l0` (3 of 7 fail), the same in the duplicate
+constant (2 of 3 fail), and removing `deny_unknown_fields` (1 of 4 fail). All
+reverted, all green again. ⛔ Not merged; kind/test only, no prod.

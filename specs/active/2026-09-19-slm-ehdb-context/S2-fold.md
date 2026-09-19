@@ -104,7 +104,23 @@ decorative. Require ≥ 50 iterations before accepting GREEN.
 
 Flag to `off`. The fold is read-only and emits nothing.
 
-## Exit criteria
+## Exit criteria — ◐ PARTIAL (fold landed; shadow-compare is server wiring)
 
-A1–A4 green, the RED control demonstrated over ≥ 50 iterations, and the shadow
-difference against today's prompt either zero or explained line by line.
+**Landed:** same commit `9a293da`, module `fold`. `fold()` is pure — no clock,
+no I/O, no hash-ordered output. Turns sort by turn number, not arrival.
+Unsorted input is **refused** rather than silently sorted; a foreign
+`execution_id` is **refused** rather than skipped (C5). Unknown kinds are
+counted in `skipped_unknown` so an old build degrades visibly. 13 tests.
+
+**A1 met at 64 iterations** (the spec asked ≥ 50), and the RED control proves
+the iteration count is load-bearing: planting a `HashMap` round-trip in place of
+the sort fails `same_prefix_same_context_across_many_runs`. Five plants total,
+each isolating exactly one test, revert verified after each.
+
+⚠ **The battery's first run was invalid and is recorded rather than hidden:**
+`git checkout --` cannot restore an **untracked** file, so the plants
+accumulated and the "reverted" run was still red. The baseline is now committed
+before planting, and the harness asserts a clean tree after every revert.
+
+**Still open:** A2's shadow comparison against today's hand-assembled prompt is
+a server call site, not substrate.

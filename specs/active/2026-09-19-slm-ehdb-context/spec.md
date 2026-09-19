@@ -23,6 +23,23 @@ One spec per phase lives beside this one:
 | S5 | [`S5-compaction.md`](S5-compaction.md) | `NOETL_SLM_COMPACTION` | `off` |
 | S6 | [`S6-gemma4-serving.md`](S6-gemma4-serving.md) | `NOETL_SLM_MODEL_REF` | unset |
 
+## Implementation status (2026-09-19)
+
+⛔ **Nothing merged. Kind/test only. No prod change.**
+
+| Phase | State | Where |
+| :-- | :-- | :-- |
+| S0 | ✅ **met** | `noetl/ehdb` `feat/slm-context-s0-frame-invariants` @ `bdf9b5a` — 14 tests |
+| S1 | ◐ types landed; emission pending | `noetl/ehdb` `feat/slm-context-s1-s2-events-fold` @ `9a293da` — 6 tests |
+| S2 | ◐ fold landed; shadow-compare pending | same commit — 13 tests |
+| S3 | ⏸ **stopped** — blocked on forks F2 and F4 | — |
+| S4–S6 | not started | — |
+
+S1/S2 landed as the crate `ehdb-slm-context`: types plus one pure function,
+**inert by construction** because nothing calls it. Emission and the fold call
+site are server wiring and come after S3's forks are settled, since what a
+generated step may be (F2) determines what the emission path carries.
+
 ## Problem
 
 noetl can route between models (`diagnose_execution.yaml:479–493`, **VERIFIED**)
