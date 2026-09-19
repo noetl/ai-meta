@@ -112,13 +112,48 @@ pattern, not the property.
 Lands: `noetl/ehdb` `feat/write-side-wiring` @ `271beaf`.
 Mutation batteries 5/5 (M2), ehdb workspace green.
 
+## 5. L0-BACKED TIER DRIVER (M0.5) — the dispatch seam, with the L0 engine behind it
+
+`tier_store::driver()` returned a **concrete** `LocalReferenceEventLogDriver`
+with no match, and `ehdb-reference` does not depend on `ehdb-l0` at all — its
+storage is `OpenOptions::append(true)` + `BufReader::lines()`. So **every L0
+primitive the multi-region phases extend was not on the tier's path**: M1, M4
+and M7 were inert on the tier for exactly the reason
+`NOETL_EHDB_EVENTLOG_BACKEND` is.
+
+`NOETL_EHDB_TIER_BACKEND` = `local_reference` (default) | `l0`.
+
+| criterion | state |
+| :-- | :-- |
+| E1 dispatch selects a different engine | ✅ `the_dispatch_actually_selects_a_different_engine` |
+| E3 `l0` append/read/scan/tail/ack round-trip | ✅ incl. a monotonic cursor |
+| ⭐ E4 cross-backend read **refuses**, never misparses | ✅ with a positive control that `local_reference` reads its own store |
+| E2 byte-identity differential over a published N | ⬜ next |
+| E5 `ehdb_tier_backend_info{backend}` gauge | ⬜ next |
+
+Mutation battery 4/4 with a BASELINE arm: dispatch ignoring the flag, an
+unrecognised value falling through to `l0` (fail-**dangerous**), a broken
+backend silently falling back, and a backwards cursor each fail their test.
+
+⚠ The two backends are **not interchangeable on a non-empty store** —
+`StreamSequence` starts at 1 and refuses 0; L0 recovers from
+`manifest.max_sequence()`. This is the dispatch, **not a data migration**.
+
+⚠ The cursor is hand-rolled because `ehdb_l0::cursor` is **not public at the
+ehdb rev the worker pins** (`49fdefcc`); repinning would drag unrelated engine
+changes into the review.
+
+Lands: `noetl/worker` `feat/m05-tier-backend` @ `8468b64`. 809 lib tests green.
+**Not enabled** — unset ⇒ `local_reference` ⇒ byte-identical.
+
 ## Remaining
 
-- **M5 kind proof** — image building; arms in
-  `playbooks/332-m5-fencing/gate.sh`.
-- **Item 5, the L0-backed tier driver** (M0.5) — not started. Spec's entry
-  criterion is M0 exit, which the read-side session owns and has not pushed
-  (`feat/m0-resolvers` is still at `main`).
+- **M5 E3** (stale-epoch refusal in kind) needs `durable_segment` selected —
+  see `playbooks/332-m5-fencing/RESULTS.md`. It is the same blocker M0.5 exists
+  to remove.
+- **M0.5 E2/E5** — the byte-identity differential and the backend-info gauge.
+- **M0** — the read-side session owns it; `feat/m0-resolvers` was still at
+  `main` at the end of this session, so nothing here consumes it yet.
 
 ## Prod
 
