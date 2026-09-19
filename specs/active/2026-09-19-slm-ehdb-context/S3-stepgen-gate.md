@@ -8,8 +8,8 @@ owner: claude-opus-5 (ai-meta session 2026-09-19)
 # S3 — Propose → validate → admit, with all five gates
 
 Phase of [`spec.md`](spec.md). **Planning only.** Depends on **S2**.
-**Forks settled by the owner 2026-09-19: F2 = catalog entry (APPROVED); F4 = the
-`propose` arm is the ACTIVE default and execution is owner-gated.**
+**Forks settled by the owner 2026-09-19: F2 = catalog entry (APPROVED); F4 = `noop` alone,
+`python` DENIED, execution owner-gated.**
 
 ## Scope
 
@@ -26,7 +26,9 @@ primitives §2.3 of the plan verified.
 | Flag | Values | Default |
 | :-- | :-- | :-- |
 | `NOETL_SLM_STEPGEN` | `off` \| `propose` \| `on` | `off` |
-| `NOETL_SLM_ALLOWED_TOOL_KINDS` | csv | `python,http,noop` |
+| `NOETL_SLM_ALLOWED_TOOL_KINDS` | csv | `noop` |
+| `NOETL_SLM_DENIED_TOOL_KINDS` | csv | `python` — terminal, not approvable |
+| `NOETL_SLM_HTTP_ALLOWED_HOSTS` | csv | *(empty)* |
 | `NOETL_SLM_HUMAN_GATE` | `off` \| `required` | `required` |
 | `NOETL_SLM_MAX_GENERATED_STEPS` | int | `8` |
 | `NOETL_SLM_MAX_DEPTH` | int | `2` |
@@ -44,9 +46,24 @@ the rejection rate can be measured before anything runs.
    The gate takes an injected `DslValidator` trait; `ehdb-slm-context` never
    grows a DSL opinion of its own. Two validators that disagree is worse than
    one that is strict.
-2. **Tool-kind allowlist.** A generated step may use only listed kinds. The
-   registry has **VERIFIED** 20 kinds (`repos/tools/src/tools/mod.rs:90–109`);
-   the default admits 3.
+2. **Tool-kind deny list, then allowlist.** ⛔ **Owner decision 2026-09-19:
+   `python` is DENIED** — checked before the allowlist *and* before the human
+   gate, so it is terminal and cannot be approved into existence. "Not on the
+   allowlist" would leave it one approval click from running. Deny beats allow.
+
+   ⛔ **`http` is not on the default allowlist either, and the reason is the
+   URL.** Method and body are mechanically checkable (`HttpConfig` exposes
+   `method`, `body`, `json`, `form` — `noetl/tools` `http.rs:47–77`); the URL is
+   not. A genuinely side-effect-free GET still permits **exfiltration**
+   (arbitrary data in the query string to an arbitrary host) and **SSRF**
+   (`169.254.169.254`, any in-cluster service), and GET-safety is a
+   **server-side convention** this gate cannot verify. Bounding it needs a host
+   allowlist, which defaults to empty and admits nothing anyway. So: **`noop`
+   alone**.
+
+   The read-shape machinery exists as defence-in-depth for an explicit opt-in —
+   GET/HEAD, no body/json/form, non-empty host allowlist — and a **positive
+   control** proves those rejections are not vacuous.
 3. **Human gate** for any kind off the allowlist. Reuses the callback/hook
    pattern (`agents/rules/execution-model.md`) so no worker slot is held while a
    human decides.
@@ -116,7 +133,7 @@ index, reversible via `POST /api/catalog/restore`).
 ## Exit criteria — ◐ PROPOSE-ONLY MET; execute-mode is the owner gate
 
 **Landed:** `noetl/ehdb` branch `feat/slm-context-s3-propose-gate`, commit
-`a3ac326`, module `gate`. 21 tests (43 in the crate).
+`a89c4e5`, module `gate`. 27 tests (49 in the crate).
 
 ⛔ **Nothing executes, and not because a flag says so.** There is no execution
 path in the crate — no function registers a catalog entry, runs a step, or does
@@ -128,12 +145,18 @@ every gate), A3 (rejection carries a countable rule), A4 (side-effectful kinds
 await approval and are **not** admitted), A6 (`auth:` refused however nested).
 A5's three bounds are enforced by the gate reading the fold's `Budget`.
 
-RED→GREEN, six plants, revert verified after each. ⭐ P5 — setting
-`executed: true` — fails exactly `nothing_executes_even_in_execute_mode`, which
-is what makes the owner gate load-bearing rather than declarative.
+RED→GREEN, twelve plants across two rounds, revert verified after each. ⭐ P5 —
+setting `executed: true` — fails exactly `nothing_executes_even_in_execute_mode`,
+which is what makes the owner gate load-bearing rather than declarative.
+
+⚠ One plant (ignore an empty host allowlist) **initially survived** and was run
+down rather than waved through: an equivalent mutant for the *decision*, since
+an empty allowlist already fails the membership check. Only the operator-facing
+detail differed. The test now pins that detail, and the re-run fails.
 
 **The only remaining work is flipping execute-mode on**, which needs:
-1. the owner's explicit confirm (especially for `python`);
+1. the owner's explicit confirm — ⛔ **and not for `python`, which is now
+   denied outright rather than gated**;
 2. `DslValidator` implemented in `noetl-server` over the two `pub` parser fns;
 3. the register→call path wired (`catalog.rs:49` → `playbook.rs:99`);
 4. ⚠ **a tagged `ehdb` release** — `noetl-server` pins ehdb by TAG
