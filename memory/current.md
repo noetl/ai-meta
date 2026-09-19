@@ -90,6 +90,26 @@ Only **one** umbrella remains open:
 
 ### EHDB platform storage track
 
+- ⭐ **SLM execution context on EHDB — design + 7 phase specs (2026-09-19,
+  DESIGN ONLY, unmerged).** Branch `design/slm-ehdb-context` off `main`
+  @ `7c2fad0b`. Plan:
+  `loops/active/2026-09-11-ehdb-resilient-core-phases/handover/SLM-EHDB-CONTEXT-PLAN.md`;
+  specs: `specs/active/2026-09-19-slm-ehdb-context/` (umbrella + S0–S6).
+  Uses EHDB as the context substrate for AI-driven, dynamically generated
+  playbook steps with **Gemma 4** as the SLM.
+  ⭐ **Key finding: noetl needs NO new execution primitive for AI-generated
+  work** — runtime `loop.in` fan-out (`server/.../execute.rs:1595,1615`),
+  runtime-templated child-playbook `path` (`tools/.../playbook.rs:99`) and
+  runtime `POST /api/catalog/register` (`server/.../catalog.rs:49`) already
+  compose into generate-then-run. Missing pieces are context, provenance, gate.
+  ⚠ **No new EHDB dataset** — maps onto the fixed §0.1 set D1/D3/D5(/D6).
+  ⚠ Reads reuse **M0/M3** on branch `docs/multiregion-ehdb-plan`; per **C4** a
+  bounded read is **inert** on the tier until **M0.5**. ⚠ Registry reuses
+  **G3/G5** of `docs/rfc/domain-slm-platform.md`, which are design-only.
+  ⚠ Determinism position: **replay does not call the model** (recorded
+  completion IS the input); `rederive` may differ. Sampled output is not
+  reproducible and the doc says so.
+
 - EHDB (`repos/ehdb`) is now the NoETL Event Horizon Database project:
   an Arrow-native NoETL-domain storage system intended to become the
   core substrate for operational metadata, first-class catalog state,
