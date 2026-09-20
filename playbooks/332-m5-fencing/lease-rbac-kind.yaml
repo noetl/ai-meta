@@ -1,0 +1,35 @@
+# M5 — RBAC for the EHDB shard election (kind only).
+#
+# The election needs get/create/update on ONE resource in ONE namespace. Scoped
+# to a Role rather than a ClusterRole because a lease is namespaced and a
+# cluster-wide grant would be larger than the thing it enables.
+#
+# ⚠ In PROD this grant is owner-run, per the M5 spec's "RBAC — owner-run"
+# section. This manifest is applied to kind-noetl only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ehdb-shard-lease
+  namespace: noetl
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    # `create` for the first holder, `get` to read the current one, `update` for
+    # the compare-and-swap. No `delete`: releasing a lease is an update that
+    # clears the holder, and a writer that can delete the lease can erase the
+    # very record that fences it.
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ehdb-shard-lease
+  namespace: noetl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ehdb-shard-lease
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: noetl

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ehdb-m5-writer-c
+  namespace: noetl
+  labels: {app: ehdb-m5-writer, arm: b}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: w
+      image: localhost/noetl-worker-rust:m5fence
+      imagePullPolicy: Never
+      command: ["/app/ehdb-selfcheck"]
+      args: ["fencing-epoch", "--settle-secs", "40", "--hold-secs", "0", "--appends", "3", "--execution-id", "race-0"]
+      env:
+        - {name: NOETL_EHDB_ENABLED, value: "true"}
+        - {name: NOETL_EHDB_MODE, value: "local_reference"}
+        - {name: NOETL_EHDB_CLIENT_ROLE, value: "worker"}
+        - {name: NOETL_EHDB_LOCAL_REFERENCE_LOG, value: "/local/log.jsonl"}
+        - {name: NOETL_EHDB_EVENTLOG_BACKEND, value: "durable_segment"}
+        - {name: NOETL_EHDB_EVENTLOG_SHARED_DIR, value: "/shared"}
+        - {name: NOETL_EHDB_FENCING, value: "shadow"}
+        - {name: NOETL_EHDB_ELECTION, value: "authoritative"}
+        - {name: NOETL_SHARD_INDEX, value: "0"}
+        - {name: HOSTNAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      volumeMounts:
+        - {name: shared, mountPath: /shared}
+        - {name: local, mountPath: /local}
+  volumes:
+    - {name: shared, persistentVolumeClaim: {claimName: ehdb-m5-shared}}
+    - {name: local, emptyDir: {}}

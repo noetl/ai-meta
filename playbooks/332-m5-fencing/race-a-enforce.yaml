@@ -1,0 +1,54 @@
+# M5 E3 — the two-writer race, in kind.
+#
+# ONE PVC is the shared root for BOTH pods, because the fencing ledger lives in
+# the shared root and a ledger each would fence nothing. Local roots stay
+# per-pod (emptyDir) — that is what "local" means, and the durable stack
+# publishes from local to shared.
+#
+# ⚠ Both pods carry the SAME NOETL_SHARD_INDEX and therefore contend for the
+# SAME lease (`ehdb-shard-00000000`). A shard each would elect both of them and
+# prove nothing; the M5 spec calls this out ("a lease for shard 0 while the
+# writer fences shard 1 would elect nobody for the shard actually being
+# written, and both halves would look healthy").
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ehdb-m5-shared
+  namespace: noetl
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ehdb-m5-writer-a
+  namespace: noetl
+  labels: {app: ehdb-m5-writer, arm: a}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: w
+      image: localhost/noetl-worker-rust:m5fence
+      imagePullPolicy: Never
+      command: ["/app/ehdb-selfcheck"]
+      args: ["fencing-epoch", "--settle-secs", "40", "--hold-secs", "600", "--appends", "3", "--execution-id", "race-0"]
+      env:
+        - {name: NOETL_EHDB_ENABLED, value: "true"}
+        - {name: NOETL_EHDB_MODE, value: "local_reference"}
+        - {name: NOETL_EHDB_CLIENT_ROLE, value: "worker"}
+        - {name: NOETL_EHDB_LOCAL_REFERENCE_LOG, value: "/local/log.jsonl"}
+        - {name: NOETL_EHDB_EVENTLOG_BACKEND, value: "durable_segment"}
+        - {name: NOETL_EHDB_EVENTLOG_SHARED_DIR, value: "/shared"}
+        - {name: NOETL_EHDB_FENCING, value: "enforce"}
+        - {name: NOETL_EHDB_ELECTION, value: "authoritative"}
+        - {name: NOETL_SHARD_INDEX, value: "0"}
+        - {name: HOSTNAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      volumeMounts:
+        - {name: shared, mountPath: /shared}
+        - {name: local, mountPath: /local}
+  volumes:
+    - {name: shared, persistentVolumeClaim: {claimName: ehdb-m5-shared}}
+    - {name: local, emptyDir: {}}
