@@ -83,3 +83,59 @@ digest-fix server against a cluster whose writer is down, and step 5's shadow
 soak would measure a system that is not dispatching. Coverage would read as
 zero — and a soak that covers nothing reads as green falsely, which is the exact
 failure the owner asked to avoid.
+
+---
+
+## Update 2026-09-20 ~23:45 — mitigation applied, and it is NOT sufficient
+
+**Applied:** `limits.memory` 4Gi → **8Gi** on `noetl-cmdbus-writer` (surge-free
+by construction: 1-replica StatefulSet, terminate-then-recreate,
+`volumeClaimTemplates: []` so PVCs are mounted by name). Server-side dry-run
+confirmed **only** that field changed. No tier data touched; both engines logged
+`recovered_active_records=0`.
+
+**Immediate result — dispatch restored:**
+
+| | before | after |
+| :-- | :-- | :-- |
+| writer | OOMKilled ×13, dying every ~2h | Ready |
+| `claim connect failed` per worker | 42 | **0** |
+| events persisted | — | 231 in 5 min |
+
+Positive control on the probe: the same grep read **42** over the window
+spanning the outage and **0** after, so the zero is a reading rather than a
+broken command.
+
+**⚠ But it OOMed again at 8Gi**, at 23:04:56Z — nine seconds after the worker
+roll began (23:04:47Z), having run 81 minutes.
+
+**Corrected growth model.** An early two-point reading (2799 → 2977 Mi) looked
+like linear growth and would have predicted exhaustion in ~14h; six samples then
+showed a plateau at ~3.2 GiB, which looked safe. Both readings were too small a
+window. From a known-fresh start the real shape is:
+
+```
+23:06:09   609Mi     <- boot
+23:07:44  3138Mi     <- +95s, loading the 4.0 GB tier store
+23:09:22  3030Mi
+23:10:57  3030Mi     <- flat
+23:12:33  3030Mi
+```
+
+So **~3 GiB is baseline** (proportional to the tier store on disk) and the run
+to 8 GiB was **episodic**, triggered by a mass worker reconnect. KEDA scales the
+user pool 1→20 routinely, so that trigger recurs on its own.
+
+**Therefore: raising the limit does not fix this.** It raises the baseline
+headroom against a spike whose size is not bounded, on top of a baseline that
+grows with an **unsealed** tier store. Two things are needed and neither is a
+resource edit:
+
+1. Bound the writer's memory during a reconnect/claim burst.
+2. Bound tier growth — the two bus engines log `seal_max_age_ms=5000`; the tier
+   has no equivalent, so its store grows without limit and takes the baseline
+   with it.
+
+A further bump to 12Gi is available (Autopilot allows up to 6.5 GiB per vCPU;
+at `cpu: 2` the ceiling is 13 GiB) and would buy more headroom, but it is a
+delay, not a fix, and each patch costs a restart and its in-flight window.
