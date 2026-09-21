@@ -88,6 +88,29 @@ Only **one** umbrella remains open:
 |---|---|---|
 | 49 | Rust server FastAPI parity port — full HTTP API in noetl/server crate | Phases A–F shipped. All e2e regression findings (#53–#76) closed. Only R5 (production cutover to Rust-only on GKE) remains — that's an ops decision, not a code task. |
 
+### Agent architecture track — signal-mesh
+
+- `repos/signal-mesh` (<https://github.com/noetl/signal-mesh>, public,
+  Apache-2.0) is a **tiered A2A/ReAct agent mesh over the EHDB event
+  log**. Split out of `noetl/ehdb` on 2026-09-21 (noetl/ehdb#367) with
+  history preserved via `git filter-repo`; the crate was renamed
+  `ehdb-signal-mesh` -> `signal-mesh` and sits at the repo root.
+- It consumes EHDB as a **library**, pinned `tag = "v0.3.0"` — the NoETL
+  crates are not on crates.io. It is a *consumer* of EHDB, not part of
+  it; no EHDB crate depends on it.
+- ⚠ **Design + POC only.** Nothing deployed, nothing enabled
+  (`NOETL_SIGNAL_MESH` unset; only the exact string `"true"` arms it), no
+  Postgres writes, no generated code executed. The honest limits are the
+  eight items in the spec's §11 — read them before citing it as evidence.
+- Docs: the blueprint
+  (`docs/architecture/a2a-signal-mesh-blueprint.md`) and the
+  implementation/proof spec (`docs/spec/a2a-react-signal-mesh.md`) live
+  in the repo and are the source of truth. The wiki
+  (<https://github.com/noetl/signal-mesh/wiki>, `repos/signal-mesh-wiki`)
+  is the readable front door and links into them rather than forking
+  them.
+- Tracked at noetl/ai-meta#349 (closed).
+
 ### EHDB platform storage track
 
 - EHDB (`repos/ehdb`) is now the NoETL Event Horizon Database project:
