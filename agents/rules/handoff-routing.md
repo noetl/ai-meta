@@ -18,6 +18,8 @@ The Rust submodules are:
 - `repos/tools` (the `noetl-tools` registry crate)
 - `repos/doctor` (the `noetl-doctor` diagnostic CLI)
 - `repos/gateway` (the `noetl-gateway` HTTP edge)
+- `repos/ehdb` (the EHDB storage workspace — `ehdb-core`, `ehdb-l0`, …)
+- `repos/signal-mesh` (the `signal-mesh` A2A/ReAct agent-mesh crate)
 
 When work in any of these repos requires a Rust code change,
 Claude reads the relevant files via `Read`, edits via `Edit` /

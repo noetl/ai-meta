@@ -97,3 +97,9 @@
 [submodule "repos/ehdb-wiki"]
 	path = repos/ehdb-wiki
 	url = git@github.com:noetl/ehdb.wiki.git
+[submodule "repos/signal-mesh"]
+	path = repos/signal-mesh
+	url = git@github.com:noetl/signal-mesh.git
+[submodule "repos/signal-mesh-wiki"]
+	path = repos/signal-mesh-wiki
+	url = git@github.com:noetl/signal-mesh.wiki.git
