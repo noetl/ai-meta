@@ -122,3 +122,56 @@ kind gate is unaffected — it measured answer-versus-no-answer, not latency —
 in prod this probe cannot separate a slow tier from a deaf one. That distinction
 has to come from the *uniformity* of failure across tiers of different sizes,
 which is how the root cause was found in the first place.
+
+## ⚠⚠ A SECOND root cause, found after the fix shipped: the store blocks the runtime
+
+The accept-order fix is correct and proven, but prod's tier is **still**
+unresponsive after it. That is not the same defect surviving — it is a second
+one underneath.
+
+**Measured, 2026-09-22 10:13Z:**
+
+- An independent verb on a different code path fails too: `tier-concurrency`
+  returns `timed out after 30s`, `scan transport failed`. So the tier genuinely
+  does not answer — this is not the `tier-load` probe misleading me.
+- The process burns **530 CPU ticks in ~6 s ≈ 0.88 cores**, sustained
+  (`/proc/1/stat`, not `kubectl top`).
+- Per-thread over 6 s: `tokio-rt-worker` **124** and **51** ticks, plus two
+  `ehdb-l0-uploader` threads. There are only **8 threads total**.
+- **`spawn_blocking` appears 0 times in `tier_service.rs`.**
+
+Tokio sizes its runtime to available parallelism, and the writer's cpu limit is
+**2** — so there are **2 runtime threads**. Every tier store operation, which
+replays hundreds of MB of JSONL, runs *directly on those threads*. Four
+concurrent permits of CPU-bound replay on two runtime threads starves the
+reactor completely: the accept loop, the shed path, the metrics server and the
+registration HTTP call all stop running.
+
+That is why the fix helps in kind and not yet in prod. **The kind gate saturated
+with zero-CPU holders** — deliberately, to isolate the ordering — so it proves
+the ordering and says nothing about CPU-bound work. Prod's segments are 1.08 GB
+and 3.3 GB, so the work is very much CPU-bound.
+
+It also explains the earlier "64 made it worse" result exactly: more permits
+means more CPU-bound tasks on the same two threads.
+
+**The durable fix is to run tier store operations on `spawn_blocking`** so
+replay never occupies a runtime thread. That is a change to the request path and
+deserves its own cycle and its own gate — one whose saturation is CPU-bound
+rather than zero-CPU, since that is the property under test.
+
+⚠ Note what this means for the instrument: a gate that saturates cheaply cannot
+detect a starvation defect, and a gate that saturates expensively cannot isolate
+an ordering defect. They are different fixtures for different failures, and
+using one to claim the other is how a green gate ships a broken service.
+
+### Live state at 10:16Z (writer up 23 min, rolled 09:53Z)
+
+| | value |
+| :-- | :-- |
+| writer restarts | **0** (was climbing every ~2.5 min) |
+| commands / 10 min | 3 issued, **43 started, 43 completed** — backlog fully drained |
+| tier / 10 min | 17 `no_durable_service`, 55 × `timed out after 2s` |
+| projector `event_2026_q3_pkey` | **0** |
+
+Dispatch is serving. The tier read path is not yet healthy.
