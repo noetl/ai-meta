@@ -68,3 +68,59 @@ move **together**. `PROJECTOR_ENABLED` alone gives two writers contending;
 
 ⚠ A `noetl-state-builder-watchdog` service account also patches
 `noetl-worker-system-pool` in prod. Any flag change there has a second actor.
+
+### 🛑 The prod flip was NOT taken — and here is exactly why
+
+Prod is quiet (no deploys for 3h) and carries the fix, so I opened the canary.
+**The baseline stopped it.** Prod server v3.112.5, projector OFF, counters since
+the pod's last restart (~19h):
+
+```
+projection_refold_total{verdict="digest_mismatch"}        0
+projection_serve_refusal_total{reason="digest_mismatch"}  1   ← not zero
+projection_refold_total{verdict="stored_behind_spine"}   10
+projection_refold_total{verdict="match"}                  1
+projection_read_total{outcome="stale_within_window"}      9
+crossstore_divergence{kind="checksum",tier="projection"}  0
+snapshot_gate{written}                                   56   (orchestrator self-writing, correct with projector off)
+projection_advanced_total                                 0   (projector not running, correct)
+```
+
+**1 refusal in 10 bounded comparisons**, where kind proved 0 in 21. The owner's
+bar is 0 and the gate was "explained AND zero". It is neither, so I did not flip.
+
+⚠ **I could not tell whether it recurs, and I will not guess.** Six one-minute
+samples were completely FLAT — `stored_behind_spine` stuck at 10 and
+`snapshot_gate{written}` stuck at 56 — i.e. **prod had no traffic at all during
+the window, so the sample has no denominator and tests nothing.** Reporting "it
+did not recur" off that would be the same vacuous-zero error this document
+already records twice.
+
+**Leading hypothesis, untested:** the refusal is a *legacy* record — a snapshot
+written by the PRE-fix server, still in the tier, verified after the roll. That
+would explain kind (fresh pod, fresh executions) reading 0 while prod reads 1,
+and it would age out. It is plausible and unverified.
+
+### ⚠⚠ Prod has NO on-path instrument — close this before flipping
+
+The serve-path diagnostic that located the whole defect was in my dropped commit
+and is **not** in `main`. The merged fix ships an *offline* harness
+(`harness_serve_path_digest_diff`), which is excellent for replaying captured
+data but cannot observe a live prod refusal.
+
+So today, if the projector were enabled and `digest_mismatch` moved, prod would
+report a number and no reason — and the endpoint an operator would reach for
+(`/api/ehdb/projection-fold/diff/{id}`) folds tier EVENTS, not the SNAPSHOT, and
+**reports agreement on exactly the executions the serve path rejects**.
+
+**Recommended order before any prod flip:**
+
+1. Land the serve-path diagnostic on `main` (logs stored vs bounded version and
+   digest plus the real diff paths; fires only on disagreement, so a healthy
+   execution pays nothing). It is small and it is the only live instrument.
+2. Wait for organic prod traffic and re-read with a real denominator, or replay
+   the refusing execution through the offline harness to classify that 1.
+3. Only then flip, **both flags together** — never one alone.
+
+**Prod is untouched by this session. Reads only.** All five workloads ready,
+`NOETL_PROJECTOR_ENABLED` and `NOETL_PROJECTOR_OWNS_SNAPSHOT` unset everywhere.
