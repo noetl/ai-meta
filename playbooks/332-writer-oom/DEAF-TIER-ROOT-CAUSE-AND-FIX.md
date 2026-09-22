@@ -175,3 +175,53 @@ using one to claim the other is how a green gate ships a broken service.
 | projector `event_2026_q3_pkey` | **0** |
 
 Dispatch is serving. The tier read path is not yet healthy.
+
+## The third answer: segment SIZE is the binding constraint, proven
+
+The `spawn_blocking` hypothesis was implemented (worker#339) and **tested
+against its own prediction, which failed**. Under CPU-bound saturation — 8
+concurrent reads of a 973 MiB segment at cpu limit 2 — the service still could
+not answer a cost-free request on an empty tier.
+
+`spawn_blocking` moves work off the runtime **threads**. It does not move it off
+the **CPU**. Eight concurrent ~1 GB replays saturate two cores whichever pool
+runs them.
+
+The controlled experiment that settles it — same image, same 8-way load, same
+cpu limit, **only the segment size differs**:
+
+| segment | cost-free probe on an EMPTY tier, under saturation |
+| :-- | :-- |
+| 973 MiB | `timed out after 2s`, 0 bytes |
+| **243 MiB** | **ok, 0.0 s, 108 bytes** |
+
+That is one variable, changed alone, flipping the outcome. **Production's
+1.08 GB and 3.3 GB legacy segments are the cause of the remaining failure**, and
+at its own 256 MiB seal threshold the tier stays responsive under load that
+starves it at ~1 GB.
+
+### Why the earlier fixes were still necessary
+
+Each closed a real defect and each was proven, but none could overcome the
+segment size:
+
+| fix | shipped | what it fixed | why prod still failed |
+| :-- | :-- | :-- | :-- |
+| sealed-segment index | v6.1.4/v6.1.5 | reads skip segments that cannot hold the execution | a read that *does* hit the big segment still replays it |
+| accept-then-permit | v6.1.6 | a saturated tier sheds instead of going deaf | shedding needs CPU to run |
+| store off the runtime | #339, **not deployed** | replay no longer occupies a runtime thread | the blocking pool does not create CPU |
+
+⚠ **Three gates, three different fixtures, and using the wrong one would have
+produced a false green each time**: a cheap fixture proves ordering and cannot
+see starvation; an expensive fixture proves starvation and cannot isolate
+ordering; and only varying segment size alone identifies the constraint. A gate
+is an argument about one variable, and it is only as good as what it holds
+fixed.
+
+### The remaining action — owner-gated
+
+**Split the two legacy segments to the 256 MiB threshold.** Byte-preserving: it
+is a split by line, no record rewritten, nothing deleted. Measured twice now —
+4.0 s → 1.0 s for a single read, and starved → serving under concurrent load.
+It still rewrites the durable mirror of an append-only log, so it is the owner's
+call.
