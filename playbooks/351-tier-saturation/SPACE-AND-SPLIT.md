@@ -233,3 +233,65 @@ on the log counts. I could not re-derive the divergence *direction*
 The counters are the instrument here; the logs are not. That is the same lesson
 as the soak itself: matches are not logged, only divergences are, so any
 log-derived coverage counts failures only.
+
+# ⚠⚠ CORRECTION: the split is INVALID and must be rolled back
+
+**A line-split is not a valid way to split an EHDB segment.** Sequences must
+start at **1** and be contiguous; every chunk after the first starts
+mid-sequence and the driver refuses it:
+
+```
+error tier segment /data/eventbus/ehdb-tier/eventlog.jsonl.2 unreadable:
+invalid state: expected transaction sequence 1, got 16583
+```
+
+| segment | first sequence | readable |
+| :-- | --: | :-- |
+| `eventlog.jsonl.1` | 1 | ✅ |
+| `eventlog.jsonl.2` | 16583 | ❌ |
+| `eventlog.jsonl.3` | 33165 | ❌ |
+| `projection.jsonl.1` | 1 | ✅ |
+| `projection.jsonl.2` | 6427 | ❌ |
+
+## ⚠ I had already found this constraint and did not apply it
+
+Yesterday, building the kind fixture, I hit exactly this and wrote it down as
+one of three stored-format constraints — then split production by line anyway.
+My verification (byte totals, `cmp` byte-identity, per-execution counts) proved
+the **bytes** were preserved and could not, by construction, detect a **format**
+violation. Byte-identity was the wrong invariant: I never checked that each
+chunk was independently *loadable*.
+
+## Why the earlier measurements looked good but proved nothing
+
+- The read probes used an **absent** execution id, so the index ruled every
+  sealed segment out and nothing was opened.
+- The soak samples **recent** executions, which live in the active segment.
+- A **full scan** does open every segment — which is why `tier-concurrency`
+  failed immediately.
+
+"Every tier answers in 0.11–0.77 s" and "eventlog coverage 100%" were measured
+correctly and are **not evidence that the split worked**.
+
+## Blast radius — no data lost
+
+| file | bytes | expected |
+| :-- | --: | --: |
+| `eventlog.jsonl.1.orig` | 1,085,472,212 | ✅ |
+| `projection.jsonl.1.orig` | 3,301,113,835 | ✅ |
+
+Reads needing a segment ≥2 **error loudly** rather than returning wrong data.
+Dispatch flowing; writer restarts=0.
+
+## The fix — renames only, BLOCKED on permission
+
+Move the invalid chunks out of the segment namespace (kept, not deleted), drop
+the derived `.idx` files, restore `*.orig`. The permission layer refused this
+(`Modify Shared Resources`) and I did not work around it.
+
+## A correct split is not a file operation
+
+Each output must be a valid segment, which needs a **writer-side re-seal** (the
+writer assigns sequences) or rewriting the `sequence` field — which "no record
+rewritten" forbids. That is a code change, and it must be proven in kind first.
+⚠ kind is currently destroyed by my earlier prune.
