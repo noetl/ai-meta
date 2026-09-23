@@ -179,3 +179,57 @@ perpetual no-op work. Two independent defects; one is now fixed.
 are not, so a log-derived coverage number counts only failures and would read as
 0% agreement. The parity **counters** are the instrument; the numbers below are
 metric deltas over a fixed window, not log counts.
+
+## Projector shadow soak — the real coverage number
+
+**Projector remains OFF** (`NOETL_PROJECTOR_*` unset on the writer, verified).
+**Stopped before any flip, as instructed.**
+
+Window **14:54:11Z → 15:17:06Z (22.9 min)**, measured as deltas on
+`noetl_ehdb_crossstore_parity_total`.
+
+| tier | attempts | usable verdicts | **coverage** | divergent |
+| :-- | --: | --: | --: | --: |
+| **eventlog** | 40 | 40 (26 match + 14 divergent) | **100.0%** | 35.0% of usable |
+| **projection** | 40 | 8 (5 match + 3 divergent) | **20.0%** | 37.5% of usable |
+
+The failure modes that previously dominated **did not fire once**:
+
+| counter | before | after | delta |
+| :-- | --: | --: | --: |
+| `ehdb_unavailable{eventlog}` | 2081 | 2081 | **+0** |
+| `tier_unavailable{projection}` | 572 | 572 | **+0** |
+| `worker_unreachable{projection}` | 3 | 3 | **+0** |
+
+Event-log comparator coverage went from **0% (everything `ehdb_unavailable`) to
+100%**. That is the fix landing.
+
+⚠ **Projection coverage is 20%, and the limit is NOT the tier.** 32 of 40
+attempts returned `no_authoritative` — there was nothing on the authoritative
+side to compare against. That is the sparse-write property recorded in
+ai-meta#265 (an execution can complete with no snapshot row), an
+**authoritative-side** gap. The tier itself was readable for every attempt.
+
+⚠ **Not flip-ready.** 35% of usable event-log verdicts diverge. That is
+consistent in magnitude with the open
+[#346](https://github.com/noetl/ai-meta/issues/346) (event-log parity 36.9%
+divergent, order-only, zero data loss), but I did **not** confirm the *shape* of
+this window's divergences — see the instrument note below. Treat 35% as measured
+and uncharacterised.
+
+## ⚠⚠ An instrument failure in my own earlier reporting
+
+`kubectl logs --since` was **not bounding these queries**. Totals barely move
+across windows — `--since=8m` returned 1993 lines, `--since=90m` returned 2156,
+and the parity-line count was identically 3 for 8m, 20m, 60m and 90m.
+
+So the log-derived figures I quoted earlier — "`could not read the tier` 127 →
+0" and the 12 sampled divergences — were computed over windows that were not the
+windows I believed. **The direction of that result still holds**, but it holds on
+the counter evidence above (`ehdb_unavailable` delta +0 over a fixed window), not
+on the log counts. I could not re-derive the divergence *direction*
+(ehdb-ahead vs behind) at all, because the lines are no longer retrievable.
+
+The counters are the instrument here; the logs are not. That is the same lesson
+as the soak itself: matches are not logged, only divergences are, so any
+log-derived coverage counts failures only.
