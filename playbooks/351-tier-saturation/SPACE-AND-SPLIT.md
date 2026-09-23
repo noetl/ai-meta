@@ -109,7 +109,73 @@ No segment-related errors followed, and dispatch stayed healthy (180 started /
 reads still >2 s) — expected, because the 3.3 GB projection segment is the
 larger consumer and is actively mirrored.
 
-### projection.jsonl.1 — in progress
+### projection.jsonl.1 — done
 
-3,301,113,835 bytes / 96,378 lines → 15 chunks of 6,426 lines (~209 MiB each).
-Staged and under verification at the time of writing.
+3,301,113,835 bytes / 96,378 lines → **15 segments**.
+
+- totals matched exactly; concatenation byte-identical;
+- sampled executions: **3, 3, 3 lines in the chunks vs 3, 3, 3 in the original**;
+- original preserved as `projection.jsonl.1.orig`.
+
+⚠ **Deviation, stated:** the largest chunk is **298 MiB**, above the 256 MiB
+target. A line-count split gives uneven bytes because projection records vary
+widely in size (34 KB/line average vs the event log's 13 KB). 298 MiB sits well
+inside the regime the 2026-09-22 experiment proved works (243 MiB serves, ~1 GB
+starves), so it was accepted rather than re-split at further cost to a saturated
+pod.
+
+⚠ **A verification bug of mine, and how it surfaced:** the first post-swap check
+reported `7 lines` where the original had `3`. The cause was my glob —
+`projection.jsonl.[0-9]*` also matches `projection.jsonl.1.orig` *and*
+`projection.jsonl.1.idx.orig`, so it counted the chunks, the preserved original,
+and a line of the old index (3+3+1=7). Re-run against an explicit list of
+`projection.jsonl.1 … .15`, it reads **3 = 3**. The `cmp` byte-identity proof
+was never in doubt; the glob was. A verification that includes the artifact it
+is verifying against is not a verification.
+
+### The step that made the split actually pay: rebuilding the indexes
+
+Splitting alone changed **nothing** — measured: after both swaps, reads still
+timed out at 2 s and CPU was 1.25 cores. The reason is structural: a merged read
+opens every segment that *might* hold the execution, and with no index every
+segment might. Twenty small segments are read exactly as expensively as one big
+one.
+
+Indexes are built by `backfill_segment_indexes` at startup, so this required a
+writer restart — a single-writer, in-place restart, no second replica.
+**Outage: 55 s** (14:40:47Z → 14:41:42Z ready). It built all **20** indexes
+(5 eventlog + 15 projection), serialised.
+
+## Result
+
+| tier | before the split | after split + index rebuild |
+| :-- | :-- | :-- |
+| `catalog` (empty) | timeout 2.0 s | **0.33 s** |
+| `kv` | timeout 2.0 s | **0.12 s** |
+| `eventlog` | timeout 2.0 s | **0.11 s** |
+| `projection` | timeout 2.0 s | **0.70 s** |
+| `object` | timeout 2.0 s | **0.62 s** |
+
+Under live load ten minutes later, `eventlog` read in **0.84 s** — still inside
+the 2 s budget. Writer stable, restarts=0; dispatch flowing (218 started / 218
+completed per 5 min).
+
+**The comparator recovered completely:**
+
+| server, per 8 min | before | after |
+| :-- | --: | --: |
+| `could not read the tier` | 127 | **0** |
+| `no comparable records` | 127 | **0** |
+| tier degraded / timed out | present | **0** |
+
+and it now emits real verdicts with numbers, e.g.
+`execution_id=360998744553955328 authoritative=175 ehdb=180 kinds={"count"}`.
+
+⚠ **CPU is still ~1.22 cores.** The split did not change that, and was never
+going to: that load is the #315 re-drive loop Phase B identified — 19 cmd/min of
+perpetual no-op work. Two independent defects; one is now fixed.
+
+⚠ **Do not read the soak from logs.** Divergences are logged (WARN) and matches
+are not, so a log-derived coverage number counts only failures and would read as
+0% agreement. The parity **counters** are the instrument; the numbers below are
+metric deltas over a fixed window, not log counts.
