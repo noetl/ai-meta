@@ -25,12 +25,14 @@ Three findings change the question that was asked.
    catalog today. There is nothing to build for deliverable 3 — only gaps to close.
 
 2. **The cost direction in the brief inverts below a crossover we are nowhere
-   near.** A dedicated Vertex endpoint bills by the **GPU-hour**, not per token.
-   Per-token Gemini is cheaper than any dedicated endpoint until roughly
-   **300M tokens/day**; our whole platform is on the order of **single-digit
-   millions**. At our volume, managed per-token is the *cheap* option by about
-   two orders of magnitude. Self-hosting is justified by **residency and
-   offline**, not by cost.
+   near — now measured, not estimated.** A dedicated Vertex endpoint bills by
+   the **GPU-hour**, not per token. A pilot endpoint was deployed, measured and
+   torn down (§2a): **$1.30082/hr** at first-party catalog rates, **$2.59 per 1M
+   tokens** at measured throughput — **10.4× more expensive than Gemini 2.5
+   Flash per-token**. Crossover is **~125M tokens/day**; our platform is on the
+   order of single-digit millions. At our volume, managed per-token is the
+   *cheap* option. Self-hosting is justified by **residency and offline**, not
+   by cost.
 
 3. **Both live model pins retire in 23 days.** `gemini-2.5-flash` is pinned in
    `muno/playbooks/itinerary-planner` v114 and `automation/agents/mcp/vertex-ai`
@@ -130,6 +132,68 @@ hourly rate) and is an argument **against** self-hosting at our volume, not for 
 
 ---
 
+## 2a. Measured — a real endpoint, deployed and torn down
+
+The §2 table is published pricing. This section is **measured**: a Vertex
+endpoint was deployed in `shastaratech-noetl-prod`, called, timed, costed, and
+deleted on 2026-09-23.
+
+| | |
+| :-- | :-- |
+| Model | `google/gemma3@gemma-3-1b-it` — smallest deployable Gemma 3 |
+| Machine | `g2-standard-12` + **1× NVIDIA L4** — the cheapest config Model Garden offers for this model |
+| Serving container | `pytorch-vllm-serve` (Model Garden's own vLLM image) |
+| Region / project | `us-central1` / `shastaratech-noetl-prod` |
+| Provisioning time | **~11 min** (deploy 15:35:21Z → replica serving 15:46:29Z) |
+| Endpoint lifetime | **12.1 min**, deleted 15:47:27Z |
+
+**Latency**, 10 sequential calls, ~36 prompt + ~19 completion tokens each:
+
+```
+p50  0.401s      p95  0.449s      min 0.339s / max 0.449s
+throughput  139.5 tokens/sec  (concurrency 1)
+```
+
+**Cost** — rates pulled from the **Cloud Billing Catalog API** (service
+`C7E2-9256-1C43` "Vertex AI", us-central1), so unlike §2 these are
+**first-party**, not aggregator figures:
+
+| Component | Rate |
+| :-- | :-- |
+| G2 predefined core × 12 | $0.34488/hr |
+| G2 predefined RAM × 48 GiB | $0.16176/hr |
+| Management fee, cores + RAM | $0.06612/hr |
+| NVIDIA L4 GPU × 1 | $0.64405/hr |
+| Management fee, L4 | $0.08401/hr |
+| **Total** | **$1.30082/hr** = $31.22/day = **$936.59/month** |
+
+**Measured unit cost: $0.00259 per 1k tokens ($2.59 per 1M)** at the observed
+139.5 tok/s. That is **10.4× Gemini 2.5 Flash's published blended $0.25/1M**.
+
+**Actual pilot spend: $0.26** (12.1 min, billed conservatively from deploy
+rather than from first serving).
+
+### What this changes, and what it does not
+
+- **Crossover falls from ~320M to ~125M tokens/day** ($936.59/mo ÷ $0.25/1M).
+  The estimate in §2 used an aggregator's A100 rate; the real L4 rate is lower,
+  so the dedicated endpoint becomes competitive sooner. **We are still ~50×
+  below it.**
+- **Latency is genuinely good** — p95 under half a second for a 55-token
+  exchange, with no cold start once warm. If latency were the binding
+  constraint, a dedicated endpoint would be attractive. It is not: cost is.
+- ⚠ **The $2.59/1M figure is a floor-bound measurement at concurrency 1.**
+  vLLM batches, so throughput — and therefore $/1M — improves substantially
+  under concurrent load. A fair figure for a busy endpoint needs a load test
+  this pilot did not run. Treat $2.59/1M as *the cost of a lightly-loaded
+  endpoint*, which is exactly what a low-volume domain would have.
+- ⚠ **No scale-to-zero was available on this path.** `minReplicaCount` was 1;
+  the meter runs from deploy to delete regardless of traffic. That is the single
+  most important property for bursty workloads like ours.
+
+
+---
+
 ## 3. Per-domain recommendations
 
 ### 3.1 noetl internal (SLM context / stepgen) — **stay self-host-*intent*, but fix the default first**
@@ -221,7 +285,7 @@ Three gaps worth closing, none of them a new abstraction:
 
 ---
 
-## 5. Pilot — one model call, behind a flag, nothing user-facing
+## 5. Pilot — executed (§2a) plus the remaining in-cluster step
 
 Deliberately smaller than the brief proposed, because the integration already
 exists: the pilot is a **pointer swap plus a measurement**, not a deployment.
