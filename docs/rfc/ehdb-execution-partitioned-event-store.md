@@ -1,7 +1,11 @@
 # RFC: Execution-partitioned event store — retire reconcile/re-drive
 
 **Status:** RFC — design only. **No prod change, no code change, nothing merged.**
-**Date:** 2026-09-24.
+**Date:** 2026-09-24 (revised same day with the owner's consistency constraint).
+**Owner constraints, treated as requirements:** the four-id model (§2.1) and
+**geographically distributed executions with eventually-consistent storage
+across replicas** (§2.4) — strong ordering only *within* an `execution_id`
+partition.
 **Supersedes the mechanism of:** the reconcile / off-server re-drive / give-up-cap
 line ([server#461](https://github.com/noetl/server/pull/461),
 [#462](https://github.com/noetl/server/pull/462),
@@ -254,6 +258,113 @@ be to rediscover the access path the four ids already name.
 
 ---
 
+### 2.4 The consistency model — strong where it is local, eventual everywhere else
+
+**Owner constraint (2026-09-24), and it is a requirement, not a preference:**
+
+> **Executions can be geographically distributed, but storage is EVENTUALLY
+> CONSISTENT across replicas — not globally strongly consistent.**
+
+This splits the consistency budget along the partition boundary, which is the
+same boundary §2.2 already drew for performance:
+
+| scope | guarantee | why it is needed there |
+| :-- | :-- | :-- |
+| **Within one `execution_id` partition** | **single writer / leader; strict append order** | I1's chain is a path. Two concurrent appenders could both claim `prev = e`, which forks it. This is the *only* place strong ordering is required |
+| **Across replicas of a partition** | **eventual** — async catch-up | A reader elsewhere may see a shorter tail. Nothing about the chain's correctness depends on it being current |
+| **Across different executions** | **none required** | Executions are independent partitions. Cross-execution ordering is a cross-partition question, answered by the HLC (M2) when anyone asks it, and by nothing otherwise |
+
+**Execution homing.** Each `execution_id` has a **home region**, where its
+partition's writer lives. "Geographically distributed executions" therefore
+means *different executions homed in different regions*, each its own
+single-writer partition, replicated outward asynchronously. It does **not** mean
+one execution's chain being written from two places — that is the one thing the
+model forbids.
+
+⭐ **The reason this is worth stating as its own section:** it means the
+expensive guarantee (global strong consistency) is not merely unnecessary — it
+is **actively unwanted**, because paying for it costs cross-region consensus
+latency on every append to buy a property the chain does not use. §4.4 and §5
+are re-scored on that basis.
+
+### 2.5 Why eventual replication is safe here — the non-divergence proof
+
+The owner asks for this proved rather than asserted, and it turns out to need
+**two** properties at two different strengths. Conflating them would overstate
+the guarantee.
+
+**Setup.** Execution `E` has home partition `P(E)` with exactly one writer at
+any instant. Events `e₀, e₁, …` are appended in order, `eᵢ₊₁.prev = eᵢ.event_id`,
+`e₀.prev = None`. Replication ships the log to replicas asynchronously.
+
+#### Property N — Non-divergence (the safety property)
+
+> **No replica, at any time, can observe a forked chain.** Specifically: no
+> reader ever sees two distinct events claiming the same parent, and never sees
+> an event whose parent pointer disagrees with what another replica reports for
+> the same event.
+
+*Proof.*
+
+1. **Unique successor.** A single writer serialises appends to `P(E)`, so for
+   any event `e` there is **at most one** event `e'` with `e'.prev = e.event_id`.
+   Two appenders could each write a successor to `e`; one appender cannot.
+2. **Immutability.** `noetl.event` is append-only and an event never mutates
+   (§6.3). So `e.prev` has exactly one value for all time, and every replica
+   that holds `e` holds the same `e`.
+3. **Replication is subset-only.** Async replication delivers events the writer
+   wrote; it never synthesises, reorders *within* a record, or edits one.
+4. From (1)–(3), the set visible at any replica is a **subset of one fixed
+   path**, and every visible edge agrees with the authoritative edge. A fork
+   requires either two successors (excluded by 1) or a changed pointer
+   (excluded by 2). ∎
+
+⚠ **Property N depends on (1), which is exactly what fencing enforces.** Today
+single-writer rests on `replicas: 1` — an orchestration preference, not a
+mutual-exclusion primitive. **So the safety of the eventual model is
+conditional on M5 (fencing `Enforce`)**, and that dependency should be recorded
+rather than assumed: without it, a partitioned old writer appending a second
+successor to `e` is precisely the fork this proof excludes.
+
+#### Property P — Prefix (the liveness/usability property) — weaker, and conditional
+
+> A replica's visible set is a **prefix** of the chain, not merely a subset.
+
+This does **not** follow from N. A subset of a path can have holes: delivery of
+`e₀, e₁, e₃` leaves a reader unable to walk past `e₁`. Prefix-ness requires
+**per-partition ordered delivery** — the replication stream for `P(E)` must
+preserve append order. A log-shipping mirror does; an unordered fan-out does
+not.
+
+**Recommendation:** require per-partition ordered replication so P holds, and
+**do not rely on it for correctness** — N is the safety property and stands
+without it.
+
+#### ⭐ Why the chain is *self-verifying* under eventual replication
+
+This is the part that makes the redesign and the eventual model fit each other
+rather than merely coexist:
+
+- Under a **global-sequence** log, a reader in region B that is missing
+  sequence 100 cannot tell whether 100 is *not yet replicated* or *belongs to
+  some other execution*. The gap is indistinguishable from irrelevance, so
+  staleness is undetectable — which is exactly how a timed-out read became
+  "chain short" in §1.5.
+- Under a **per-execution chain**, the `prev` pointer **names the missing key**.
+  A reader walking `E` that cannot resolve `eᵢ.prev` knows precisely which
+  `(execution_id, event_id)` it is waiting for.
+
+So the chain pointer *is* the gap detector. That converts staleness from a
+silent condition into a **named, reportable one at a specific key** — the same
+invariant §6.2 requires, arriving here for free. A reader can then legitimately
+choose: wait, serve a bounded-stale prefix, or report the gap. All three are
+safe; none of them is "empty result, assume done".
+
+**Consequence for reads.** A cross-region read is a **bounded-staleness read**
+(M3) against a replica whose **closed timestamp** bounds how far behind it is,
+and M3's rule already applies: a request whose freshness cannot be satisfied is
+**refused, not silently served stale**.
+
 ## 3. What already exists (do not rebuild it)
 
 This program's recurring failure is building a component that already exists, so:
@@ -301,6 +412,13 @@ already use, edge session state, per-user UI coordination. And as the **design
 authority for the partition shape**: "one writer per execution, ordered local
 log" is the property to reproduce natively.
 
+⭐ **Under §2.4 the fit is even closer than it first looks.** A DO is strongly
+serializable **within** an object and has **no** cross-object consistency
+guarantee at all — strong locally, nothing globally. That is §2.4's split
+exactly, arrived at independently by a different team for a different reason.
+It is the strongest external evidence that the shape is right; it remains
+unrunnable on GKE.
+
 ### 4.2 Cloudflare KV / D1 / R2 — edge roles only
 
 | product | shape | role here |
@@ -330,9 +448,22 @@ an external service with its own quorum and lifecycle, and contradict
 [`self-sufficiency.md`](../../agents/rules/self-sufficiency.md) — which forbids
 an external *datastore* while welcoming libraries.
 
-**Verdict: reject** as the event store. Retained as prior art for per-subject
-ordering and for the "KV built on a stream" latest-pointer idiom, which §5's
-recommendation reuses natively.
+**Verdict: reject** as the event store — the cardinality objection is about the
+**store**, and §2.4 does not soften it.
+
+⭐ **But §2.4 does rehabilitate one half of JetStream, and it should be said
+plainly:** JetStream's **source / mirror streams** are a correct and
+well-proven implementation of exactly the replication shape §2.4 asks for —
+async, per-stream ordered (so Property P holds), catch-up-based, with the origin
+remaining the single writer. That is the right *replication* model even though
+the per-execution *subject* model is the wrong storage model.
+
+The relevant fact is that **NoETL already has this**: the EHDB async mirror
+(`ASYNC=true`, `SOURCE=server`, bounded `LAG_TOLERANCE`) plus M3
+bounded-staleness reads are the same design. So the conclusion is not "adopt
+JetStream for replication" — it is "the replication half of the recommendation
+is a known-good pattern, and we are already running our own version of it."
+Prior art, not a dependency.
 
 ### 4.4 CockroachDB's distributed KV layer — right shape, wrong weight
 
@@ -345,6 +476,16 @@ Honest assessment:
 
 - ✅ Ordering, contiguity, partitioning and multi-region placement are all first
   class and battle-tested.
+- ⛔⛔ **Its headline guarantee is now a COST, not a benefit.** Cockroach gives
+  serializable transactions over Raft-replicated ranges — **globally strong
+  consistency**. §2.4 says we want strong ordering *only within a partition* and
+  **eventual** across replicas. Buying global strong consistency means paying
+  **consensus on every append** — and, when a range's replicas span regions,
+  **cross-region round trips on the write path** — to purchase a property the
+  chain provably does not use (§2.5 Property N holds from single-writer plus
+  immutability alone). This is the clearest case in the matrix of over-buying:
+  the expensive guarantee is not merely surplus, it is a latency tax on the
+  hot path of every event.
 - ⛔ **It is an external database** — the one thing `self-sufficiency.md` names.
 - ⛔ **Raft under every write** is the cost the EHDB program explicitly retired:
   `ehdb-l0/src/lib.rs:85` says *"no consensus / no Raft — the HDFS /
@@ -376,24 +517,36 @@ index. What the *tier* lacks is L0 at all.
 ## 5. Comparison matrix
 
 Scored against §2's patterns. **A** = O(1)-style parent lookup, **B2** =
-per-execution contiguous chain read, **C** = tree navigation.
+per-execution contiguous chain read, **C** = tree navigation. The consistency
+rows are scored against **§2.4** — strong *within* a partition, **eventual**
+across replicas — so a stronger guarantee than that is marked as the cost it is.
 
 | | Durable Objects | CF KV | D1 | JetStream | Cockroach KV | **Native EHDB** |
 | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
 | **A — parent lookup, no scan** | ✅ local | ⚠ eventual | ✅ | ⚠ needs a side KV | ✅ | ✅ *(to build)* |
 | **B2 — contiguous per-execution chain** | ✅ native | ❌ | ⚠ via SQL | ✅ per subject | ✅ | ✅ *(to build)* |
-| **C — execution-tree navigation** | ⚠ cross-object hop | ❌ | ✅ | ⚠ | ✅ | ✅ |
+| **C — execution-tree navigation** | ⚠ cross-object hop | ❌ | ✅ | ⚠ | ✅ | ⚠ cross-region hop (F7) |
 | **Partition key = `execution_id`** | ✅ intrinsic | ⚠ key prefix | ❌ | ⚠ antipattern at cardinality | ✅ ranges | ✅ *(already `shard_for`)* |
-| **Consistency for a chain reader** | strict serializable | eventual | strong 1-region | per-subject ordered | serializable | single-writer per shard |
+| **Single writer per partition (§2.5 N)** | ✅ intrinsic | ❌ none | ❌ | ✅ per stream origin | ⚠ leaseholder, but via consensus | ✅ *(needs M5)* |
+| **Consistency MATCH to §2.4** | ⭐ **exact** — strong per object, none across | ❌ too weak | ⚠ wrong axis | ✅ close | ⛔ **too strong = cost** | ⭐ **exact by construction** |
+| **Cross-replica model** | n/a (single instance) | eventual | replicas | ⭐ async source/mirror, ordered | synchronous Raft | ⭐ async mirror + bounded staleness *(exists)* |
+| **Pays consensus per append** | internal, local | — | — | only at R>1 | ⛔ **always, cross-region if ranges span** | ✅ **never** |
 | **Ordering guarantee** | total per object | none | txn | per subject | per range | per partition |
 | **GKE-runnable as backend** | ❌ edge only | ❌ | ❌ | ✅ | ✅ | ✅ |
 | **External service to operate** | n/a | n/a | n/a | ❌ yes | ❌ yes | ✅ none |
 | **Honors `self-sufficiency.md`** | n/a | n/a | n/a | ❌ | ❌ | ✅ |
 | **Reverses a locked decision** | — | — | — | ❌ NATS deletion (T5) | — | — |
-| **Consensus on the write path** | internal | — | — | RAFT (R>1) | Raft always | none (immutable parts) |
 | **Ops cost** | low (managed) | low | low | medium-high | **high** | medium |
 | **Migration risk** | n/a | n/a | n/a | high | very high | **medium, and incremental** |
-| **Verdict** | **reference model** | edge role | edge role | reject | reject (adopt key design) | ⭐ **recommend** |
+| **Verdict** | **reference model** *(right shape, edge-only)* | edge role | edge role | reject as store; ⭐ **prior art for the mirror** | ⛔ reject — **over-buys consistency**; adopt key design only | ⭐ **recommend** |
+
+**How §2.4 changed this matrix.** Before the constraint, Cockroach's
+serializability read as its strongest column and the native option's
+"single-writer per shard, eventual across" read as the weaker one. Under §2.4
+they swap: the native model's consistency is an **exact match** and Cockroach's
+is an over-buy paid on every append. The constraint did not merely reinforce the
+existing recommendation — **it moved the second-place option to last on the axis
+that used to be its best.**
 
 ---
 
@@ -435,6 +588,29 @@ parts; this makes the within-part step a probe rather than a scan.
 that is O(k) cannot time out the way a chain read that is O(N) does, which is
 what removes the re-drive's reason to exist.
 
+**R5 — home each execution, and record the homing.** An `execution_id` gets a
+**home region** at creation, carried as an attribute of the execution (not of
+each event — it is a property of the partition). Writes for `E` go to `P(E)`'s
+leader in its home region; reads may be served anywhere under R6. Homing is what
+makes "geographically distributed executions" mean *many single-writer
+partitions in many regions* rather than *one chain written from two places*.
+
+⚠ Homing needs a **placement decision at execution creation** and a **record of
+it that readers can resolve**. The natural home for that record is D8
+(`RuntimeDataset`) plus the M1 `Locality` type — both of which already exist.
+Do not invent a second topology store; the multi-region plan already settled
+that topology lives in EHDB as D8.
+
+**R6 — replicate per-partition, ordered, asynchronously.** Ship each partition's
+log to its replicas in **append order** (Property P, §2.5), asynchronously, with
+the origin remaining the sole writer. Cross-region reads are
+**bounded-staleness** reads (M3) gated on the replica's closed timestamp.
+
+⭐ This is not new machinery: the EHDB async mirror (`ASYNC=true`,
+`SOURCE=server`, bounded `LAG_TOLERANCE=30s`) plus M3 is the same design. R6 is
+mostly **repointing the existing mirror at partitions instead of at a global
+log** — which is the same change R2 makes to the sort key, one layer up.
+
 ### 6.2 Why this kills the re-drive rather than tuning it
 
 | today | after |
@@ -450,14 +626,28 @@ specific `(execution_id, event_id)`**, never an empty result. An empty result is
 what makes a timeout look like progress and a truncation look like completion —
 and it is why 53 executions could re-drive forever without anything saying why.
 
+⭐⭐ **Under §2.4 this invariant does double duty, and that is the tidiest result
+in this RFC.** The same named-gap requirement that removes the re-drive is also
+what makes eventual cross-region replication *safe to read from*: a region-B
+reader that is behind sees a gap **at a named key** (§2.5) and can wait, serve a
+bounded-stale prefix, or report it. One invariant, two problems — the local
+staleness that caused the stall, and the remote staleness the owner is asking us
+to accept deliberately.
+
 ### 6.3 What must NOT change
 
 - `noetl.event` stays **append-only / immutable**; replay stays the source of
   truth. This is a read-path redesign.
 - `global_sequence` stays. The parity comparators and the mirror key off it.
 - No SQL layer, ever (§2.3, and the layered-platform invariant).
-- Single writer per shard. R2 makes contiguity depend on it *more*, not less —
-  which is why fencing (M5) is a prerequisite for anything that moves writers.
+- **Single writer per partition.** R2 makes contiguity depend on it *more*, not
+  less — and §2.5 Property N makes **correctness under eventual replication**
+  depend on it outright. Fencing (M5) is therefore a prerequisite for the
+  eventual model, not only for moving writers. ⚠ This is the one place where
+  "eventual consistency is cheaper" is false: it is cheaper in *replication*
+  and it raises the bar on *exclusion*.
+- **No cross-region write path for a single execution.** An execution is homed
+  (R5). Two regions appending to one chain is the fork §2.5 excludes.
 
 ---
 
@@ -481,6 +671,44 @@ partition key, for different reasons that turn out to be the same reason.
 repartition serves both, and doing them separately would mean partitioning the
 same log twice.
 
+### 7.1 ⭐⭐ §2.4 largely dissolves the M8 / F2b problem
+
+The multi-region plan's hardest open fork was **F2b — the lease authority under
+region failure**: the Kubernetes Lease CAS that elects a writer is per-cluster,
+so losing the region hosting it means no writer can be elected anywhere. That
+fork gated **M8 (region-survivable writes)**, and the plan's honest position was
+*"reads reach REGION, writes stay ZONE."*
+
+**Under §2.4 that is no longer a limitation to apologise for — it is the
+intended design.**
+
+Because every execution is **homed** (R5) and no execution's chain is ever
+written from two regions (§2.5), losing a region does not leave a chain
+un-writable-but-needed. It means:
+
+- the **in-flight executions homed there** stop advancing and must be retried as
+  **new executions** (a new `execution_id`, homed elsewhere) — which is a
+  scheduling concern, not a storage-consistency one;
+- **every other region keeps writing its own executions**, unaffected, because
+  they were never sharing a writer;
+- **all replicated data remains readable** everywhere, at bounded staleness.
+
+So the thing M8 was going to buy — moving a *specific* execution's writer to
+another region — is **not required for availability**. New work is homed
+elsewhere immediately; only the executions mid-flight in the lost region are
+affected, and those need a *retry policy*, not cross-region write failover.
+
+**Recommendation: keep M8 `off`, and re-scope it from "needed" to "optional."**
+⚠ Two honest caveats, because this is a de-scope and de-scopes are where
+optimism hides:
+
+1. It converts a **consistency** problem into a **scheduling** problem. Someone
+   must decide what happens to executions orphaned in a lost region — retry as
+   new, or leave them for the region's return. That decision does not exist yet
+   and should be written down before anyone calls M8 unnecessary.
+2. An execution whose **parent** is homed in the lost region is reachable only at
+   the staleness the last replication left — see fork **F7**.
+
 ---
 
 ## 8. Phased migration — retiring reconcile/re-drive
@@ -494,8 +722,10 @@ chosen so no phase can break an existing feature.
 | **E0** | **Instrument the real cost.** Publish per-read `records_scanned` vs `records_returned` and the per-store mutex wait, on the live tier path | none (metrics, pinned at 0) | The ratio is published and the scanned/returned gap is **measured**, not inferred. ⚠ Must be on the path §1.4 flags as ASSUMED — trace it first | — |
 | **E1** | **R1** — tier served by L0 | `NOETL_EHDB_TIER_BACKEND=l0` | byte-identical outcome under the default; cross-backend read **refused**, not misparsed | — |
 | **E2** | **R2** — `(execution_id, exec_seq)` sort key, written in **shadow** beside `global_sequence` | `NOETL_EHDB_EXEC_SEQ=off\|shadow\|on` | 100 % of new records carry `exec_seq`; rollback binary reads them (expand-first, tolerate **before** write); `global_sequence` untouched | — |
+| **E2b** | **R5** — home each execution; record the home in D8 + `Locality`. Written and readable, **consulted by nothing** | `NOETL_EHDB_EXEC_HOMING=off\|shadow\|on` | 100 % of new executions carry a home; resolvable by a reader; routing unchanged | — |
 | **E3** | **R3** — point index `(execution_id, event_id)` | `NOETL_EHDB_EXEC_INDEX` | **P1**: pattern A issues exactly one storage op, proven with a counting substrate. **P2**: B2 latency flat as `N` grows 10× at fixed `k` | — |
 | **E4** | **R4** — chain-following state builder (#115 Phase 3) behind a flag, compared against the scan builder on a fixed population | `NOETL_CHAIN_WALK_BUILDER` | identical spine for ≥ N executions; a chain gap reports a **named error at a specific key**, never empty | — |
+| **E4b** | **R6** — repoint the async mirror at **partitions**, ordered per partition (Property P). Cross-region reads gated on M3 closed timestamps | `NOETL_EHDB_MIRROR_SCOPE=global\|partition` | per-partition order preserved end-to-end, **proven with an out-of-order injection** (a mirror that reorders must fail this, or P is untested); a behind replica reports a **named gap**, never an empty chain | — |
 | **E5** | **Stop re-driving on read-not-ready.** Re-drive only on a *distinguishable* incomplete chain | `NOETL_RECONCILE_ON_READ_FAIL=off` | `offserver_retry` rate drops to the rate of real incompleteness; measured, with a prediction made first | the retry loop |
 | **E6** | **Delete the cap and its units.** Remove `NOETL_RECONCILE_MAX_NOOPS`, the budget, the tombstones and the give-up metric | — (deletion) | no execution re-drives without a named cause; `giveup` series removed rather than left reading 0 | **#461/#462/#463 line, the 225 cap, the 18.7 h** |
 | **E7** | Retire the `event_scan` read path default (flip `NOETL_EVENT_READ_PATH` to `audit_only`) | existing flag | already COMPLETE as code; this is the default flip | the last hot-path scan class |
@@ -505,6 +735,13 @@ A cap left in place "just in case" would sit at 0 forever and be read as
 evidence that nothing is stalling — a metric that cannot fire, which is this
 program's most repeated defect. If E5 is right, E6 is mandatory; if E6 feels
 risky, E5 is not finished.
+
+⚠⚠ **E2b and E4b are where §2.4 lands, and their exit criteria are deliberately
+adversarial.** E4b's is not "replication works" but *"an injected reordering
+fails the check"* — because Property P is precisely the kind of guarantee that
+holds by accident in a quiet test and is never exercised. A mirror that happens
+to preserve order under low load, untested against reordering, is an assumption
+wearing a green check.
 
 ⭐ **E0 first, deliberately.** The §1.3 table is from #155 and a 161.7 MB store;
 prod is far larger and the cache is now on. Re-measuring before restructuring is
@@ -547,6 +784,34 @@ diagnosis on today's prod rather than on a doc comment.
 - **F6 — does the segment `.idx` path already cover the tier read?** Marked
   **ASSUMED** in §1.4 and it changes E0/E1's scope if true. ⭐ **Trace it before
   E1**, with a counting substrate rather than by reading the code.
+- **F7 — cross-region execution-tree navigation.** §2.4 allows a parent execution
+  homed in region A and a child in region B, so pattern C (§2.2) can cross
+  regions — and under eventual consistency the parent may be stale or, briefly,
+  absent at the child's replica. Options: (a) synchronous cross-region read of
+  the parent; (b) **the child carries the parent context it needs, denormalised
+  at creation**; (c) tree walks are bounded-staleness reads that can report a
+  gap. ⭐ **Recommend (b) + (c):** the child is created *by* the parent, so the
+  parent's relevant context is available at exactly the moment the child is
+  homed, and copying it then costs one write instead of a cross-region read on
+  every hop. (c) is the fallback for genuine ancestry queries. Reject (a) — it
+  puts a cross-region round trip on a hot path to buy freshness the model does
+  not require. ⚠ (b) is a denormalisation, so it inherits F4's hazard: copy only
+  what is **immutable** about the parent (ids, playbook identity), never its
+  mutable status.
+- **F8 — what happens to executions orphaned in a lost region?** Raised by §7.1
+  and currently **undecided**. Options: retry as a new `execution_id` homed
+  elsewhere; leave them pending the region's return; or an operator-driven
+  re-home. ⭐ **Recommend "retry as new, with the original recorded as the
+  retry's parent execution"** — it needs no cross-region write path, and the tree
+  edge (I3) already expresses the lineage. ⚠ Do not let this stay undecided
+  while calling M8 unnecessary: the de-scope in §7.1 is only honest if this
+  question has an answer.
+- **F9 — is `exec_seq` or the HLC the cross-region merge order for *reads that
+  span executions*?** ⭐ **The HLC (M2).** `exec_seq` is intra-execution by
+  construction and means nothing across partitions; `global_sequence` is
+  per-engine and means nothing across regions. Anything presenting a merged
+  cross-execution view (a UI timeline, an audit export) orders by HLC and must
+  label the result **bounded-stale**, never "complete".
 
 ---
 
@@ -564,17 +829,43 @@ diagnosis on today's prod rather than on a doc comment.
 3. The owner's **four-id model** fixes it at the root: I4 (context carries all
    four ids) turns find-parent from a search into an **address**, and
    `execution_id` as partition key makes a chain **physically contiguous**.
-4. **Durable Objects is the right reference model and not a candidate**
-   (edge-only). **JetStream is rejected** — per-execution subjects are the
-   documented cardinality antipattern and it reverses the T5 NATS deletion.
-   **Cockroach KV is rejected** — right key design, but an external database with
-   Raft on every write, which L0 explicitly retired.
-5. **Recommend the native restructure**: tier on L0, sort key
-   `(execution_id, exec_seq)`, a point index for the parent, and chain-*following*
-   instead of chain-*reconstruction*.
-6. It **shares its first phase with the multi-region plan** (M0.5 = R1) and its
+4. **The consistency budget splits on the partition boundary** (§2.4, owner
+   constraint): **strong ordering only within an `execution_id` partition**,
+   **eventual across replicas and regions**. Executions are **homed**;
+   "geographically distributed" means many single-writer partitions in many
+   regions, never one chain written from two.
+5. **Eventual is provably safe here** (§2.5). *Property N — non-divergence*: a
+   single writer gives each event at most one successor and immutability fixes
+   its parent pointer, so **no replica can ever observe a forked chain** — it
+   sees a subset, never a contradiction. ⚠ N depends on real single-writer
+   exclusion, so **the eventual model's safety is conditional on M5 fencing**.
+   The weaker *Property P — prefix* (no holes) needs per-partition **ordered**
+   replication and is a usability, not a safety, requirement.
+   ⭐ And the chain is **self-verifying**: the `prev` pointer *names the missing
+   key*, so staleness becomes a reportable gap instead of an empty result — the
+   same invariant that kills the re-drive.
+6. **Durable Objects is the right reference model and not a candidate**
+   (edge-only) — and under §2.4 the fit is exact: strong *within* an object,
+   nothing across. **JetStream is rejected as the store** (per-execution
+   subjects are the documented cardinality antipattern; it reverses the T5 NATS
+   deletion) but its **source/mirror streams are prior art for the replication
+   half** — which NoETL already implements as the async mirror.
+   **Cockroach KV is rejected, and §2.4 strengthens the rejection**: its global
+   strong consistency is now an **over-buy paid as consensus on every append**,
+   a latency tax for a property §2.5 shows the chain does not use.
+7. **Recommend the native restructure**: tier on L0 (R1), sort key
+   `(execution_id, exec_seq)` (R2), a point index for the parent (R3),
+   chain-*following* instead of chain-*reconstruction* (R4), **execution homing**
+   (R5) and a **per-partition ordered async mirror** (R6).
+8. It **shares its first phase with the multi-region plan** (M0.5 = R1) and its
    partition function with M1/M4. One repartition serves placement and retrieval.
-7. The migration ends by **deleting** the cap, the budget, the tombstones and the
+9. ⭐⭐ **§2.4 largely dissolves the plan's hardest fork.** Because executions are
+   homed, losing a region does not strand a chain that must be written: new work
+   is homed elsewhere immediately and everything replicated stays readable. **M8
+   (region-survivable writes) drops from "needed" to "optional"**, and F2b stops
+   being a blocker — at the price of one new question, F8, about executions
+   orphaned mid-flight.
+10. The migration ends by **deleting** the cap, the budget, the tombstones and the
    give-up metric — not by tuning them.
 
 ## Sources
