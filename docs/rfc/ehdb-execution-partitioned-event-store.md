@@ -970,3 +970,122 @@ prefix** is reported complete (behind is not broken); a **hole** is not.
 `ChainError::Forked` is retained as the **Property N alarm**: single-writer
 exclusion should make it unreachable, so if it ever fires in the field,
 exclusion was not real. It is the detector, not the guard.
+
+---
+
+## 12. Pluggable storage roles — EHDB as the default, not a dependency
+
+**Owner requirement, 2026-09-24, first-class:** all storage integration is
+**abstract/pluggable**, so an operator configures **at runtime** which backend
+each noetl internal workload uses, **per storage role**. EHDB becomes the
+default implementation, not a hard dependency.
+
+### 12.1 The precedent, verified and mirrored
+
+`noetl/ops#311` (**OPEN**, VERIFIED via `gh`) does this for models:
+
+```
+NOETL_SLM_BACKEND = ollama | vertex | vertex-stub | vllm     # default: ollama
+```
+
+with two properties worth copying exactly:
+
+- **Precedence: explicit call-site argument → flag → default.**
+- *"A call site that passes nothing and runs with no flag behaves exactly as it
+  does today."*
+
+⭐ And a third, easy to overlook: it ships a **`vertex-stub`**. A stub backend is
+not clutter — it is how you demonstrate that the selection machinery and the
+acceptance criteria actually *reject* something. §12.4 carries it over.
+
+⚠ ops#311 is Python, in `automation/agents/mcp/model_backend.py`. Storage roles
+are Rust. The **shape** is mirrored; no code is shared.
+
+### 12.2 The roles
+
+| role | env var | contract | default |
+| :-- | :-- | :-- | :-- |
+| **EventLog** | `NOETL_STORE_EVENTLOG` | **`EventStore`** — the 4-id chain model (§2), in full | `ehdb` |
+| **Projection** | `NOETL_STORE_PROJECTION` | serving/projection tier | `ehdb` |
+| **Context** | `NOETL_STORE_CONTEXT` | internal execution-context management | `ehdb` |
+| **KV** | `NOETL_STORE_KV` | existing KV role | `ehdb` |
+| **Object** | `NOETL_STORE_OBJECT` | existing object role | `ehdb` |
+| **Vector** | `NOETL_STORE_VECTOR` | existing vector role | `ehdb` |
+
+Roles resolve **independently** — setting `NOETL_STORE_CONTEXT=redis` must not
+move Projection. Every role defaults to `ehdb`, and an **unrecognised value
+resolves to `ehdb`**, so a typo can never silently relocate a workload.
+
+### 12.3 ⚠ Where the seam is — the thin-hot-path requirement, as a design rule
+
+The requirement is that the O(1) predecessor fetch and the per-execution append
+are not slowed by indirection. That is satisfied by **granularity**, not by
+micro-optimising:
+
+> **The seam is at the workload boundary, not inside the chain walk.**
+
+`EventStore` is deliberately **coarse-grained**: one call per *logical
+operation*. `walk_from_head` returns the whole chain, so a 200-event walk
+crosses the seam **once** and the inner loop stays inside the implementation,
+monomorphised and borrow-based. A fine-grained trait — `next_event()` per step —
+would put a virtual call **and** an allocation in the inner loop. That is the
+shape this rule forbids, and there is a test asserting the ratio so the
+regression is caught rather than argued about.
+
+⚠ Trait methods return **owned** values, because a remote backend has no borrow
+to hand back. That is a real cost (one clone per returned event) and it is
+bounded and measured; in-process callers wanting borrows keep using the concrete
+`ChainStore`. **The trait is the configuration seam, not the inner-loop seam.**
+
+### 12.4 Conformance — a backend is usable only if it passes
+
+`EventStore` conformance checks the §2 contract clause by clause, each named so
+an operator sees *which* guarantee a candidate lacks:
+
+```
+append/per-execution-seq-starts-at-1     chain/partition-isolation
+append/accepts-root                      chain/ascending
+append/enforces-head (I1)                parent_of/resolves-predecessor
+parent_of/names-the-gap                  apply_replicated/accepts-out-of-order
+apply_replicated/idempotent              chain_is_complete/hole-is-incomplete
+get/by-key                               chain_is_complete/prefix-is-complete
+```
+
+Two clauses carry most of the weight, and they are the two the RFC exists for:
+**`parent_of/names-the-gap`** (a missing predecessor must name its key, never
+return `None`) and **`chain_is_complete/hole-is-incomplete`** (a hole must not
+read as finished). The paired control **`prefix-is-complete`** stops a backend
+satisfying those by calling everything incomplete — *behind is not broken*.
+
+⭐⭐ **A conformance suite is only worth having if it rejects something**, so two
+non-conforming backends ship with it:
+
+| backend | verdict | why it is informative |
+| :-- | :-- | :-- |
+| `stub` | **REJECTED** | Accepts everything, remembers nothing, reports every chain complete. The suite's own positive control, mirroring ops#311's `vertex-stub` |
+| `jetstream-sketch` | **REJECTED**, on the clauses that matter | Passes `chain/ascending` and `chain/partition-isolation` — a subject per execution genuinely gives ordered replay and isolation. **Fails** `parent_of/names-the-gap` (a replay cannot distinguish "not yet" from "not a thing"), `chain_is_complete/hole-is-incomplete` ("everything in the subject" always looks complete) and `append/enforces-head` (nothing in a plain publish refuses a stale-head append; `expected_last_subject_sequence` is the concrete thing a real implementation would have to add) |
+
+⭐ The sketch passing *some* clauses is the point. A suite that rejected it
+wholesale would be indistinguishable from one that rejects everything; a suite
+that accepted it would not be checking the two properties the redesign is for.
+**That split verdict is the evidence the contract is a specification rather than
+a restatement of EHDB's method signatures.**
+
+### 12.5 How this changes the recommendation and the migration
+
+The recommendation (§11.1) is unchanged in substance and sharper in framing:
+**EHDB is the default implementation of the EventStore contract**, and the
+contract — not EHDB — is what the rest of noetl depends on. Anything satisfying
+§2 can serve the role.
+
+Migration additions, slotting into §8:
+
+| phase | what | flag | exit criterion |
+| :-- | :-- | :-- | :-- |
+| **E1a** | Storage-role registry + per-role config; **every role defaults to `ehdb`** | `NOETL_STORE_*` | unset/typo ⇒ `ehdb`; roles independent; a `*_info` gauge reports **every** role's resolved backend including defaulted ones (an absent label reads identically to a broken exporter) |
+| **E1b** | `EventStore` trait + EHDB impl + conformance suite | — | EHDB passes; **`stub` and `jetstream-sketch` are REJECTED on named clauses**; the seam's hot-path ratio is asserted |
+| **E3a** | Extract `ProjectionStore` and `ContextStore` behind the same pattern | `NOETL_STORE_PROJECTION`, `NOETL_STORE_CONTEXT` | today's behaviour byte-identical under the defaults |
+
+⚠ **E1a and E1b are additive and inert.** Adding a seam whose only
+implementation is the incumbent changes nothing at runtime — which is exactly
+the property that makes it safe to land early and ahead of the restructure.
