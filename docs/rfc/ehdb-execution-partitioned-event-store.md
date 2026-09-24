@@ -882,3 +882,91 @@ Prior art consulted for §4 (external, September 2026):
 - [Range / Shard — Cockroach Labs](https://www.cockroachlabs.com/glossary/distributed-db/range-shard/)
 - [Replication Layer — CockroachDB](https://docs.cockroachlabs.com/docs/stable/architecture/replication-layer)
 - [CockroachDB design.md](https://github.com/cockroachdb/cockroach/blob/master/docs/design.md)
+
+---
+
+## 11. MVP slice — converged recommendation and first increment
+
+**Added 2026-09-24 on the owner's instruction to converge fast and start
+building in the same session.**
+
+### 11.1 The recommendation, in one paragraph
+
+**Build the native EHDB restructure.** It is the fastest path to a working
+slice because the substrate already exists and is already partitioned the right
+way: `ehdb-l0` has immutable parts, a manifest, a sparse index, `partition =
+shard_for(execution_id)` and a per-part bloom over `execution_id` — what it
+lacks is a per-execution sort key and a point index, which are additive. The
+alternative that could in principle be faster — a JetStream stream or subject
+per `execution_id` — is **not** faster to a *working* slice: it needs a NATS
+deployment this platform deliberately deleted at T5, it lands on the documented
+high-cardinality-subject antipattern the moment `execution_id` counts grow, and
+its per-execution ordering would still have to be bridged into the existing
+drive. Everything else is in the matrix (§5) and is not revisited: Durable
+Objects is the right shape and edge-only, Cockroach over-buys consistency §2.4
+says we do not want, CF KV/D1/R2 are edge roles.
+
+### 11.2 The MVP slice
+
+Smallest thing that delivers the four required behaviours, behind a flag,
+default off, additive, existing behaviour unchanged when off:
+
+| # | behaviour | slice surface |
+| :-- | :-- | :-- |
+| **a** | append an event to an `execution_id` partition | `ChainStore::append` — per-execution `exec_seq`, refuses an append that does not extend the head (I1) |
+| **b** | O(1) fetch of the predecessor | `ChainStore::parent_of` — one index probe via `(execution_id, event_id) → exec_seq` |
+| **c** | ordered read of an execution's chain | `ChainStore::chain` / `walk_from_head` — contiguous over one partition |
+| **d** | advance by chain-**following**, not reconcile/re-drive | `chain_is_complete` — complete, or **incomplete at a named key**, never an empty result |
+
+Flag: `NOETL_EHDB_EXEC_CHAIN`, default **off**, unrecognised ⇒ off.
+
+**Increment 1 (landed):** the primitive plus its proofs, `ehdb-l0/src/chain.rs`,
+**INERT** — not wired to the tier, engine, drive or any write path.
+
+**Increment 2 (next):** persist a partition to the L0 substrate and re-prove
+P1/P2 against a durable store with a `CountingSubstrate`, so pattern A is shown
+to issue exactly one storage operation rather than one map probe.
+
+**Increment 3:** a read-only shadow comparison — for a real execution, compare
+the chain-followed spine against the current scan-built spine, count agreement,
+serve neither.
+
+**Increment 4:** the flag's first real consumer — the drive consults
+`chain_is_complete` and distinguishes *incomplete at key K* from *not ready*,
+which is what makes E5/E6 (retire the re-drive and its cap) possible.
+
+### 11.3 What increment 1 proved, and the design gap it found
+
+- **P1** — parent lookup flat across a **100×** growth in `N` (100 → 10,000
+  events), ratio asserted `< 5×`.
+- **P2** — chain read flat across the same 100×, with `k` fixed at 10.
+- ⭐ **A positive control** that deliberately scans every partition and asserts
+  the ratio **> 10×**. Without it, the two flat readings prove only that the
+  harness cannot measure, which is the same reading as success.
+- **Gap naming** — a missing link reports `GapAt { execution_id, event_id }`.
+- Mutation battery **8 planted / 8 caught**, positive control green.
+
+⚠⚠ **The battery found a real design gap, not just a missing test.** The mutant
+*"`chain_is_complete` reports true on a gap"* **survived**, because a gap was
+**unconstructible**: `append` enforces the head, so no test could build a
+partition with a hole for the assertion to bite on. But §2.5 Property P says
+async replication **may deliver out of order** — so a follower must be able to
+hold `e₃` while waiting for `e₂`, and that path did not exist in the slice.
+
+Increment 1 therefore also adds **`apply_replicated`**, the follower ingest
+path, and the asymmetry is now explicit and deliberate:
+
+| path | enforces the head? | why |
+| :-- | :-- | :-- |
+| `append` — **writer** | **yes** | I1. The home partition's chain cannot fork |
+| `apply_replicated` — **replica** | **no** | Out-of-order delivery is normal. Property N still holds, so what arrives is a *subset of one fixed path*: a hole is a **gap**, never a **fork** |
+
+And `chain_is_complete` now compares the walk against the partition's **span**
+(highest `exec_seq`), not against how many records happen to be present — a
+count comparison is satisfied by *"I hold 2 of 3 and walked 2"*, which is
+precisely the false-complete the design exists to prevent. A **contiguous
+prefix** is reported complete (behind is not broken); a **hole** is not.
+
+`ChainError::Forked` is retained as the **Property N alarm**: single-writer
+exclusion should make it unreachable, so if it ever fires in the field,
+exclusion was not real. It is the detector, not the guard.
