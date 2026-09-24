@@ -1003,14 +1003,51 @@ are Rust. The **shape** is mirrored; no code is shared.
 
 ### 12.2 The roles
 
-| role | env var | contract | default |
-| :-- | :-- | :-- | :-- |
-| **EventLog** | `NOETL_STORE_EVENTLOG` | **`EventStore`** — the 4-id chain model (§2), in full | `ehdb` |
-| **Projection** | `NOETL_STORE_PROJECTION` | serving/projection tier | `ehdb` |
-| **Context** | `NOETL_STORE_CONTEXT` | internal execution-context management | `ehdb` |
-| **KV** | `NOETL_STORE_KV` | existing KV role | `ehdb` |
-| **Object** | `NOETL_STORE_OBJECT` | existing object role | `ehdb` |
-| **Vector** | `NOETL_STORE_VECTOR` | existing vector role | `ehdb` |
+| role | env var | contract | selectable | default |
+| :-- | :-- | :-- | :-- | :-- |
+| **EventLog** | `NOETL_STORE_EVENTLOG` | **`EventStore`** — the 4-id chain model (§2), in full | `ehdb` \| `jetstream` — ⛔ **in-region only** | `ehdb` |
+| **Projection** | `NOETL_STORE_PROJECTION` | serving/projection tier | `ehdb` \| `d1` \| `postgres` | `ehdb` |
+| **Context** | `NOETL_STORE_CONTEXT` | internal execution-context management | `ehdb` \| `r2` \| `redis` | `ehdb` |
+| **Cache** | `NOETL_STORE_CACHE` | **`CacheStore`** — eventually consistent, a miss is never a fault | `ehdb` \| `cloudflare-kv` \| `redis` | `ehdb` |
+| **KV** | `NOETL_STORE_KV` | existing KV role | `ehdb` \| `cloudflare-kv` \| `redis` | `ehdb` |
+| **Object** | `NOETL_STORE_OBJECT` | existing object role | `ehdb` \| `r2` \| `gcs` | `ehdb` |
+| **Vector** | `NOETL_STORE_VECTOR` | existing vector role | `ehdb` | `ehdb` |
+
+### 12.2a ⚠ Access model — why Cloudflare backends are not interchangeable
+
+**From the GKE backend, Cloudflare stores are reached over their REMOTE APIs,
+not native bindings:** the **KV REST API** (the path the noetl.ai waitlist
+already uses), **D1's HTTP query API**, **R2's S3-compatible API**. Every
+operation is an internet round trip. Native `env.KV` / `env.DO` bindings exist
+only inside a Worker.
+
+That makes access mode a **property of the backend** and latency tolerance a
+**property of the role**, and the pairing is **enforced**, not documented:
+
+| backend | access mode from GKE | usable for |
+| :-- | :-- | :-- |
+| `ehdb`, `jetstream`, `postgres`, `redis`, `gcs` | **in-region** | any role |
+| `cloudflare-kv`, `d1`, `r2` | **remote-api** | cache / projection / context / object / kv — **never EventLog** |
+| `durable-object` | **edge-native** | **no GKE role at all** |
+
+⛔ `NOETL_STORE_EVENTLOG=cloudflare-kv` is **REFUSED**, with a message naming
+the reason and where the chain belongs. It is deliberately *not* defaulted back
+to `ehdb`: a silent fallback would leave the flag looking taken while changing
+nothing — the exact shape of `NOETL_EHDB_SEAL_MAX_AGE_MS`, which existed on the
+config struct and was never read.
+
+The reason is the contract, not a preference: **EventLog's contract includes an
+O(1) predecessor fetch on the execution hot path.** An internet round trip there
+reintroduces the latency this redesign exists to remove — sourced from the
+network instead of from a replay, which is no better. Cache, projection, context
+and object reads are all already off the per-event path, so they absorb it fine.
+
+⭐ **Durable Objects: right model, wrong host.** One DO per `execution_id` *is*
+the per-execution single-writer ordered log this RFC is shaped around — §4.1
+calls it the design authority for the partition shape. It is refused for **every**
+role from GKE because it needs a native Worker binding. It remains a genuine
+**edge-hosted EventStore option** for components that actually run as Workers
+(the console/edge tier), and nothing else.
 
 Roles resolve **independently** — setting `NOETL_STORE_CONTEXT=redis` must not
 move Projection. Every role defaults to `ehdb`, and an **unrecognised value
@@ -1071,6 +1108,26 @@ that accepted it would not be checking the two properties the redesign is for.
 **That split verdict is the evidence the contract is a specification rather than
 a restatement of EHDB's method signatures.**
 
+⭐⭐ **And the seam must be shown to ACCEPT a non-EHDB backend, or "pluggable"
+is just a rejection machine.** The **`cloudflare-kv` sketch — eventually
+consistent, first-read-after-write misses, remote-API — PASSES Cache
+conformance.**
+
+Note the direction, because it is what makes that meaningful: the Cache contract
+is weak (no ordering, no read-your-writes, a miss is never a fault) **because
+that is what a cache is**, and KV satisfies it *without the contract being bent
+to admit it*. A contract weakened to fit a candidate proves nothing about the
+candidate.
+
+Two boundaries of the Cache suite, recorded rather than papered over:
+
+- **`always-miss` CONFORMS.** A cache that always misses is *useless but
+  correct* — a miss is never a fault. **Correctness and usefulness are different
+  properties here**, and only the first is testable from semantics; hit rate is
+  an operational metric, not a contract clause.
+- **`broken` is REJECTED for fabricating a hit.** A miss is legal; a wrong hit
+  silently poisons every caller. That is the one hard cache clause.
+
 ### 12.5 How this changes the recommendation and the migration
 
 The recommendation (§11.1) is unchanged in substance and sharper in framing:
@@ -1085,6 +1142,8 @@ Migration additions, slotting into §8:
 | **E1a** | Storage-role registry + per-role config; **every role defaults to `ehdb`** | `NOETL_STORE_*` | unset/typo ⇒ `ehdb`; roles independent; a `*_info` gauge reports **every** role's resolved backend including defaulted ones (an absent label reads identically to a broken exporter) |
 | **E1b** | `EventStore` trait + EHDB impl + conformance suite | — | EHDB passes; **`stub` and `jetstream-sketch` are REJECTED on named clauses**; the seam's hot-path ratio is asserted |
 | **E3a** | Extract `ProjectionStore` and `ContextStore` behind the same pattern | `NOETL_STORE_PROJECTION`, `NOETL_STORE_CONTEXT` | today's behaviour byte-identical under the defaults |
+| **E1c** | Access-mode guard: refuse remote backends on `EventLog`, refuse edge-native everywhere on GKE | — (validation) | `NOETL_STORE_EVENTLOG=cloudflare-kv` **errors**; the same backends are **accepted** on cache/projection/context/object (the paired control — a guard that refuses everything is as broken as one that refuses nothing) |
+| **E3b** | Cloudflare backends per role: `cloudflare-kv`→Cache/KV, `d1`→Projection, `r2`→Context/Object | `NOETL_STORE_*` | each passes its role's conformance suite; defaults unchanged; **real** implementations add auth, retry/backoff, TTL and pagination, none of which changes the conformance verdict |
 
 ⚠ **E1a and E1b are additive and inert.** Adding a seam whose only
 implementation is the incumbent changes nothing at runtime — which is exactly
