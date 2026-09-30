@@ -33,6 +33,41 @@ replication into a monotone join, which is what makes it coordination-free.
 asymptotic one.** §5 states that plainly, including the three things it does not
 make faster at all.
 
+## ⚠⚠ Revision 2026-09-30 — the benchmark falsified this spec's append claim
+
+Measured in [noetl/server#480](https://github.com/noetl/server/pull/480). Recorded
+here rather than quietly amended, because the falsified claim was the confident one.
+
+**Confirmed:** validation O(n) → O(1) — ≥519× at 36 events to ≥59,818× at 10,000, with
+p99 flat at ratio **1.00× over a 277× longer chain**. Refolds **99.80%** eliminated
+(19,840 polls → 19,801 avoided, 39 genuine). Both gates met.
+
+**Falsified:** *"append throughput unchanged **by construction**"*. It is not
+unconditional, and "by construction" was the error — a claim about an
+implementation I had not measured.
+
+| events per fsync | baseline | certified | delta | ±2% gate |
+| --: | --: | --: | --: | :-- |
+| 1 | 240/s | 239/s | −0.73% | holds |
+| 17 | 3,450/s | 3,434/s | −0.47% | holds |
+| **512** | 78,920/s | 65,533/s | **−16.96%** | **BREAKS** |
+| 2,000 | 163,017/s | 106,046/s | **−34.95%** | **BREAKS** |
+
+The gate held only where one `fsync` covers one event, because a 3.0 ms `fsync`
+(measured) dilutes everything. **EHDB group-commits**: `MAX_COMMIT_BATCH = 512`
+(`ehdb-feed/src/publish.rs:46`), `EHDB_FEED_BATCH_LIMIT` default 2,000. Break-even is
+~17 events per `fsync`, and the measured curve crosses where that predicts.
+
+⚠ **And reusing the serialisation does not rescue it.** A floor arm digesting the bytes
+the append already produced measured −27.37% against −26.84% — i.e. no better. **The
+cost is SHA-256 itself, not duplicate serialisation.** That kills the "just reuse the
+bytes" fix and forces the redesign in §2.2.
+
+Decomposing 512-column: 6.49 ms → 7.81 ms per batch = **2.59 µs per event**. SHA-256
+over a ~500 B body is ~0.39 µs at 1.3 GB/s, so roughly **2.2 µs of that is
+per-invocation cost** (init, finalize, allocation) and only ~0.4 µs is bytes. That
+split is what the redesign exploits.
+
 ## Goals
 
 - Answer "is this projection valid for this chain?" in O(1) rather than O(n) refold.
@@ -40,11 +75,20 @@ make faster at all.
   obligation discharged in §3 rather than asserted.
 - Remove the per-poll chain read from the drive-decision path.
 - Make a cross-region projection read local.
-- Change **nothing** about the leaderful per-shard append path.
+- Keep the append cost **inside the ±2% gate at the 512-event commit batch** — by
+  amortising the digest over the batch rather than paying it per event. ⚠ A *target to
+  be measured*, not a construction claim; §5 says what falsifies it.
+- Change nothing about the **ordering semantics** of the leaderful per-shard append
+  path (single writer, gapless `global_sequence`).
 
 ## Non-Goals
 
-- Faster appends. The append path is single-writer + `fsync`; this touches neither.
+- Faster appends. ⚠ **Revised:** the original wording here was "this touches neither",
+  which the §0 benchmark falsified — the design *does* touch the append path, adding one
+  8-byte `update` per event and one `finalize` per execution per commit batch. The
+  non-goal is that appends get no *faster*; the obligation is that they get no
+  measurably *slower* (±2% at the 512 batch), and that obligation is now a gate in §4
+  rather than an assumption.
 - Region-survivable **writes**. That is fork F2b in the multi-region plan and stays
   open. This spec buys reads and decisions, not write failover.
 - Multi-key transactions, MVCC, or a query engine.
@@ -129,41 +173,86 @@ currently pays for the second (a read against the writer's ordered store) and, i
 multi-region, would pay a round trip to the writer's region. Separating them is the
 entire proposal.
 
-### 2.2 The chain certificate
+### 2.2 The chain certificate — a streaming digest, finalised per commit batch
 
-Add to each event's record body (C3-compliant: `Option<T>` +
-`skip_serializing_if`):
+**Revised 2026-09-30 after the §0 benchmark.** The original construction hashed once
+per event and cost −17% throughput at the 512-event commit batch. This version pays
+one cheap `update` per event and one `finalize` per *batch*, not per event.
 
-```
-chain_digest: Option<[u8; 32]>     // rolling SHA-256
-chain_len:    Option<u32>          // 1 for the root
-```
+Two changes, and the second is the one that matters for cost.
 
-with
+**(1) The digest attests ORDER AND MEMBERSHIP, not payload bytes.**
 
 ```
-chain_digest(root)  = H( DOMAIN_TAG || canonical(event_root) )
-chain_digest(n)     = H( DOMAIN_TAG || chain_digest(n-1) || canonical(event_n) )
+D_n = SHA256( DOMAIN_TAG || event_id_1 || event_id_2 || … || event_id_n )
 ```
 
-`canonical(...)` is the existing deterministic serialisation (sorted keys, compact
-separators) already used by `canonical_event_checksum`. `DOMAIN_TAG` is a fixed
-constant so a digest from this construction can never collide with a digest from
-another use of the same hash.
+8 bytes per event instead of a ~500-byte body — a ~60× reduction in the byte term.
+The link structure is implied by the order the ids are fed, which is chain order by
+construction.
 
-A **chain certificate** is then the triple
+⚠ **This narrows a guarantee and the narrowing is real.** The chain digest no longer
+detects a corrupted event *body*; it detects reordering, omission, insertion and
+substitution of events. Body integrity is a different concern already served by
+`canonical_event_checksum` and the storage layer. §3.1 A6 is rewritten accordingly —
+this is a deliberate separation of concerns, not an oversight, but anyone reading the
+certificate as a body-integrity proof would be wrong.
+
+**(2) One live hasher per in-flight execution; `finalize` only at the batch boundary.**
+
+SHA-256 is a streaming hash. The writer keeps a live hasher per active execution and
+feeds it one id per event — an `update` of 8 bytes, with no `finalize` and no
+allocation. At the commit-batch boundary it clones the hasher and finalises the clone
+for each execution touched in that batch, emitting
 
 ```
-CERT = (execution_id, chain_len, chain_digest)
+CERT = (execution_id, chain_len, D_n)      // 44 bytes
 ```
 
-— 44 bytes, self-verifying, and monotone in `chain_len`.
+⭐ **The digest is a pure function of the event sequence, so it is completely
+independent of how events were batched.** `D_n` depends only on `id_1 … id_n`; nesting
+per-batch roots would have made it batching-dependent and therefore not reproducible by
+a replica that batched differently. That property is load-bearing for §2.3 and is why
+this shape was chosen over a per-batch Merkle rollup.
 
-⚠ **Why no version vector.** A vector exists to summarise *concurrent* histories per
-replica. Under the #362 invariant an execution has exactly one root and no forks, so
-its history is a single sequence and `chain_len` is a complete summary. If the
-invariant is violated the vector would not save us either — §3.1 covers that case
-explicitly.
+⚠ **A fixed-K window per execution was considered and discarded on the data.** Windows
+of K events with a certificate at each boundary would amortise equally well — but the
+measured corpus has **36–174 events per execution**, so with K = 512 *no window would
+ever complete and no certificate would ever be issued*. Any K large enough to amortise
+is larger than most executions. The streaming hasher has no such coupling: the
+certificate advances every batch regardless of execution length.
+
+**Cost model, stated as arithmetic rather than assertion.** Per 512-event commit batch,
+with `x` distinct executions touched:
+
+```
+digest cost  ≈  x · (init + finalize)  +  512 · 8 bytes of update
+             ≈  x · 2.2 µs             +  3.2 µs
+```
+
+against a measured 6.49 ms baseline batch. So:
+
+| executions per batch | predicted overhead | vs ±2% gate |
+| --: | --: | :-- |
+| 1 | 0.08% | holds |
+| 6 | 0.25% | holds |
+| 32 | 1.14% | holds |
+| **58** | **~2.0%** | **the boundary** |
+| 64 | 2.22% | breaks |
+
+⚠⚠ **So the overhead scales with concurrent executions per batch, not with events.**
+That is the honest cost model, it is a different shape from the original claim, and it
+has a stated breaking point of roughly **58 concurrent executions per commit batch**.
+At 2,000 events per batch the same `x` amortises further (12.27 ms baseline), so the
+boundary moves out to ~170. The fan-out workload in §4 exists to find this boundary
+rather than trust the arithmetic.
+
+⚠ Fields remain additive `Option<T>` + `skip_serializing_if` per C3. `sha2` is already a
+workspace dependency, so still no new dependency.
+
+⚠ **Hasher state is process-local and must be recoverable.** A restart loses every live
+hasher. Recovery re-streams the execution's existing ids once — O(n) per execution, once
+per restart, never per event. §3.1 A3 covers what happens if it is wrong.
 
 ### 2.3 What becomes coordination-free, and the CALM argument
 
@@ -196,12 +285,14 @@ That is the load-bearing step, and §3 tries to break it rather than moving on.
 
 | Operation | Guarantee |
 | :-- | :-- |
-| Append (within a shard) | Unchanged: single-writer serialised, gapless `global_sequence`, durable on `fsync`. |
+| Append (within a shard) | Ordering semantics unchanged: single-writer serialised, gapless `global_sequence`, durable on `fsync`. ⚠ **Not free** — one 8-byte `update` per event plus one `finalize` per execution per commit batch. Target ≤2% at the 512 batch; see §2.2's cost model and its ~58-execution boundary. |
+| Certificate granularity | **Per commit batch**, not per event. A certificate attests the chain prefix as of the last batch in which that execution appeared. |
+| Read staleness floor | **≤ one commit batch.** An event appended but not yet batch-committed is uncertified, so a verifying reader does not see it. ⚠ This is a *floor on freshness*, not on correctness — the reader is behind, never wrong. |
 | Projection read at a replica | **Prefix-consistent and self-certifying.** The answer is the deterministic fold of a chain prefix whose digest the replica verified. It may be *stale* (a shorter prefix) but is never *wrong* — it is never a fold of a chain the writer did not produce. |
 | Projection read with a required freshness | Prefix-consistent **and** `chain_len ≥ L` for a caller-supplied `L`, or an explicit refusal. Monotone read-your-writes for a caller that remembers its own last `CERT`. |
 | Projection convergence between replicas | Eventually equal, coordination-free, by §2.3. |
 | Validity check of a cached projection | **O(1)**, by digest comparison, replacing an O(n) refold. |
-| Detection of a divergent/forged chain | Any mismatch is caught at the first differing event; tamper-**evident**. |
+| Detection of a divergent/forged chain | Reordering, omission, insertion and substitution of **events** are caught at the first differing position; tamper-**evident**. ⚠ **Payload-body corruption is NOT caught** — the digest covers ids, not bodies (§2.2 change 1). Body integrity stays with `canonical_event_checksum` and the storage layer. |
 | Linearizable cross-region write | ⛔ **Not provided.** Unchanged from today; see §3.2. |
 | Multi-key / cross-execution atomicity | ⛔ Not provided. Out of scope. |
 
@@ -266,15 +357,32 @@ never wrong**, never *unavailable-but-fresh*.
 
 **A3 — Writer restarts mid-chain.**
 This was a real defect (#362): a lost in-memory head map stamped the next event as a
-second root. Under this design the restart is *also* caught by the certificate — a new
-root has `chain_len = 1`, which is not `> current_len`, so a replica rejects it as
-non-monotone instead of accepting a truncated chain. ⭐ **The certificate is a second,
-independent check on the invariant the hydrator enforces.** Two mechanisms, different
-failure modes.
+second root. The certificate catches it independently — a new root restarts the digest
+at `chain_len = 1`, which is not `> current_len`, so a replica rejects it as
+non-monotone instead of accepting a truncated chain. ⭐ Two mechanisms, different failure
+modes.
+
+⚠ **But the streaming hasher adds its own restart exposure, which the per-event
+construction did not have.** Hasher state is process-local. On restart the writer must
+re-stream each live execution's existing ids to rebuild it. Three ways that goes wrong:
+
+- **Rebuilt from the wrong prefix** — if recovery streams ids in a different order (for
+  instance by sorting on `event_id`, the very mistake #362 exists to prevent), the
+  rebuilt digest diverges and *every* subsequent certificate for that execution
+  mismatches. Recovery MUST walk the links. Acceptance criterion in §6.
+- **Not rebuilt at all** — a fresh hasher would silently produce a digest for a
+  suffix while claiming the full `chain_len`. That is the one failure in this design
+  that yields a *wrong* certificate rather than a stale one, so it must fail closed:
+  no certificate is emitted for an execution whose hasher was not positively rebuilt.
+- **Rebuild cost** — O(n) per live execution per restart. Bounded and rare, but it is a
+  restart-time cost the per-event construction did not have. Measure it (§4).
 
 **A4 — Events commit out of `event_id` order.**
 The #362 mechanism: an event minted earlier commits later and lands in the middle of
-an id-ordered read. **Unaffected by construction** — the digest chain follows links,
+an id-ordered read. **Unaffected — and checkable, not merely asserted** (the acceptance criteria include a
+test that no `event_id` comparison occurs on this path; "by construction" is exactly the
+phrasing that produced the falsified append claim in §0, so it is not used as evidence
+here). The digest chain follows links,
 and no step of §2.2 compares two `event_id`s. This is the case that motivated the
 whole design.
 
@@ -283,10 +391,15 @@ whole design.
 already handled at the storage layer by `ON CONFLICT DO NOTHING`.
 
 **A6 — A replica lies, or storage corrupts a record.**
-Caught at the first differing event, because the digest commits to every predecessor.
-⚠ **Tamper-evident, not tamper-proof.** Without signatures, a replica that recomputes
-the whole chain from forged events produces a self-consistent forgery. That is
-acceptable inside one trust domain and must not be described as Byzantine tolerance.
+A corrupted or substituted **event id**, or any reordering, is caught at the first
+differing position. ⚠ **A corrupted event BODY is not** — the digest covers ids only
+(§2.2). That is a narrower claim than the first version of this spec made, and the
+narrowing is the price of the cost fix. Body integrity is delegated to
+`canonical_event_checksum` and the storage layer; the certificate must never be
+described as a body-integrity proof.
+⚠ **Tamper-evident, not tamper-proof.** Without signatures a replica that recomputes the
+whole chain from forged ids produces a self-consistent forgery. Acceptable inside one
+trust domain; not Byzantine tolerance.
 
 **A7 — Hash collision.** SHA-256; treated as negligible. The `DOMAIN_TAG` prevents
 cross-protocol collisions, which is the realistic version of this risk.
@@ -307,6 +420,29 @@ deployed, is instrumented, and never fires (a hydration fix recorded `head=0` ac
 refolds *avoided*, with a positive control proving the validation path can fail. A
 zero on "refolds avoided" must be distinguishable from "the path never ran".
 
+**A10 — Batch-boundary dependence (the trap this design was shaped to avoid).**
+A per-batch Merkle rollup, nesting each batch's root into the chain, would make the
+digest depend on *how events were batched*. A replica that batched the same event
+sequence differently would compute a different digest, every validation would mismatch,
+and the whole benefit would silently degrade to refolds. **The streaming construction is
+immune**: `D_n = SHA256(TAG || id_1 || … || id_n)` is a pure function of the sequence.
+⚠ Acceptance criterion: a test that certifies the same 512-event sequence under two
+*different* batch splits and asserts byte-identical digests, with a nested-rollup arm as
+the planted control proving the test can fail.
+
+**A11 — `chain_len` and `durable_len` are independent, and conflating them is a bug.**
+The certificate boundary is the *commit batch*; durability is the `fsync`. They are
+related in practice but they are not the same quantity, and I nearly wrote that they
+were. A reader that needs both properties must take `min(certified_len, durable_len)`.
+⚠ A certificate is **not** a durability receipt and must not be used as one.
+
+**A12 — Uncertified tail read as absent.**
+Events appended after the last batch boundary carry no certificate. A verifying reader
+does not see them, which is correct (stale, not wrong) — but a caller that treats "not in
+the certified prefix" as "does not exist" would be wrong, e.g. deciding an execution is
+finished. The certified prefix answers *what is proven*, never *what exists*. ⚠ The
+existing refusal path is the correct response for a caller needing the true head.
+
 ### 3.2 Lower bounds this does not beat
 
 Stated so the "faster" claim is scoped rather than impressive.
@@ -317,7 +453,9 @@ Stated so the "faster" claim is scoped rather than impressive.
 | **FLP** | No deterministic consensus in an asynchronous system with one faulty process. | **Not beaten — avoided.** Storage needs no consensus (C1). Lease *movement* still does, and stays open as F2b. |
 | **Mutual exclusion is not monotone** | Preventing forks cannot be coordination-free. | **Not beaten.** Paid once at append, per C2. |
 | **Ω(n) to fold n events from empty** | A digest makes *validation* O(1), not *folding* sublinear. | **Not beaten.** Amortised by incremental folds from a checkpoint: O(Δ) for Δ new events. |
-| **Durability needs a device flush** | No algorithm removes the `fsync`. | **Not beaten.** Append latency is untouched. |
+| **Durability needs a device flush** | No algorithm removes the `fsync`. | **Not beaten.** |
+| **A hash must read every byte it commits to** | Digesting n events costs Ω(total bytes); batching removes per-invocation overhead, never the byte term. | **Not beaten — reduced.** Measured: ~2.2 µs of the 2.59 µs per event was per-invocation, ~0.4 µs bytes. §2.2 removes the former (one `finalize` per batch) and shrinks the latter ~60× (ids, not bodies). The residue is irreducible. |
+| **Group commit amortises the flush, so everything else stops being free** | The larger the batch, the more any per-event cost dominates. | **Not beaten — it is the whole problem.** Break-even was ~17 events/`fsync`; EHDB batches 512–2,000, which is why the first design failed. |
 | **Speed of light** | Cross-region RTT is ~30–80 ms intra-continent. | **Not beaten.** Made *irrelevant to reads* by serving locally; writes still pay it if they ever cross. |
 
 ⚠ **Therefore the claim is NOT "EHDB gets faster".** It is: *the projection and
@@ -357,8 +495,11 @@ per region.
 | **Refolds per 10⁴ events** | 19,840 observed over the D3 window | → ~0 | Refolds persist: `canonical()` is not deterministic (A8) or validation is not wired (A9). |
 | **Projection validation p50/p99** | O(n) refold | O(1), sub-ms, flat in chain length | p99 grows with chain length. |
 | **Drive-decision p50/p99** | includes a chain read per poll | local, no store read | No improvement ⇒ the read was not the cost; abandon. |
-| **Append throughput (events/s/shard)** | — | **unchanged, ±2%** | A regression >2%: digest cost is on the hot path; move it off. |
-| **Append p99** | — | **unchanged** | Any increase. |
+| **Append throughput at 512/fsync** | **78,920/s measured**; per-event digest gave 65,533/s (−16.96%) | **within ±2%** via §2.2 | >2% at ≤32 executions/batch ⇒ the amortisation does not work; abandon or move the digest fully off-line. |
+| **Append throughput at 2,000/fsync** | **163,017/s measured**; per-event gave 106,046/s (−34.95%) | within ±2% | as above. |
+| **Overhead vs executions-per-batch** | not previously measured | linear in `x`, crossing 2% near **x ≈ 58** at 512/batch | The curve is not linear in `x`, or crosses far below 58 ⇒ the cost model in §2.2 is wrong and the prediction is void. |
+| **Cost decomposition: invocation vs bytes** | derived as ~2.2 µs / ~0.4 µs | confirm the split directly | If bytes dominate after all, one `finalize` per batch buys little and only the id-not-body change matters. **Measure this before trusting the rest.** |
+| **Hasher rebuild cost per restart** | n/a (new) | O(n) per live execution, once | Rebuild dominates restart, or recovery walks ids in the wrong order (A3). |
 | **Cross-region projection read p50/p99** | ≈1 RTT | ≈local read | — |
 | **Cross-region commit latency** | ≈1 RTT | **unchanged, explicitly** | Any claim of improvement here is an error in the experiment. |
 | **Bytes/event overhead** | — | +36 B body (`[u8;32]` + `u32`) | >1% of mean event size matters for the manifest-growth history. |
@@ -366,10 +507,16 @@ per region.
 
 ### Gate
 
-- Append throughput and p99 **not worse** (±2%), and
-- refolds per 10⁴ events reduced by **≥90%**, and
-- validation p99 flat in chain length over workload 2, and
-- A8 and A9 controls both **fail** when their defect is planted.
+- Append throughput within **±2% at the 512-event batch** at realistic concurrency
+  (≤32 executions per batch), **and** the measured overhead-vs-`x` curve published with
+  its crossing point — a single passing number is not enough, because the first version
+  of this spec passed at 1 event/`fsync` and failed by 17× at 512;
+- refolds per 10⁴ events reduced by **≥90%** (already measured at 99.80% — this is a
+  no-regression check now, not an open question);
+- validation p99 flat in chain length over workload 2 (already measured at ratio 1.00×
+  over a 277× range — likewise);
+- the A8, A9 and **A10** controls all **fail** when their defect is planted;
+- hasher-rebuild-on-restart proven to walk **links**, not sorted ids (A3).
 
 ⚠ Reported with the **elapsed window** alongside every denominator. A previous
 comparator reading of "772 comparisons, 100.00%" was taken over ten minutes against a
@@ -391,9 +538,20 @@ What there is:
    once at append instead of repeatedly at read.
 3. **A cross-region read that is local rather than a round trip** — a large constant
    factor (tens of ms), and the practical payoff for multi-region reads.
-4. **Nothing for writes.** Append latency, append throughput and cross-region commit
-   latency are all unchanged by construction. Any benchmark claiming otherwise is
-   measuring wrong.
+4. **Writes: a measured cost, not a free ride.** ⚠ The claim that appends were
+   "unchanged **by construction**" was **wrong and the benchmark proved it** — −16.96% at
+   the 512-event commit batch, −34.95% at 2,000. "By construction" was the tell: it
+   asserted a property of an implementation nobody had run.
+
+   The revised construction (§2.2) targets ≤2% by paying one `finalize` per commit batch
+   instead of per event, and by digesting ids rather than bodies. **That is a prediction
+   with arithmetic behind it and a stated breaking point (~58 executions per batch), not
+   a guarantee.** It is falsified by the §4 curve, and the honest posture until that runs
+   is: the read-side win is measured, the write-side cost is bounded by design and
+   unproven by measurement.
+
+   Cross-region **commit** latency remains unchanged — that one really is structural,
+   since nothing here touches the commit path.
 
 If the benchmark shows the drive decision was not dominated by the chain read, the
 correct conclusion is that this buys only the refold reduction, and the cross-region
@@ -415,12 +573,28 @@ be worth landing for (1) alone, but it must not be described as making EHDB fast
       the forced-restart harness, with the hydrator disabled so the two mechanisms are
       shown to be independent.
 - [ ] Fork is refused, never silently resolved; existing #362 refusal taxonomy reused.
+- [ ] **Batch-split invariance (A10):** the same 512-event sequence certified under two
+      different batch splits yields byte-identical digests, with a nested-per-batch-rollup
+      arm as the planted control proving the test can fail.
+- [ ] **Hasher rebuild after restart (A3)** walks `prev_event_id` links, not sorted
+      `event_id`; RED control planting a sort-based rebuild must fail. No certificate is
+      emitted for an execution whose hasher was not positively rebuilt.
+- [ ] `certified_len` is never used as a durability receipt (A11); a reader needing both
+      takes `min(certified_len, durable_len)`.
+- [ ] Append overhead measured **as a curve against executions-per-batch**, published
+      with its 2% crossing point — not a single number.
 - [ ] Benchmark gate in §4 met, reported with elapsed window and denominators.
 
 ## Open Questions
 
-- **Per-event digests vs head-only.** Per-event gives O(1) prefix checks at a storage
-  cost; head-only needs a walk-back. Decide by measurement (§4), not by preference.
+- ~~**Per-event digests vs head-only.**~~ **Settled by the benchmark, against
+  per-event.** Per-event hashing costs −17% at the 512 batch and the floor arm proved the
+  cost is SHA-256 itself, not duplicate serialisation. §2.2 now keeps a per-execution
+  *streaming* hasher and finalises per batch — neither of the two options originally
+  posed.
+- **Does the per-execution hasher's memory cost bound concurrency?** ~120 B of state per
+  in-flight execution is trivial per execution, but it is per *live* execution and the
+  writer holds them all. Quantify at the fan-out ceiling.
 - **DAG folding for forked executions.** Retains all events and stays deterministic,
   but changes what an execution's history *means*. Needs its own decision; not adopted.
 - **Interaction with HLC.** The certificate orders *within* an execution; HLC compares
