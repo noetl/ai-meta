@@ -465,7 +465,12 @@ JetStream for replication" — it is "the replication half of the recommendation
 is a known-good pattern, and we are already running our own version of it."
 Prior art, not a dependency.
 
-### 4.4 CockroachDB's distributed KV layer — right shape, wrong weight
+### 4.4 A consensus-replicated distributed KV layer — right shape, wrong weight
+
+*The design class: a sorted-map KV store sharded into ranges, each range replicated by
+Raft with a per-range lease holder, and a SQL engine layered above as a separate
+concern. Described by mechanism rather than by product name, deliberately — the argument
+below is about the mechanism and holds for any implementation of it.*
 
 The layer under the SQL is precisely §2's model: a **sorted map** sharded into
 **ranges** (512 MiB default), each replicated by **Raft** (3× by default), with
@@ -476,7 +481,7 @@ Honest assessment:
 
 - ✅ Ordering, contiguity, partitioning and multi-region placement are all first
   class and battle-tested.
-- ⛔⛔ **Its headline guarantee is now a COST, not a benefit.** Cockroach gives
+- ⛔⛔ **Its headline guarantee is now a COST, not a benefit.** The model gives
   serializable transactions over Raft-replicated ranges — **globally strong
   consistency**. §2.4 says we want strong ordering *only within a partition* and
   **eventual** across replicas. Buying global strong consistency means paying
@@ -490,10 +495,10 @@ Honest assessment:
 - ⛔ **Raft under every write** is the cost the EHDB program explicitly retired:
   `ehdb-l0/src/lib.rs:85` says *"no consensus / no Raft — the HDFS /
   block-replication model, not a replicated log"*, because immutable parts never
-  conflict. Adopting Cockroach's KV would re-adopt consensus for a workload that
+  conflict. Adopting such a KV would re-adopt consensus for a workload that
   demonstrably does not need it.
 - ⛔ There is no supported way to take the KV layer *without* the SQL layer.
-  "Use the KV under Cockroach" is not a packaging that exists.
+  "Use the KV layer without the SQL engine above it" is not a packaging these systems ship.
 - ⛔ Write amplification: every write is logged twice (storage WAL + Raft log).
 
 **Verdict: reject.** Adopt its **key design** (`(execution_id, seq)` in a sorted
@@ -521,7 +526,7 @@ per-execution contiguous chain read, **C** = tree navigation. The consistency
 rows are scored against **§2.4** — strong *within* a partition, **eventual**
 across replicas — so a stronger guarantee than that is marked as the cost it is.
 
-| | Durable Objects | CF KV | D1 | JetStream | Cockroach KV | **Native EHDB** |
+| | Durable Objects | CF KV | D1 | JetStream | Consensus KV | **Native EHDB** |
 | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
 | **A — parent lookup, no scan** | ✅ local | ⚠ eventual | ✅ | ⚠ needs a side KV | ✅ | ✅ *(to build)* |
 | **B2 — contiguous per-execution chain** | ✅ native | ❌ | ⚠ via SQL | ✅ per subject | ✅ | ✅ *(to build)* |
@@ -540,10 +545,10 @@ across replicas — so a stronger guarantee than that is marked as the cost it i
 | **Migration risk** | n/a | n/a | n/a | high | very high | **medium, and incremental** |
 | **Verdict** | **reference model** *(right shape, edge-only)* | edge role | edge role | reject as store; ⭐ **prior art for the mirror** | ⛔ reject — **over-buys consistency**; adopt key design only | ⭐ **recommend** |
 
-**How §2.4 changed this matrix.** Before the constraint, Cockroach's
+**How §2.4 changed this matrix.** Before the constraint, the consensus-KV model's
 serializability read as its strongest column and the native option's
 "single-writer per shard, eventual across" read as the weaker one. Under §2.4
-they swap: the native model's consistency is an **exact match** and Cockroach's
+they swap: the native model's consistency is an **exact match** and the consensus model's
 is an over-buy paid on every append. The constraint did not merely reinforce the
 existing recommendation — **it moved the second-place option to last on the axis
 that used to be its best.**
@@ -850,7 +855,7 @@ diagnosis on today's prod rather than on a doc comment.
    subjects are the documented cardinality antipattern; it reverses the T5 NATS
    deletion) but its **source/mirror streams are prior art for the replication
    half** — which NoETL already implements as the async mirror.
-   **Cockroach KV is rejected, and §2.4 strengthens the rejection**: its global
+   **The consensus-replicated KV model is rejected, and §2.4 strengthens the rejection**: its global
    strong consistency is now an **over-buy paid as consensus on every append**,
    a latency tax for a property §2.5 shows the chain does not use.
 7. **Recommend the native restructure**: tier on L0 (R1), sort key
@@ -879,9 +884,12 @@ Prior art consulted for §4 (external, September 2026):
 - [SQLite-backed Durable Object Storage — Cloudflare](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)
 - [Durable Objects limits — Cloudflare](https://developers.cloudflare.com/durable-objects/platform/limits/)
 - [Choosing a data or storage product — Cloudflare Workers](https://developers.cloudflare.com/workers/platform/storage-options/)
-- [Range / Shard — Cockroach Labs](https://www.cockroachlabs.com/glossary/distributed-db/range-shard/)
-- [Replication Layer — CockroachDB](https://docs.cockroachlabs.com/docs/stable/architecture/replication-layer)
-- [CockroachDB design.md](https://github.com/cockroachdb/cockroach/blob/master/docs/design.md)
+- The range-partitioned, consensus-replicated KV design class: a sorted keyspace split
+  into size-bounded ranges, each replicated by Raft with a per-range lease holder that
+  serialises its writes. Vendor documentation for systems in this class describes the
+  range/shard split, the replication layer and the lease mechanism; product names are
+  omitted deliberately, because §4.4's argument is about the mechanism and holds for
+  every implementation of it.
 
 ---
 
@@ -903,7 +911,7 @@ deployment this platform deliberately deleted at T5, it lands on the documented
 high-cardinality-subject antipattern the moment `execution_id` counts grow, and
 its per-execution ordering would still have to be bridged into the existing
 drive. Everything else is in the matrix (§5) and is not revisited: Durable
-Objects is the right shape and edge-only, Cockroach over-buys consistency §2.4
+Objects is the right shape and edge-only, the consensus-KV model over-buys consistency §2.4
 says we do not want, CF KV/D1/R2 are edge roles.
 
 ### 11.2 The MVP slice
