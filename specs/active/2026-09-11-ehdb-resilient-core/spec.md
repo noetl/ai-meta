@@ -17,19 +17,21 @@ a database a database rather than a very good file format:
 > **Lose a node, keep serving correct reads and accepting writes, without losing
 > an acknowledged write.**
 
-CockroachDB gets that property from one place — layer 4, Raft-replicated ranges
-with quorum writes and leaseholder reads. EHDB today acknowledges a write when it
+The consensus-replicated distributed-SQL design class gets that property from one
+place — its replication layer: Raft-replicated ranges with quorum writes and
+leaseholder reads. EHDB today acknowledges a write when it
 is `fsync`'d to **one** local disk, and in production that disk's "replica" is a
 subdirectory of the same PVC.
 
-The owner's thesis is that the resilient KV core (Cockroach layers 5→2) is the
-valuable part and the SQL layer is legacy-compatibility cost noetl does not need.
+The owner's thesis is that the resilient KV core (that class's layers 5→2 — storage,
+replication, distribution, transactional) is the valuable part, and the SQL layer above
+it is legacy-compatibility cost noetl does not need.
 This spec agrees, and scopes the work to: **make the KV core survivable, and put
 event sourcing + projections + context directly on it.**
 
 ## Goals
 
-- A layer-by-layer map of CockroachDB's architecture onto EHDB's actual code,
+- A layer-by-layer map of that reference architecture onto EHDB's actual code,
   honest about existence vs implementation vs reachability.
 - A decision on how EHDB achieves survivability, with a recommended
   consensus/replication approach and the reasoning that rejects the alternatives.
@@ -46,7 +48,7 @@ event sourcing + projections + context directly on it.**
   them need a planner, an optimiser or a parser.
 - A general MVCC KV store. EHDB's ordering authority is the event sequence, not
   a timestamp oracle. (See Open Question Q3.)
-- Distributed multi-key ACID transactions across shards (Cockroach layer 2 in
+- Distributed multi-key ACID transactions across shards (the reference layer 2 in
   full). What noetl needs is narrower — see "Transactional" below.
 - Changing anything in production. This spec is design only.
 - Re-litigating Postgres's role. Postgres remains authoritative for
@@ -65,7 +67,13 @@ event sourcing + projections + context directly on it.**
 - Everything reversible; every stage independently revertable.
 - Platform-only. Business data never enters EHDB.
 
-## Layer map — CockroachDB → EHDB, as implemented
+## Layer map — the reference architecture → EHDB, as implemented
+
+⚠ The reference is a **consensus-replicated distributed SQL architecture**: MVCC KV over
+an LSM store (L5), Raft-replicated ranges with quorum writes and leaseholder reads (L4),
+range split/rebalance for distribution (L3), atomic multi-key transactions (L2), SQL on
+top (L1). It is described by mechanism and not by product name deliberately — the
+comparison below is about the mechanisms, and holds for any system built this way.
 
 Grounded in `noetl/ehdb` at `24e63b8` (tag `v0.2.0`), the tag noetl-server pins.
 
@@ -75,7 +83,7 @@ depends on **`ehdb-l0` and `ehdb-feed` only**. `ehdb-reference` (23,949 LOC),
 path**. Several capabilities below exist in the tree but are not linked into the
 running binary — a distinction that "does EHDB have X" cannot express.
 
-### L5 — Storage (Cockroach: MVCC KV on Pebble)
+### L5 — Storage (reference: MVCC KV over an LSM engine)
 
 | | |
 | :-- | :-- |
@@ -89,7 +97,7 @@ version axis is `global_sequence`. For event sourcing that is a better fit than
 MVCC, and mutable state is already modeled correctly as a fold over an
 append-only op log (D2 `command_queue` does exactly this).
 
-### L4 — Replication (Cockroach: Raft, quorum writes, leaseholder reads)
+### L4 — Replication (reference: Raft, quorum writes, leaseholder reads)
 
 **This is the gap.** In detail, because the pieces fail differently:
 
@@ -117,7 +125,7 @@ nothing, and "a dashboard built on it reads healthy in precisely the scenario
 where events sit unreplicated." That is good engineering. It is also not
 durability.
 
-### L3 — Distribution (Cockroach: ranges, auto-split, rebalance)
+### L3 — Distribution (reference: ranges, auto-split, rebalance)
 
 | | |
 | :-- | :-- |
@@ -125,14 +133,14 @@ durability.
 | **Partial** | Resharding = changing `shard_count`, which moves a bounded fraction of partitions. Offline, not an online split. |
 | **Missing** | Key ranges, automatic split/merge on size or load, rebalancing, and a range→owner directory. |
 
-**Verdict: partial, and mostly fine.** Cockroach needs ranges because a SQL
+**Verdict: partial, and mostly fine.** That design needs ranges because a SQL
 keyspace is unbounded and arbitrarily skewed. noetl's keyspace is
 `execution_id`, which is a snowflake — uniformly distributed by construction. A
 hash partition over it does not develop hot ranges the way a SQL primary index
 does. **Ranges are largely SQL-layer tax**; what EHDB actually lacks is not
 splitting but *online* reshard without a stop.
 
-### L2 — Transactional (Cockroach: atomic multi-key)
+### L2 — Transactional (reference: atomic multi-key)
 
 | | |
 | :-- | :-- |
@@ -220,7 +228,7 @@ immutable part, replicate by the existing N-way copy, and the Raft log truncates
 - ❌ Real work, and a new failure surface on the hot write path.
 - ❌ Requires ≥3 EHDB nodes per shard group, which is a topology and cost change.
 
-**Option C — full Raft-replicated ranges (Cockroach-style).** Rejected.
+**Option C — full Raft-replicated ranges, as the reference architecture does.** Rejected.
 It re-solves sealed-part replication, which is already solved more cheaply by
 immutability, and drags in the range/split/rebalance machinery that exists to
 serve a SQL keyspace we are explicitly not building.
