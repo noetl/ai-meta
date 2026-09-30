@@ -316,16 +316,32 @@ Everything in §3–§6 is the consequence of these three.
 
 ## 3. Capability → EHDB-primitive mapping
 
-> **Prior art — where these ideas come from.** The capabilities below are not
-> invented here. Hybrid logical clocks come from Kulkarni et al. (2014);
-> externally-consistent distributed transactions over a bounded-uncertainty
-> clock were demonstrated by Google's Spanner; lease-holder replication with
-> closed timestamps, follower reads, locality-aware placement and multi-region
-> survival goals are the shape CockroachDB popularised. This is the only place
-> those products are named. **Nothing in EHDB's architecture is named after
-> them** — every capability below carries a descriptive name, and the design
-> decisions are EHDB's own (in particular the refusal of consensus-replicated
-> storage, §2 C1, which both of those systems depend on).
+> **Prior art — where these ideas come from, by mechanism.** The capabilities below
+> are not invented here, and they are credited by describing what they DO rather than
+> by naming products — the mechanism is what is borrowed, and a product name invites
+> reading a design decision as an endorsement or a dependency.
+>
+> - **Hybrid logical clocks** — Kulkarni et al. (2014). An algorithm, cited as one.
+> - **Externally-consistent distributed transactions over a bounded-uncertainty
+>   clock** — the clock reports an explicit error interval rather than a point, and a
+>   writer waits out that interval before acknowledging, so its timestamp cannot be
+>   confused with a later writer's. Demonstrated at scale by published industrial
+>   systems in the 2010s. ⚠ EHDB has no such clock, which is precisely why it reaches
+>   for an HLC instead.
+> - **Lease-holder replication with closed timestamps** — one replica holds a
+>   time-bounded lease to serialise a shard's writes, so the common path costs no
+>   agreement round; a *closed timestamp* is a point below which that replica promises
+>   no new writes will appear.
+> - **Safe-timestamp follower reads** — a non-owning replica serves a read at a
+>   timestamp it can prove it has complete data for, trading freshness for locality
+>   without weakening the answer.
+> - **Locality-aware placement and multi-region survival goals** — declaring how many
+>   and which failure domains a shard must survive, and placing replicas to satisfy it.
+>
+> **Nothing in EHDB's architecture is named after another system** — every capability
+> below carries a descriptive name, and the design decisions are EHDB's own. In
+> particular the refusal of consensus-replicated storage (§2 C1), which the
+> bounded-clock transactional design class depends on and EHDB does not.
 
 `REUSE` = the primitive exists and is extended additively.
 `NEW` = genuinely new code.
