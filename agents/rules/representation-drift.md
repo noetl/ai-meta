@@ -142,6 +142,41 @@ reports noise that gets ignored.
 The general form: **before believing a count, ask what a wrong denominator would
 look like — and make the output show it.**
 
+### Volume is not duration
+
+**Size a measurement window by the period of the thing you are measuring, not by how
+many observations you can collect inside it.**
+
+A denominator answers *how much did I see*. It does not answer *for how long*, and for
+any intermittent phenomenon the second question is the one that decides whether a clean
+result means anything.
+
+On 2026-09-29 the chain-store re-ramp was reported green on **772 comparisons with 0
+failures — 100.00%** and the issue was closed. The reading was real. The window was
+about ten minutes, and the mechanism it was supposed to detect fires roughly **once an
+hour**: the same deployment read **13 divergences in 839 engagements (98.45%)** an hour
+later, and the gates were rolled back. 772 was a comfortable number and it was
+measuring the wrong axis.
+
+The error is easy to make because a large denominator *feels* like thoroughness. It is
+thoroughness about the population and says nothing about time. Concretely:
+
+- **Estimate the inter-arrival first**, from whatever evidence exists — in that case
+  four diverged executions at 19:45, 20:45, 22:20, 23:20Z, so ~1/hour. Then size the
+  window at several multiples of it.
+- **Publish the elapsed window next to the denominator.** "772 comparisons" is not a
+  result; "772 comparisons over 10 minutes, against a ~1/hour mechanism" is, and it
+  refutes itself on sight.
+- **A clean window shorter than the period is a non-result, not a pass.** Say so rather
+  than reporting green with a caveat nobody reads.
+
+⚠ And the companion trap on the same gate: **a comparator that counts only failures
+reads perfectly green when the source refuses everything.** The chain source refuses a
+forked execution by design, so zero divergence is also what total non-engagement looks
+like. Gate on the failure count **and** the coverage that failure count is drawn from —
+the same "coverage was ~0 by construction" reading as
+[ai-meta#307](https://github.com/noetl/ai-meta/issues/307).
+
 ### The zeros to distrust
 
 A clean result from a pattern-based scan is a claim about the pattern as much
