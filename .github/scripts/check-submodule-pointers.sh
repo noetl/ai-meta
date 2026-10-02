@@ -34,6 +34,7 @@ on_exit() {
 trap on_exit EXIT
 
 BASE="${1:-}"      # base sha to diff against; empty => sweep ALL pointers
+MODE="changed"; [ -z "$BASE" ] && MODE="sweep"
 fail=0
 examined=0
 # Per-check tallies. Published at the end: a check that silently examined nothing
@@ -45,11 +46,23 @@ n_anc_ok=0
 n_anc_skipped=0
 n_ff_ok=0
 n_ff_unprovable=0
+n_no_access=0
+n_warn_only=0
+WARNINGS=()
 FAILURES=()
 PATHS=()
 
 note()    { printf '  %s\n' "$*"; }
 problem() { printf '::error::%s\n' "$*"; FAILURES+=("$*"); fail=1; }
+# A finding that must NOT fail the job. Two cases need this, and conflating either
+# with a real defect would make the gate cry wolf — which is worse than no gate:
+#  * a pre-existing pointer this change did not touch (SWEEP mode), and
+#  * third-party refs under references/, which we do not control.
+warn()    { printf '::warning::%s\n' "$*"; WARNINGS+=("$*"); }
+# In SWEEP mode (no BASE) nothing here was changed by the push, so legacy drift is
+# reported, not blocking. Changed pointers are gated by the PR job and by the
+# changed-pointer step that runs alongside this one.
+report()  { case "$MODE" in sweep) warn "$@" ;; *) case "$1" in references/*) warn "$@" ;; *) problem "$@" ;; esac ;; esac; }
 url_for() { git config -f .gitmodules --get "submodule.$1.url" 2>/dev/null; }
 
 # The branch a submodule tracks: explicit `branch =`, else main, else master.
@@ -121,14 +134,39 @@ for path in "${PATHS[@]}"; do
   repo="${WORK}/${path//\//_}"
   git init -q --bare "$repo"
 
+  # CHECK 0 — can CI reach this remote AT ALL? `noetl/noetl.io` is a PRIVATE repo, so
+  # an unauthenticated runner cannot fetch any SHA from it, and the first version of
+  # this gate reported that as "dangling, unpushed, or wrong SHA" — a confident wrong
+  # cause. Proving access FIRST makes the CHECK 1 failure mean what it says.
+  if ! git ls-remote --quiet --exit-code "$furl" HEAD >/dev/null 2>&1; then
+    n_no_access=$((n_no_access+1))
+    note "   ⚠ remote not reachable from CI (private, renamed, or no credentials) — pointer UNVERIFIABLE here, not a failure"
+    continue
+  fi
+
   # CHECK 1 — the pointer must name a commit FETCHABLE from the remote. A dangling or
-  # never-pushed SHA fails here; that is the core bug class.
-  if ! git -C "$repo" fetch -q --filter=blob:none --no-tags "$furl" "$new" 2>/dev/null; then
-    problem "${path}: pointer ${new} is NOT fetchable from ${url} — dangling, unpushed, or wrong SHA"
+  # never-pushed SHA fails here; that is the core bug class. Reached only when CHECK 0
+  # has proved the remote is readable, so this cannot be an access artefact.
+  fetched=0
+  if git -C "$repo" fetch -q --filter=blob:none --no-tags "$furl" "$new" 2>/dev/null; then
+    fetched=1
+  else
+    # A server may REFUSE to serve an arbitrary SHA even when the commit exists and is
+    # public (`uploadpack.allowReachableSHA1InWant` disabled). Treating that refusal as
+    # a dangling pointer is a false alarm, so fall back to fetching the refs and looking
+    # the commit up. Only "absent from every ref" is a real defect.
+    git -C "$repo" fetch -q --filter=blob:none --tags "$furl" '+refs/heads/*:refs/remotes/a/*' 2>/dev/null || true
+    if git -C "$repo" cat-file -e "${new}^{commit}" 2>/dev/null; then
+      fetched=1
+      note "   (direct SHA fetch refused by the server; resolved via refs instead)"
+    fi
+  fi
+  if [ "$fetched" -ne 1 ]; then
+    report "${path}: pointer ${new} is reachable from NO ref on ${url} — dangling, unpushed, or wrong SHA"
     continue
   fi
   if ! git -C "$repo" cat-file -e "${new}^{commit}" 2>/dev/null; then
-    problem "${path}: ${new} fetched but is not a commit object"
+    report "${path}: ${new} fetched but is not a commit object"
     continue
   fi
   n_real=$((n_real+1))
@@ -155,7 +193,7 @@ for path in "${PATHS[@]}"; do
       n_anc_ok=$((n_anc_ok+1))
       note "   ✓ ahead of ${branch} tip ${tip:0:12} (not yet merged — allowed)"
     else
-      problem "${path}: ${new} is NEITHER an ancestor NOR a descendant of ${branch} tip ${tip:0:12} — detached bump onto a side branch"
+      report "${path}: ${new} is NEITHER an ancestor NOR a descendant of ${branch} tip ${tip:0:12} — detached bump onto a side branch"
     fi
   else
     n_anc_skipped=$((n_anc_skipped+1))
@@ -172,7 +210,7 @@ for path in "${PATHS[@]}"; do
           n_ff_ok=$((n_ff_ok+1))
           note "   ✓ fast-forward from ${old:0:12}"
         else
-          problem "${path}: ${old:0:12} -> ${new:0:12} is NOT a fast-forward — this REGRESSES or rewrites the submodule"
+          report "${path}: ${old:0:12} -> ${new:0:12} is NOT a fast-forward — this REGRESSES or rewrites the submodule"
         fi
       else
         n_ff_unprovable=$((n_ff_unprovable+1))
@@ -190,5 +228,11 @@ echo "RESULT: $([ "$fail" -eq 0 ] && echo pass || echo FAIL) (examined=${examine
 echo "  check 1 fetchable+is-commit : ${n_real}/${examined} confirmed"
 echo "  check 2 ancestry vs tip     : ${n_anc_ok}/${examined} confirmed, ${n_anc_skipped} skipped (no tip)"
 echo "  check 3 fast-forward        : ${n_ff_ok}/${examined} confirmed, ${n_ff_unprovable} unprovable (old pointer gone)"
+echo "  unverifiable (no CI access) : ${n_no_access}  <- NOT counted as pass or fail"
+echo "  mode                        : ${MODE} ($([ "$MODE" = sweep ] && echo 'legacy drift reported, non-blocking' || echo 'changed pointers, BLOCKING'))"
+if [ "${#WARNINGS[@]}" -gt 0 ]; then
+  echo "  warnings (non-blocking): ${#WARNINGS[@]}"
+  for w in ${WARNINGS[@]+"${WARNINGS[@]}"}; do echo "  ~ $w"; done
+fi
 for f in ${FAILURES[@]+"${FAILURES[@]}"}; do echo "  - $f"; done
 exit "$fail"
