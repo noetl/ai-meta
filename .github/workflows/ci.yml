@@ -45,8 +45,9 @@ jobs:
       # sweep found three legacy findings (noetl/ai-meta#372); failing main on drift
       # that the push did not introduce would leave main permanently red, which
       # teaches people to ignore CI — the failure mode this gate exists to avoid.
+      # Runs on PRs as well as pushes: it is how the sweep's own behaviour becomes
+      # observable before a merge, and the full 33-pointer treeless sweep costs ~20s.
       - name: report pre-existing pointer drift (non-blocking)
-        if: github.event_name != 'pull_request'
         run: ./.github/scripts/check-submodule-pointers.sh
 
   docs:
