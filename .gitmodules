@@ -19,9 +19,6 @@
 [submodule "repos/noetl"]
 	path = repos/noetl
 	url = git@github.com:noetl/noetl.git
-[submodule "repos/noetl.io"]
-	path = repos/noetl.io
-	url = git@github.com:noetl/noetl.io.git
 [submodule "repos/ops"]
 	path = repos/ops
 	url = git@github.com:noetl/ops.git
@@ -37,11 +34,6 @@
 [submodule "repos/e2e"]
 	path = repos/e2e
 	url = git@github.com:noetl/e2e.git
-[submodule "references/chatui"]
-	path = references/chatui
-	url = https://github.com/mlflowio/chatui.git
-	update = none
-	ignore = all
 [submodule "repos/travel"]
 	path = repos/travel
 	url = git@github.com:noetl/travel.git

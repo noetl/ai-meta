@@ -107,14 +107,22 @@ which signals active development). They are tracked via `.gitmodules` but
 configured `submodule.<name>.update = none` and `submodule.<name>.ignore =
 all` so they are not bumped during normal cross-repo updates.
 
-Currently tracked references:
+Currently tracked references: **none.**
 
-- `references/chatui` — `mlflowio/chatui`. Read-only reference for
-  rich-message rendering patterns in a chat UI. We adapt the pattern
-  for NoETL's terminal-style prompt component
-  (`repos/gui/src/components/NoetlPrompt.tsx`); we do **not** modify
-  this submodule, do not propose upstream changes, do not include it
-  in deploys. Treat as documentation.
+`references/chatui` (`mlflowio/chatui`) was removed on 2026-10-02. It was a
+read-only reference for rich-message rendering patterns, used when building the
+widget renderer in `repos/gui/src/components/widgets/` — that work has long since
+shipped, so the pointer was carrying no live dependency.
+
+It was dropped because **the repository is private**, so the CI pointer gate
+cannot verify it: an unauthenticated runner cannot fetch any SHA from it, leaving
+it permanently unverifiable rather than passing or failing. Same for
+`repos/noetl.io`, removed in the same change. See
+[Continuous Integration](https://github.com/noetl/ai-meta/wiki/Continuous-Integration).
+
+Re-adding either is a one-liner (`git submodule add <url> <path>`) if a real need
+appears — but a private submodule will show as `unverifiable (no CI access)` in
+the gate's output until CI is given a token with read access.
 
 If a reference needs to evolve into an actively-modified dependency, fork
 it under `noetl/` first and re-add at the new path under `repos/`.
