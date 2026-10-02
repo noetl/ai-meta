@@ -83,5 +83,4 @@ echo ""
 echo "  relative links checked: ${links_checked}"
 echo "RESULT: $([ "$fail" -eq 0 ] && echo pass || echo FAIL) (files=${#FILES[@]}, links=${links_checked}, ${#FAILURES[@]} problem(s))"
 for f in ${FAILURES[@]+"${FAILURES[@]}"}; do echo "  - $f"; done
-for x in ${FAILURES[@]+"${FAILURES[@]}"}; do echo "  - $x"; done
 exit "$fail"
