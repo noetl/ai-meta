@@ -134,10 +134,15 @@ for path in "${PATHS[@]}"; do
   repo="${WORK}/${path//\//_}"
   git init -q --bare "$repo"
 
-  # CHECK 0 — can CI reach this remote AT ALL? `noetl/noetl.io` is a PRIVATE repo, so
-  # an unauthenticated runner cannot fetch any SHA from it, and the first version of
-  # this gate reported that as "dangling, unpushed, or wrong SHA" — a confident wrong
-  # cause. Proving access FIRST makes the CHECK 1 failure mean what it says.
+  # CHECK 0 — can CI reach this remote AT ALL? A PRIVATE submodule cannot be fetched
+  # by an unauthenticated runner at all, and the first version of this gate reported
+  # that as "dangling, unpushed, or wrong SHA" — a confident wrong cause. Proving
+  # access FIRST makes the CHECK 1 failure mean what it says.
+  #
+  # The two submodules that exercised this (`noetl/noetl.io`, `mlflowio/chatui`) were
+  # REMOVED in noetl/ai-meta#377, so every declared pointer is verifiable today and
+  # this branch should not be taken. It stays because adding one private submodule
+  # would silently reintroduce the false "dangling" verdict without it.
   if ! git ls-remote --quiet --exit-code "$furl" HEAD >/dev/null 2>&1; then
     n_no_access=$((n_no_access+1))
     note "   ⚠ remote not reachable from CI (private, renamed, or no credentials) — pointer UNVERIFIABLE here, not a failure"
