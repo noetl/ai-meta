@@ -46,6 +46,7 @@ n_anc_ok=0
 n_anc_skipped=0
 n_ff_ok=0
 n_ff_unprovable=0
+n_ff_corrective=0
 n_no_access=0
 n_warn_only=0
 WARNINGS=()
@@ -215,7 +216,30 @@ for path in "${PATHS[@]}"; do
           n_ff_ok=$((n_ff_ok+1))
           note "   ✓ fast-forward from ${old:0:12}"
         else
-          report "${path}: ${old:0:12} -> ${new:0:12} is NOT a fast-forward — this REGRESSES or rewrites the submodule"
+          # A non-fast-forward is normally a regression or a rewrite. There is ONE
+          # legitimate exception, and without it this gate deadlocks: moving a pointer
+          # OFF a side branch and back ONTO the tracked branch is exactly the fix
+          # CHECK 2 demands, and it is never a fast-forward. Blocking it would mean
+          # CHECK 2 reports a defect that CHECK 3 forbids correcting — which is what
+          # happened to noetl/ai-meta#372.
+          #
+          # Scoped deliberately: the NEW pointer must be on the tracked branch and the
+          # OLD one must NOT have been. A backwards move with both on the branch still
+          # FAILS, which is the case the check exists for.
+          corrective=0
+          if [ -n "${tip:-}" ] \
+             && { git -C "$repo" merge-base --is-ancestor "$new" "$tip" 2>/dev/null \
+                  || git -C "$repo" merge-base --is-ancestor "$tip" "$new" 2>/dev/null; } \
+             && ! git -C "$repo" merge-base --is-ancestor "$old" "$tip" 2>/dev/null \
+             && ! git -C "$repo" merge-base --is-ancestor "$tip" "$old" 2>/dev/null; then
+            corrective=1
+          fi
+          if [ "$corrective" -eq 1 ]; then
+            n_ff_corrective=$((n_ff_corrective+1))
+            note "   ✓ corrective re-point: ${old:0:12} was OFF ${branch}, ${new:0:12} is ON it (not a fast-forward, allowed)"
+          else
+            report "${path}: ${old:0:12} -> ${new:0:12} is NOT a fast-forward — this REGRESSES or rewrites the submodule"
+          fi
         fi
       else
         n_ff_unprovable=$((n_ff_unprovable+1))
@@ -232,7 +256,7 @@ echo "RESULT: $([ "$fail" -eq 0 ] && echo pass || echo FAIL) (examined=${examine
 # measured nothing, and it must be readable as such from this line alone.
 echo "  check 1 fetchable+is-commit : ${n_real}/${examined} confirmed"
 echo "  check 2 ancestry vs tip     : ${n_anc_ok}/${examined} confirmed, ${n_anc_skipped} skipped (no tip)"
-echo "  check 3 fast-forward        : ${n_ff_ok}/${examined} confirmed, ${n_ff_unprovable} unprovable (old pointer gone)"
+echo "  check 3 fast-forward        : ${n_ff_ok}/${examined} confirmed, ${n_ff_unprovable} unprovable (old pointer gone), ${n_ff_corrective} corrective re-point(s)"
 echo "  unverifiable (no CI access) : ${n_no_access}  <- NOT counted as pass or fail"
 echo "  mode                        : ${MODE} ($([ "$MODE" = sweep ] && echo 'legacy drift reported, non-blocking' || echo 'changed pointers, BLOCKING'))"
 if [ "${#WARNINGS[@]}" -gt 0 ]; then
