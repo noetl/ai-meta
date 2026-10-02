@@ -1,0 +1,58 @@
+# ai-meta CI.
+#
+# WHY THIS REPOSITORY NEEDED A GATE: it had ZERO workflow files, so
+# noetl/ai-meta#370 — five submodule pointer bumps — merged with nothing checking
+# them. A pointer is a 40-hex string and git validates nothing about it, so a typo or
+# a bump to a never-pushed commit yields a repository that cannot be cloned.
+#
+# Both jobs are deterministic and offline apart from the submodule remotes. No
+# external actions beyond actions/checkout; nothing that fails because a third-party
+# service is slow.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  submodule-pointers:
+    name: submodule pointers resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Pointer ancestry needs real history on BOTH sides of the diff. Submodules
+          # are fetched treelessly by the script, so they are not checked out here.
+          fetch-depth: 0
+          submodules: false
+      - name: validate changed pointers (PR)
+        if: github.event_name == 'pull_request'
+        run: ./.github/scripts/check-submodule-pointers.sh "${{ github.event.pull_request.base.sha }}"
+      - name: validate all pointers (push to main)
+        if: github.event_name != 'pull_request'
+        run: ./.github/scripts/check-submodule-pointers.sh
+
+  docs:
+    name: docs sanity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+      - name: docs checks (PR)
+        if: github.event_name == 'pull_request'
+        run: ./.github/scripts/check-docs.sh "${{ github.event.pull_request.base.sha }}"
+      - name: docs checks (push to main)
+        if: github.event_name != 'pull_request'
+        run: ./.github/scripts/check-docs.sh "${{ github.event.before }}"
