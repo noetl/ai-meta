@@ -37,7 +37,15 @@ jobs:
       - name: validate changed pointers (PR)
         if: github.event_name == 'pull_request'
         run: ./.github/scripts/check-submodule-pointers.sh "${{ github.event.pull_request.base.sha }}"
-      - name: validate all pointers (push to main)
+      # On a push to main, BLOCK on what this push changed...
+      - name: validate changed pointers (push to main)
+        if: github.event_name != 'pull_request' && github.event.before != '0000000000000000000000000000000000000000'
+        run: ./.github/scripts/check-submodule-pointers.sh "${{ github.event.before }}"
+      # ...and separately REPORT pre-existing drift without blocking. The first real
+      # sweep found three legacy findings (noetl/ai-meta#372); failing main on drift
+      # that the push did not introduce would leave main permanently red, which
+      # teaches people to ignore CI — the failure mode this gate exists to avoid.
+      - name: report pre-existing pointer drift (non-blocking)
         if: github.event_name != 'pull_request'
         run: ./.github/scripts/check-submodule-pointers.sh
 
