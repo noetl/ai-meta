@@ -1,0 +1,59 @@
+# Docs sweep over the 15 wiki submodules (noetl/ai-meta#375).
+#
+# WHY IT IS HERE AND NOT IN THE WIKIS: a `*.wiki.git` repository cannot host
+# GitHub Actions. There is no runner, so "add CI to the wikis" is not achievable
+# as stated — that was the finding, not a gap in effort. This is the closest
+# available thing: ai-meta clones each wiki and runs the same checks it runs on
+# its own markdown. Same rules, one day late instead of pre-merge.
+#
+# IT CHECKS THE LIVE WIKI, NOT THE SUBMODULE POINTER. The point is to notice a
+# wiki that is broken right now; a pointer can be months behind. The script
+# clones each wiki's current default branch over anonymous HTTPS — the declared
+# submodule URLs are SSH, which a runner has no key for, and these are public
+# wikis so no token is involved.
+#
+# The wiki list is DERIVED from .gitmodules, never enumerated, and the sweep
+# FAILS if it checked fewer than 10 of them: "0 findings" is also what a sweep
+# that examined nothing looks like.
+#
+# Proven able to fail three ways before being committed: a planted broken link
+# in a local fixture wiki, a trimmed .gitmodules tripping the population floor,
+# and a missing checker.
+#
+# ⚠ The first version of the script printed "RESULT: FAIL" and exited 0, because
+# a chained EXIT trap made `$?` the status of the cleanup function. It would have
+# been a green job announcing its own failure. Only a control that asserted the
+# EXIT CODE rather than the output caught it.
+name: wiki docs
+
+on:
+  schedule:
+    # 06:40 UTC daily. Off the hour because scheduled jobs on the hour are the
+    # most contended and get delayed longest.
+    - cron: '40 6 * * *'
+  workflow_dispatch:
+  # Changes to the sweep itself are gated pre-merge, so the script cannot be
+  # broken silently and discovered a day later by a cron run nobody watches.
+  pull_request:
+    paths:
+      - '.github/workflows/wiki-docs.yml'
+      - '.github/scripts/check-wikis.sh'
+      - '.github/scripts/check-docs.sh'
+      - '.gitmodules'
+
+concurrency:
+  group: wiki-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      # No submodules: the sweep clones each wiki itself, on purpose (see above).
+      - uses: actions/checkout@v4
+
+      - name: sweep the wikis
+        run: ./.github/scripts/check-wikis.sh
