@@ -42,6 +42,44 @@ Pointer bumps that close an issue should put the close keyword in
 the body, not the subject — the subject stays
 `chore(sync): bump <repo> to <short-sha>`.
 
+**And the keyword fires from prose, in any tense, including inside a
+heading — negation does not save you.** The parser looks for
+`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/`resolves`/
+`resolved` followed by an issue reference, anywhere in the body. It has
+no idea what the sentence means.
+
+Concrete misfire, ai-meta@491ce7da (merged as
+[#408](https://github.com/noetl/ai-meta/pull/408)): the body carried a
+correct `Refs noetl/ai-meta#400` trailer, and seven lines above it a
+Markdown heading reading
+
+```
+## The reason the obvious fix would not have closed #400
+```
+
+That closed [#400](https://github.com/noetl/ai-meta/issues/400) on merge,
+while its PR was still unmerged and its own body said "#400 stays open".
+A sentence whose entire point was that something *would not* close the
+issue is what closed it.
+
+So when a commit body discusses an issue number rather than acting on
+it, keep those verbs away from the reference. "satisfied", "addressed",
+"covered" all read the same to a human and nothing to the parser:
+
+```
+    ## Why the obvious fix would not have satisfied noetl/ai-meta#400
+```
+
+Check before pushing a body that mentions an issue number more than
+once:
+
+```bash
+git log -1 --format=%B | grep -niE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[^A-Za-z0-9]+(noetl/[a-z-]+)?#[0-9]+'
+```
+
+Every line that prints will close something. If a line is prose rather
+than a trailer, reword it.
+
 Example:
 
 ```
