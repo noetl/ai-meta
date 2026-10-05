@@ -121,6 +121,42 @@ REGISTRY = {
     "AUTHZ_OUTCOMES": ("gateway", "record_authz", None),
     "SESSION_CACHE_STAGES": ("gateway", "record_session_cache_failed", None),
     "EVENT_FEED_RECONNECT_REASONS": ("gateway", "record_event_feed_reconnect", None),
+    # --- decided 2026-10-04; both were NO-GUARD since they were added ---
+    #
+    # Both pass a VARIABLE to the recorder, so a literal scan finds nothing and
+    # registering them would report SHORT 0-of-N — a false alarm, the same shape as
+    # SECRET_REFRESH_OUTCOMES below.  Excluded with the guard named, because an
+    # exclusion that does not say where the check moved to is just a silence.
+    #
+    #   record_ehdb_eventlog_mirror_send_error(kind)   <- classified from the error
+    #     guard: server every_send_error_kind_is_pinned_at_zero
+    #            (handlers/ehdb_eventlog_mirror.rs:2173), which iterates the const
+    #            and also asserts deliver() actually CALLS the recorder — "a
+    #            discriminator nobody can read is not a discriminator".
+    "EHDB_EVENTLOG_MIRROR_SEND_ERROR_KINDS": None,
+    #
+    #   record_ehdb_mirror_repair(outcome)
+    #     guard: server every_repair_outcome_is_pinned
+    #            (handlers/ehdb_mirror_repair_sweep.rs:438), plus a
+    #            `OUTCOMES.contains(&produced)` assertion at :456 that ties the
+    #            produced label back to the pinned set.
+    "EHDB_MIRROR_REPAIR_OUTCOMES": None,
+    #
+    # ⚠ THREE more are deliberately left NO-GUARD rather than excluded here, and
+    # that is the point: they have no guard anywhere, so silencing them in this file
+    # would convert a visible gap into an invisible one.
+    #
+    #   PROJECTION_SERVE_REFUSALS   <- r.as_str(), ehdb_projection_fold.rs:1838
+    #   EMBEDDED_READ_OUTCOMES      <- verdict.label(), ehdb_embedded_verify.rs:86
+    #   EMBEDDED_SHADOW_OUTCOMES    <- 3 literals + variables over 8 call sites
+    #
+    # Each is pinned at 0 in metrics.rs, and NOTHING checks that the recorder's
+    # label domain is a subset of the pinned set — so a newly added outcome that
+    # nobody pins stays ABSENT while its siblings read 0, and absence and zero are
+    # indistinguishable on a dashboard.  Tracked as noetl/ai-meta#415, which also
+    # carries the exhaustive-match model to copy
+    # (every_refusal_reason_is_pinned_and_distinct, same file, different const).
+    # Register them here as exclusions once those guards exist.
     # SINK_GATE_OUTCOMES is deliberately absent: its six values come from FOUR
     # separate zero-arg recorders that each hardcode their own literal
     # (`record_sink_gate_marked` -> "marked", `_confirmed` -> "confirmed", ...)
