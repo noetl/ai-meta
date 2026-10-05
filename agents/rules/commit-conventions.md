@@ -90,6 +90,54 @@ Lands noetl/cli#17.  Wiki: see noetl-cli-wiki@8a7228a.
 Closes noetl/ai-meta#42
 ```
 
+### ⚠⚠ In a SUBMODULE commit, a closing keyword + a cross-repo issue breaks the release
+
+The `Closes noetl/ai-meta#NN` convention above is for **ai-meta** commits. In a
+submodule that runs semantic-release — server, worker, cli, tools, gateway, ehdb,
+signal-mesh — it fails the release:
+
+```
+[semantic-release] ✘  An error occurred while running semantic-release:
+Error: Could not resolve to an Issue with the number of 415.
+```
+
+`@semantic-release/github` resolves the closing reference against the **releasing**
+repo, not against the one named in it, so it looks for `noetl/server#415`, which does
+not exist.
+
+**The damage is specific and bad.** The failure lands *after* the version is computed
+and the tag created, and *before* the step that dispatches `release.yml`:
+
+```
+✔  Created tag v3.122.2
+✘  Could not resolve to an Issue with the number of 415
+```
+
+So the tag exists, the GitHub Release exists, and **no image is ever built**. Nothing
+reports that: the release looks real from the tag list and from the releases page, and
+only an artifact-registry lookup shows it is empty. Recovering it means dispatching
+`release.yml` by hand on the tag.
+
+⚠ **It arms only on a commit type that releases.** `036dd483` on noetl/server carried
+`Closes noetl/ai-meta#361` and its run went green, because it was a `ci:` commit and
+semantic-release decided *no release* — so it never reached the GitHub step. The
+landmine sat there looking safe. Measured 2026-10-05: 1 failure in 60 completed runs,
+and the only other commit of that shape was the `ci:` one.
+
+**So, in a submodule commit body:**
+
+```
+    Refs noetl/ai-meta#415                      ✅ safe — not a closing keyword
+    https://github.com/noetl/ai-meta/issues/415  ✅ safe — unambiguous
+    Closes noetl/ai-meta#415                    ❌ fails the release
+```
+
+Close the ai-meta issue from the **ai-meta** side — the pointer-bump commit, or by
+hand. That is where the issue lives and where the keyword resolves.
+
+The pre-push detector in the previous section catches this too; on a submodule commit,
+treat **every** line it prints as a defect rather than only the prose ones.
+
 Trivial commits (`memory(compact):`, `memory(curate):`, formatting
 cleanups, doc typos) don't need an issue ref. The threshold matches
 issue-tracking.md's "substantive vs inline" line.

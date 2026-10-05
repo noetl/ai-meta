@@ -142,21 +142,40 @@ REGISTRY = {
     #            produced label back to the pinned set.
     "EHDB_MIRROR_REPAIR_OUTCOMES": None,
     #
-    # ⚠ THREE more are deliberately left NO-GUARD rather than excluded here, and
-    # that is the point: they have no guard anywhere, so silencing them in this file
-    # would convert a visible gap into an invisible one.
+    # --- the three that were NO-GUARD until 2026-10-05; guards now exist ---
     #
-    #   PROJECTION_SERVE_REFUSALS   <- r.as_str(), ehdb_projection_fold.rs:1838
-    #   EMBEDDED_READ_OUTCOMES      <- verdict.label(), ehdb_embedded_verify.rs:86
-    #   EMBEDDED_SHADOW_OUTCOMES    <- 3 literals + variables over 8 call sites
+    # All three pass a variable or a method call to their recorder, so a literal
+    # scan finds nothing and registering them with a recorder would report
+    # SHORT 0-of-N.  Excluded with the guard named, per the convention above.
     #
-    # Each is pinned at 0 in metrics.rs, and NOTHING checks that the recorder's
-    # label domain is a subset of the pinned set — so a newly added outcome that
-    # nobody pins stays ABSENT while its siblings read 0, and absence and zero are
-    # indistinguishable on a dashboard.  Tracked as noetl/ai-meta#415, which also
-    # carries the exhaustive-match model to copy
-    # (every_refusal_reason_is_pinned_and_distinct, same file, different const).
-    # Register them here as exclusions once those guards exist.
+    # Landed in noetl/server#493 (noetl/ai-meta#415), each asserting BOTH
+    # directions -- every label pinned, AND nothing pinned that no caller can
+    # produce.  The reverse direction is not decoration: it is what found
+    # `engine_unavailable` pinned in EMBEDDED_READ_OUTCOMES and reachable by no
+    # caller, because the verify handler returned early without touching the
+    # metric.  That series was registered, read 0 for ever, and told anyone
+    # watching that the embedded engine was always available.
+    #
+    #   PROJECTION_SERVE_REFUSALS  <- RefuseReason::as_str()
+    #     guard: server every_refuse_reason_is_pinned_and_distinct
+    #            (handlers/ehdb_projection_serve.rs)
+    "PROJECTION_SERVE_REFUSALS": None,
+    #
+    #   EMBEDDED_READ_OUTCOMES     <- ReadVerdict::label() + one handler literal
+    #     guard: server
+    #            every_read_outcome_is_pinned_and_nothing_is_pinned_that_cannot_fire
+    #            (handlers/ehdb_embedded.rs).  It also asserts the SOURCE of
+    #            ehdb_embedded_verify.rs still contains the engine_unavailable
+    #            recording, because what regressed is a missing CALL and only a
+    #            call-site assertion can see a missing call.
+    "EMBEDDED_READ_OUTCOMES": None,
+    #
+    #   EMBEDDED_SHADOW_OUTCOMES   <- ShadowVerdict::label() + 3 call-site literals
+    #     guard: server
+    #            every_shadow_outcome_is_pinned_and_nothing_is_pinned_that_cannot_fire
+    #            (handlers/ehdb_embedded.rs).  Covers the literal arm too: a guard
+    #            over the enum alone would call a complete set incomplete.
+    "EMBEDDED_SHADOW_OUTCOMES": None,
     # SINK_GATE_OUTCOMES is deliberately absent: its six values come from FOUR
     # separate zero-arg recorders that each hardcode their own literal
     # (`record_sink_gate_marked` -> "marked", `_confirmed` -> "confirmed", ...)
