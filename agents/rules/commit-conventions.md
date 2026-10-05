@@ -133,6 +133,17 @@ semantic-release decided *no release* — so it never reached the GitHub step. T
 landmine sat there looking safe. Measured 2026-10-05: 1 failure in 60 completed runs,
 and the only other commit of that shape was the `ci:` one.
 
+Three data points from that day, which is why the recommendation below is not a guess:
+
+| repo | commit type | reference form | outcome |
+| :-- | :-- | :-- | :-- |
+| noetl/server | `fix:` | `Closes noetl/ai-meta#415` | ❌ release failed; tag + GitHub Release created, **no image** |
+| noetl/server | `ci:` | `Closes noetl/ai-meta#361` | 🟡 green, but only because `ci:` releases nothing |
+| noetl/noetl | `fix:` | `Refs noetl/ai-meta#201` | ✅ released 4.26.2 cleanly |
+
+The third row is the one that matters: the safe form works **on a commit that actually
+releases**, so switching to it costs nothing.
+
 **So, in a submodule commit body:**
 
 ```
