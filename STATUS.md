@@ -5,7 +5,7 @@ History lives in the [ai-meta wiki's Sessions Log](https://github.com/noetl/ai-m
 open work lives in the [`ai-task` issue queue](https://github.com/noetl/ai-meta/issues?q=is%3Aopen+label%3Aai-task).
 This file is the short answer to *"what is in flight right now."*
 
-**Last updated:** 2026-10-05 (late)
+**Last updated:** 2026-10-05 (evening)
 
 ## Waiting on the owner
 
@@ -27,6 +27,7 @@ One prod action remains, deliberately not taken:
 | Issue | State |
 | :-- | :-- |
 | [#410](https://github.com/noetl/ai-meta/issues/410) | manifest fixed, prod apply pending (above) |
+| [#422](https://github.com/noetl/ai-meta/issues/422) | `noetl.event_dead_letter` is **write-only** — the table exists in prod, nothing can list or replay it. **Build the reader before arming `NOETL_MATERIALIZER_DEAD_LETTER`**, not after |
 | [#406](https://github.com/noetl/ai-meta/issues/406) | accepted upstream wait — `quick-xml` ×2 + `rsa`/Marvin. **Not a blocker.** A current published lock reads **3**, and that is the expected number |
 | [#360](https://github.com/noetl/ai-meta/issues/360) | reopened; acceptance box 6 un-ticked 2026-10-04 because the green was measured over a window shorter than the mechanism's period |
 | [#234](https://github.com/noetl/ai-meta/issues/234) | ⚠ **do not sweep.** One remaining reference is a *working* dependency on the old project — the travel Maps secret exists only there |
@@ -90,5 +91,12 @@ Two things bit on 2026-10-05 and both are cheap to avoid:
   red-main count that read a 6-run window instead of the latest run per workflow, an alert blast
   radius of "0 of 19" from a filter that matched nothing, and a pytest proof that ran no tests.
   Every one was caught by printing the denominator.
+- **A Ready pod proves nothing about what a startup step did.** `ensure_table` swallows
+  every error and returns `Ok(())`, so prod's dead-letter table had to be established
+  from the *absence* of a warning — with a filter control, because an empty log search
+  and a broken log search look identical.
+- ⚠ **Prod's server is v3.122.0** (digest `919bc70c`, rolled 2026-10-01). My notes said
+  v3.112.7 for three weeks and I reasoned from it. Read the version from the pod
+  digest or `*_build_info`, never from a written-down number.
 - **A closing keyword in prose closes the issue.** `closed #400` inside a heading shut #400 on
   merge; see `agents/rules/commit-conventions.md` for the detector.
