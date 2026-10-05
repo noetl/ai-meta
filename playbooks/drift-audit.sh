@@ -494,7 +494,16 @@ if run inert-tests; then
     fetch_repo_once "$d"
     ref=$(cd "$d" && git rev-parse --verify -q origin/main 2>/dev/null)
     [ -z "$ref" ] && continue
-    out=$(cd "$d" && git ls-tree -r --name-only "$ref" 2>/dev/null | grep '\.rs$' | while IFS= read -r f; do
+    # Exclude vendored third-party crates.  Measured 2026-10-04 before this
+    # filter existed: 151 findings, 150 of them inside repos/server/vendor/ --
+    # axum, uuid, reqwest, sqlx and friends, whose test modules use attribute
+    # forms this heuristic does not recognise.  One section was producing 94% of
+    # the entire audit output at 0% signal, and a check that cries wolf teaches
+    # people to skim past the finding that is real.
+    total_rs=$(cd "$d" && git ls-tree -r --name-only "$ref" 2>/dev/null | grep -c '\.rs$')
+    own_rs=$(cd "$d" && git ls-tree -r --name-only "$ref" 2>/dev/null | grep '\.rs$' | grep -vcE '(^|/)vendor/')
+    echo "         $r: $own_rs first-party .rs of $total_rs ($(( total_rs - own_rs )) vendored, excluded)"
+    out=$(cd "$d" && git ls-tree -r --name-only "$ref" 2>/dev/null | grep '\.rs$' | grep -vE '(^|/)vendor/' | while IFS= read -r f; do
       git show "$ref:$f" 2>/dev/null | python3 -c '
 import sys, re
 path = sys.argv[1]
@@ -517,8 +526,40 @@ def is_comment(x):
     t = x.strip()
     return t.startswith("//") or t.startswith("*") or t.startswith("/*")
 
+# Lines inside a multi-line string literal are DATA, not code.  A test may embed
+# synthetic Rust source to demonstrate a scanning hazard, and matching fn inside
+# it reports a function that does not exist.  That is exactly what happened:
+# server/src/services/certified_fold.rs embeds synthetic source containing
+# "fn produce_again()" inside a test whose whole point is that naive source
+# scanning is fooled -- and this check was fooled by it.
+in_string = [False] * len(L)
+open_str = False
+for i, l in enumerate(L):
+    in_string[i] = open_str
+    q = len(re.findall(r"(?<!\\)\"", l))
+    if q % 2 == 1:
+        open_str = not open_str
+
+def body_of(start):
+    # The function own-body, by brace matching -- NOT a fixed window.  Asking
+    # whether "assert" appears in the next 40 lines is a different question: it
+    # reports a helper as asserting when the asserts belong to the NEXT
+    # function.  That is how the string-literal match above acquired its
+    # "asserts, but carries no #[test]" claim.
+    depth = 0
+    seen = False
+    out = []
+    for k in range(start, len(L)):
+        out.append(L[k])
+        depth += L[k].count("{") - L[k].count("}")
+        if "{" in L[k]: seen = True
+        if seen and depth <= 0:
+            break
+    return "\n".join(out)
+
 for i, l in enumerate(L):
     if not inside[i]: continue
+    if in_string[i]: continue
     m = re.match(r"\s*(?:pub )?(?:async )?fn (\w+)\s*\(\s*\)", l)
     if not m: continue
     name = m.group(1)
@@ -527,11 +568,22 @@ for i, l in enumerate(L):
         t = L[j].strip()
         if t.startswith("//"): j -= 1; continue
         if t.startswith("#["):
-            if re.search(r"#\[\s*(tokio::)?test", t): has = True
+            # Any attribute path ending in test, plus the common macro crates.
+            # A narrow (tokio::)?test regex misses #[crate::test] (axum form)
+            # and #[rstest], which is much of the vendor noise this check used
+            # to emit.
+            if re.search(r"#\[\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*test\b", t):
+                has = True
+            elif re.search(r"#\[\s*(?:rstest|test_case)\b", t):
+                has = True
             j -= 1; continue
         break
     if has: continue
-    if "assert" not in "\n".join(L[i:i+40]): continue
+    # An assert MACRO INVOCATION, not the substring.  A bare "assert" in body
+    # matches an identifier or a comment: a fixture named
+    # orphan_with_no_asserts_of_its_own satisfied it on its own name, and so
+    # would a helper called assert_shape or a doc comment saying "no asserts".
+    if not re.search(r"\bassert(?:_eq|_ne|_matches)?\s*!", body_of(i)): continue
     # A helper is CALLED. Comments that merely name it are not calls.
     calls = 0
     for k, x in enumerate(L):
@@ -552,7 +604,7 @@ for i, l in enumerate(L):
     fi
   done
   if [ "$found" -eq 0 ]; then
-    ok "no orphaned test-shaped functions in worker/server/tools/cli/ehdb/gateway"
+    ok "no orphaned test-shaped functions in worker/server/tools/cli/ehdb/gateway (first-party only; per-repo counts above)"
   else
     echo "         Confirm with: cargo check --all-targets (reports dead_code +"
     echo "         duplicate_macro_attributes for exactly this shape).  Enable the"
