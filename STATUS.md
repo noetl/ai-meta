@@ -5,7 +5,7 @@ History lives in the [ai-meta wiki's Sessions Log](https://github.com/noetl/ai-m
 open work lives in the [`ai-task` issue queue](https://github.com/noetl/ai-meta/issues?q=is%3Aopen+label%3Aai-task).
 This file is the short answer to *"what is in flight right now."*
 
-**Last updated:** 2026-10-05 (evening)
+**Last updated:** 2026-10-05 (night)
 
 ## Waiting on the owner
 
@@ -27,7 +27,7 @@ One prod action remains, deliberately not taken:
 | Issue | State |
 | :-- | :-- |
 | [#410](https://github.com/noetl/ai-meta/issues/410) | manifest fixed, prod apply pending (above) |
-| [#422](https://github.com/noetl/ai-meta/issues/422) | `noetl.event_dead_letter` is **write-only** — the table exists in prod, nothing can list or replay it. **Build the reader before arming `NOETL_MATERIALIZER_DEAD_LETTER`**, not after |
+| [#422](https://github.com/noetl/ai-meta/issues/422) | reader **landed** (`GET /api/internal/events/dead-letter`, v3.123.0, metadata only). Still open: a `/metrics` gauge, and replay/discard. **Build the rest before arming `NOETL_MATERIALIZER_DEAD_LETTER`** |
 | [#406](https://github.com/noetl/ai-meta/issues/406) | accepted upstream wait — `quick-xml` ×2 + `rsa`/Marvin. **Not a blocker.** A current published lock reads **3**, and that is the expected number |
 | [#360](https://github.com/noetl/ai-meta/issues/360) | reopened; acceptance box 6 un-ticked 2026-10-04 because the green was measured over a window shorter than the mechanism's period |
 | [#234](https://github.com/noetl/ai-meta/issues/234) | ⚠ **do not sweep.** One remaining reference is a *working* dependency on the old project — the travel Maps secret exists only there |
@@ -60,6 +60,17 @@ What remains, and why each is still there:
 | 3 × pinned sets NO-GUARD (#415) | deliberately visible, not excluded |
 | `schema_ddl.sql` differs | fixed by noetl/noetl#709, awaiting review |
 | 3 × pinned sets NO-GUARD | **cleared** — guards landed (noetl/server#493), now 0 |
+
+## ⚠ Never run `cargo fmt` across noetl/server
+
+`tests/auth_gate_wiring.rs` searches `main.rs` for the literal `.merge(<name>.layer(`.
+rustfmt splits those merges across lines, so one `cargo fmt` makes **12 privileged
+routers read as ungated** and the guard goes red. It happened on 2026-10-05, and it is
+the **second** time rustfmt has blinded a text-scanning guard in that crate.
+
+`main.rs` carries a comment saying so. `main` also already has **139 fmt diff sites**
+across 39 files and CI does not gate fmt, so a repo-wide format is never a small change
+there. Format only the files you touched, and quote the site count before and after.
 
 ## ⚠ Before the next release of any Rust submodule
 
