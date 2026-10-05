@@ -105,6 +105,15 @@ Error: Could not resolve to an Issue with the number of 415.
 repo, not against the one named in it, so it looks for `noetl/server#415`, which does
 not exist.
 
+⚠ **GitHub itself handles the same reference correctly** — which is what makes this
+confusing. Measured 2026-10-05: the server commit carrying
+`Closes noetl/ai-meta#415` **did** close ai-meta#415, at the same minute, by GitHub's
+native cross-repo mechanism. So the keyword is not broken; it is **incompatible with
+semantic-release**, and the two consumers disagree about the same line.
+
+That is why the recommendation costs nothing: you give up an auto-close you can
+perform from ai-meta anyway, and you stop breaking the release.
+
 **The damage is specific and bad.** The failure lands *after* the version is computed
 and the tag created, and *before* the step that dispatches `release.yml`:
 
