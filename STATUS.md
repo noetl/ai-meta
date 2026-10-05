@@ -5,7 +5,7 @@ History lives in the [ai-meta wiki's Sessions Log](https://github.com/noetl/ai-m
 open work lives in the [`ai-task` issue queue](https://github.com/noetl/ai-meta/issues?q=is%3Aopen+label%3Aai-task).
 This file is the short answer to *"what is in flight right now."*
 
-**Last updated:** 2026-10-04 (late)
+**Last updated:** 2026-10-05
 
 ## Waiting on the owner
 
@@ -31,7 +31,6 @@ And one prod action, deliberately not taken:
 | :-- | :-- |
 | [#400](https://github.com/noetl/ai-meta/issues/400) | guard written and RED-proved; open until noetl#707 merges |
 | [#410](https://github.com/noetl/ai-meta/issues/410) | manifest fixed, prod apply pending (above) |
-| [#415](https://github.com/noetl/ai-meta/issues/415) | three pinned metric label sets have no guard; left **visible** in the audit on purpose rather than excluded |
 | [#406](https://github.com/noetl/ai-meta/issues/406) | accepted upstream wait — `quick-xml` ×2 + `rsa`/Marvin. **Not a blocker.** A current published lock reads **3**, and that is the expected number |
 | [#360](https://github.com/noetl/ai-meta/issues/360) | reopened; acceptance box 6 un-ticked 2026-10-04 because the green was measured over a window shorter than the mechanism's period |
 | [#234](https://github.com/noetl/ai-meta/issues/234) | ⚠ **do not sweep.** One remaining reference is a *working* dependency on the old project — the travel Maps secret exists only there |
@@ -63,6 +62,23 @@ What remains, and why each is still there:
 | server pod unscraped (#410) | manifest fixed, prod apply held |
 | 3 × pinned sets NO-GUARD (#415) | deliberately visible, not excluded |
 | `schema_ddl.sql` differs | fixed by noetl/noetl#709, awaiting review |
+| 3 × pinned sets NO-GUARD | **cleared** — guards landed (noetl/server#493), now 0 |
+
+## ⚠ Before the next release of any Rust submodule
+
+Two things bit on 2026-10-05 and both are cheap to avoid:
+
+- **Never put a closing keyword + a cross-repo issue in a submodule commit body.**
+  `Closes noetl/ai-meta#NN` fails `@semantic-release/github` **after** the tag is cut
+  and **before** `release.yml` is dispatched, so the version is tagged and released
+  with **no image** and nothing says so. Use `Refs`, and close from ai-meta. GitHub's
+  own cross-repo close works — the plugin's does not. See
+  `agents/rules/commit-conventions.md`.
+- **A `ci:`/`chore:` run going green says nothing about the image build.** Those
+  commit types release nothing, so `release.yml` never runs. The server image was
+  broken for two days behind a wall of green `ci:` merges. After any change to a
+  Dockerfile, a toolchain pin, or a base image, build the affected stage locally
+  (`podman build --target <stage>`) rather than waiting for the next `fix:`.
 
 ## Standing cautions for whoever picks this up
 
