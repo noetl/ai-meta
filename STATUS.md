@@ -5,7 +5,7 @@ History lives in the [ai-meta wiki's Sessions Log](https://github.com/noetl/ai-m
 open work lives in the [`ai-task` issue queue](https://github.com/noetl/ai-meta/issues?q=is%3Aopen+label%3Aai-task).
 This file is the short answer to *"what is in flight right now."*
 
-**Last updated:** 2026-10-04
+**Last updated:** 2026-10-04 (late)
 
 ## Waiting on the owner
 
@@ -31,6 +31,7 @@ And one prod action, deliberately not taken:
 | :-- | :-- |
 | [#400](https://github.com/noetl/ai-meta/issues/400) | guard written and RED-proved; open until noetl#707 merges |
 | [#410](https://github.com/noetl/ai-meta/issues/410) | manifest fixed, prod apply pending (above) |
+| [#415](https://github.com/noetl/ai-meta/issues/415) | three pinned metric label sets have no guard; left **visible** in the audit on purpose rather than excluded |
 | [#406](https://github.com/noetl/ai-meta/issues/406) | accepted upstream wait — `quick-xml` ×2 + `rsa`/Marvin. **Not a blocker.** A current published lock reads **3**, and that is the expected number |
 | [#360](https://github.com/noetl/ai-meta/issues/360) | reopened; acceptance box 6 un-ticked 2026-10-04 because the green was measured over a window shorter than the mechanism's period |
 | [#234](https://github.com/noetl/ai-meta/issues/234) | ⚠ **do not sweep.** One remaining reference is a *working* dependency on the old project — the travel Maps secret exists only there |
@@ -46,6 +47,23 @@ Closed: #361, #374, #375, #378, #385, #390, #395, #398, #402.
 - **PR gates for ops / e2e / apt**, plus a daily sweep over all **15** wikis (243 md files).
 - **apt arm64 built every release** (2.8.7 → 5.0.3 newest arm64); orphaned `.deb`s 22 of 23 → 0 of 26.
 
+## The drift audit is worth reading again
+
+`playbooks/drift-audit.sh` output went **160 DRIFT lines → 9** on 2026-10-04. It was not that 151
+things got fixed: the `inert-tests` section was **94% of the output at 0% signal** (150 vendored
+crates, and its one first-party hit was text inside a string literal). It is now worth reading, so
+read it.
+
+What remains, and why each is still there:
+
+| finding | state |
+| :-- | :-- |
+| 2 × stale project refs (#234) | one is **load-bearing** — do not sweep |
+| `noetl.execution` frozen (#235) | disposition is an owner decision |
+| server pod unscraped (#410) | manifest fixed, prod apply held |
+| 3 × pinned sets NO-GUARD (#415) | deliberately visible, not excluded |
+| `schema_ddl.sql` differs | fixed by noetl/noetl#709, awaiting review |
+
 ## Standing cautions for whoever picks this up
 
 - **A green over nothing is a failure.** Every check here prints the population it measured.
@@ -55,5 +73,10 @@ Closed: #361, #374, #375, #378, #385, #390, #395, #398, #402.
 - **Diff the whole object before any prod apply**, never the field you changed
   (`agents/rules/apply-safety.md`). That is what caught ops#321 nearly dropping two pods from
   monitoring while fixing something else.
+- **A count over the wrong population is the commonest false clean.** Four times on 2026-10-04 a
+  measurement of mine was wrong before it was right: a scan that examined 0 files and said `OK`, a
+  red-main count that read a 6-run window instead of the latest run per workflow, an alert blast
+  radius of "0 of 19" from a filter that matched nothing, and a pytest proof that ran no tests.
+  Every one was caught by printing the denominator.
 - **A closing keyword in prose closes the issue.** `closed #400` inside a heading shut #400 on
   merge; see `agents/rules/commit-conventions.md` for the detector.
