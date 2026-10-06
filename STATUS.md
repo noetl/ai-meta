@@ -47,6 +47,116 @@ thing the audit prints.
   is an owner decision.
 - [#380](https://github.com/noetl/ai-meta/issues/380) — blocked on noetl/docs#188 merging.
 
+## Catalog — reclaim, and a driver that made the rest reachable
+
+Both merged on green: [catalog#11](https://github.com/noetl/catalog/pull/11),
+[catalog#12](https://github.com/noetl/catalog/pull/12). 99 tests, fmt + `clippy -D warnings`
+clean. [#427](https://github.com/noetl/ai-meta/issues/427).
+
+**#11 — the merge driver was doubling disk.** The previous phase proved the part count fell
+25 → 4. It did, and bytes rose 42% in the same tick, because the test measured the number the
+fix was about.
+
+| | before | after |
+| :-- | :-- | :-- |
+| live parts | 4 | 4 |
+| `tick()` | `merged=3 reclaimed=0` | `merged=3 reclaimed=48` |
+| part files | 49 → 56 | 49 → **8** |
+| bytes | 94,784 → **189,568** (2.00x) | 94,784 → 96,736 (1.02x) |
+
+54 part files and substrate objects for **4 live parts**. `reclaim_orphans` is caller-owned
+and documented as deleting "the superseded source parts a merge leaves behind", so driving
+merges without it was a trade rather than a fix — reporting success either way. The prod-PVC
+shape.
+
+⚠ The test's byte assertion was **wrong on first draft while the code was right**: it
+expected a merge to *shrink* storage. A merge consolidates parts holding the same records, so
+bytes are flat by construction; the property that discriminates is that bytes must not
+**grow**.
+
+**All five caller-owned EHDB lifecycle calls are now accounted for** — three driven, two
+deliberately not, with reasons on `tick`'s doc comment:
+
+| call | status |
+| :-- | :-- |
+| `seal_aged_parts` | driven by `tick()` |
+| `run_pending_merges` | driven by `tick()` |
+| `reclaim_orphans` | driven by `tick()`, **after** the merges — the manifest swap is what makes sources unreferenced, so reclaiming first finds nothing and reports a healthy 0 |
+| `apply_retention` | **never.** Drops whole parts below a floor; the catalog folds latest-op-wins over *every* op, so a resource whose only `Registered` op fell below the floor vanishes from `latest()` while its later attribute ops survive |
+| `flush_and_wait_uploads` | **not needed.** `L0Engine::drop` joins the uploader, whose `while let Ok(job) = rx.recv()` drains the queue before seeing the disconnect (`ehdb-l0` `engine.rs:654` / `:1701`) |
+
+**#12 — nothing could run any of it.** Three library crates, **zero binaries**, and `tick()`
+/ `register_from_source` had **0 non-test call sites**: 89 tests passed and the catalog had
+never seen a real document. `tick`'s own doc comment says it must run on a timer; nothing
+called it once.
+
+The new `catalog` binary reads a **git ref, not the working tree** — a population sweep on
+*this repo* reported `adiona yaml: 0` while `origin/main` carries **53**, the checkout being
+41 commits behind on a side branch. A bad ref now errors rather than returning an empty
+listing, since an empty listing satisfies "0 skipped" and reads as a clean run.
+
+First real run over the 53: `scanned=53 registered=53 skipped=0 relations=0 attributes=0`.
+
+* `relations=0` is **correct** — leaf playbooks calling no child. ⚠ A first regex claimed 53
+  of 53 carried a child reference; it was matching each document's own `metadata.path`.
+* `attributes=0` was a gap: a playbook yielded nothing because `find_attributes` read only
+  `metadata.labels`, and none of the 53 have labels. All 53 carry a tool kind (53x postgres)
+  and an auth alias (**49x `adiona_actor`, 4x `adiona_migrator`**).
+
+Now `uses_tool.<kind>` + `uses_credential.<alias>` → **attributes=106**, exactly 53 x 2, the
+four migrator playbooks cross-checked against ground truth derived independently from git.
+`uses_credential` is the one with teeth: rotating `adiona_actor` means knowing the 49
+playbooks that break.
+
+⚠⚠ **The alias only, never a value.** A scalar `auth:` is a reference the keychain resolves;
+a **mapping** is an inline credential, and copying it would duplicate a secret into a second
+store. Skipped — and mutation-tested, not trusted: the relaxed check fails the test with the
+leak in its own output, `uses_credential.Mapping {"password": String("hunter2")}`. 1 of 5
+tests caught it.
+
+**Next, by evidence:** `uses_credential` is half its value without the reverse lookup. "Every
+resource using alias X" needs a per-path `show` today, because the four datasets index
+attributes by *entity*. ⚠ A fifth dataset would violate AC3 (a test pins the `Dataset` impl
+count at exactly 4), so the answer is a secondary index key inside `c3`.
+
+## adiona/frontend triage — COMPLETE, 8 of 8, zero frontend code touched
+
+| # | classification | action |
+| :-- | :-- | :-- |
+| **59** | **backend-fixed** | travel#133 (`1e20a68313`) — `read_only` flag, read arc ahead of the save arc, 31-check guard, new `playbook-tests.yml` CI. Comment corrects the framing: `merge: true` already existed, partial update already worked, the gap was the **read path**, and merging `{}` is not data loss |
+| **55** | **ambiguous — blocked on product** | 22 scenarios inventoried from the three `.docx` (51,603 chars): F1–F10, D1–D5/D7–D9, H1–H4. Blocked on **D6 being absent** (numbering jumps D5→D7), **three divergent canonical-slot vocabularies**, and **no combined-trip document existing** |
+| **5** | **backend — deployment gap, NOT actioned** | **53** `adiona/v1/*` playbooks exist on `travel@origin/main`, **0 registered** on the catalog the SPA reads, while **36** `muno/*` are. Needs `auth: adiona_actor` + the `adiona.*` schema. A prod catalog change — the owner's call |
+| **4** | **split** | UI frontend-only; data half blocks on the #5 decision. Beach Tours / Cultural Programs are **the same query with a different category value** |
+| **2** | **backend already provides it** | `system_prompt_extraction.md` + `extract_turn`'s persisted `slot_state`. ⚠ A second client-side parser must agree on every sentence forever; the first divergence presents as a backend bug |
+| **3** | frontend-only | Not actioned. Flagged that 28 widget-contract schemas already define the card shape, incl. `loading_card` / `error_card` |
+| **51** | frontend-only | Not actioned (styling). Flagged the vocabulary divergence, since a flight form and a hotel form built to their own docs will not line up |
+| **6** | frontend-only | Not actioned. Checked for a backend content source — there is **none** |
+
+⚠ A false zero in my own verification: the coverage check filtered comments by
+`user.login == "Kadyapam"` (the git user *name*) and reported `mine=0` on all eight while I
+held eight comment URLs. The API login is lowercase. Trusting it would have double-posted
+every comment.
+
+## 🔴 The three stale server PRs are still OPEN — closing them would discard live work
+
+[server#480](https://github.com/noetl/server/pull/480),
+[#473](https://github.com/noetl/server/pull/473),
+[#481](https://github.com/noetl/server/pull/481). My staleness measurements were **wrong**:
+
+* **#473's premise is live.** Two byte-exact `== "true"` sites (`ehdb_embedded.rs:49`,
+  `ehdb_projection_fold.rs:1655`), a third spelling accepting `"enabled"`
+  (`ehdb_eventlog_mirror.rs`), two duplicated `env_bool`, and no shared `truthy()`. I had
+  grepped only `main.rs` and generalised to a 14-file PR.
+* **#481's benchmark is the only record of its conclusion** (0 matches in #367, 0 org search
+  hits) and its spec #366 is open.
+* **#480's `examples/chain_cert_bench.rs` is unique to it.**
+
+Instead the evidence was made durable on
+[ai-meta#367](https://github.com/noetl/ai-meta/issues/367) and as a correction on #473 —
+including a correctness hazard recorded nowhere else: rolling up by commit batch is
+boundary-dependent, so two replicas that batched differently produce different digests for
+the same chain. **Disposition needs the owner.**
+
 ## Waiting on the owner
 
 `noetl/noetl` enforces an approving review with admin enforcement, so these cannot be
