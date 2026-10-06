@@ -47,99 +47,73 @@ thing the audit prints.
   is an owner decision.
 - [#380](https://github.com/noetl/ai-meta/issues/380) — blocked on noetl/docs#188 merging.
 
-## 🟢 PROD: the chain-store gates are DISARMED — owner-approved, applied and verified
+## 🟢 PROD: the chain-store gates are ARMED — disarmed 18:36Z, RE-ARMED 19:23Z on evidence
 
-Applied **2026-10-06 18:36:35Z**. Server env **67 → 64 vars**; STS generation 54 → 55,
-revision `559f688dff` → `777f58dcc4`. Image **unchanged** at `49eb47fc` (v3.123.2).
-ops#322 records the as-built.
+**Net state = the original baseline.** `NOETL_CHAIN_POPULATE=true`,
+`NOETL_CHAIN_ADVANCE=true`, `NOETL_CHAIN_SOURCE=chain`; env **67**; generation **56**;
+revision `7c97b8df`; image **unchanged** throughout at `49eb47fc` (v3.123.2).
+ops#323 restores the as-built (ops#322 was the disarm).
 
-### Baseline (captured before the change)
+⚠ **Two prod rolls happened, and the second was mine to own.** I disarmed at 18:36:35Z under
+an explicit approval, then the decision rule became *"disarm only if it is blocking
+progress."* Applying that test gave **NO**, so the prescribed state was armed, and I restored
+it at 19:23:33Z. Both rolls were env-only, image never moved, and the only collateral was
+**exactly 2 heartbeat-failure WARNs per worker — one per roll — each self-healed on the next
+beat**.
 
-| var | value before | reader | correct off |
-| :-- | :-- | :-- | :-- |
-| `NOETL_CHAIN_POPULATE` | `true` | `matches!("1"\|"true"\|"yes"\|"on")` in `ehdb-l0` | **unset** |
-| `NOETL_CHAIN_ADVANCE` | `true` | same matcher, `chain_advance.rs` | **unset** |
-| `NOETL_CHAIN_SOURCE` | `chain` | `match { … _ => None }`, `event_chain.rs:219` | **unset** |
+### The "is it blocking?" test, leg by leg
 
-Env count 67. Pod `noetl-server-rust-embedded-0`, 1/1, restarts 0, up 3h53m, digest
-`49eb47fc`, `build_info{version="3.123.2"}`.
+| leg | finding |
+| :-- | :-- |
+| the mechanism that made arming unsafe | **[#362](https://github.com/noetl/ai-meta/issues/362) is CLOSED** — an event committing into the *middle* of an `ORDER BY event_id` read, because a snowflake id is minted before the insert. Fixed in ehdb **v0.4.5** (`order_by_links`, mutation **5/5**) + server#477 |
+| durable verdict | 2026-09-30 re-ramp **GREEN over 8h 28m**, spanning ~8 divergence cycles: coverage **278**, divergence **0**, refusals 1 (`dangling_prev`), multi_root/no_root/fork/unreachable **0** |
+| measured again today | armed pod over **3h55m**: extended=50, in_sync=1, opened=1, diverged=**0**, fork=**0**, multiple_roots=**0**, stale_log=**0**, one_root=1088; divergence **0** across 16 series; refusals **0** across 10; ERROR **0** |
+| #360 | still open, but about **false** divergence in the comparator — not corruption of the chain |
+| catalog interference | **none.** `noetl/catalog` owns datasets `c1`–`c4` under its own caller-supplied root; every "chain" mention in its source is a doc comment, zero code paths |
+| deploys | v3.123.2 rolled fine earlier this session **with the gates armed** |
 
-⚠ **Absent, not `0`.** All three document their default as off *for the unset case*, and the
-off-states are different shapes — a blanket `0` would read off only by landing in each
-reader's **fail-safe** branch, and for `SOURCE` it would be an *unrecognised* value rather
-than an off value. Unset is the declared default and the state a reader can verify.
+**Conclusion: not blocking, working, failing safe.** Disarming mid-flight would remove a
+measured-good capability for no stated benefit — the riskier move of the two.
 
-### Why a targeted env patch and not a manifest apply
+### What the disarm window did establish (worth keeping)
 
-⚠⚠ `ci/manifests/noetl/server-rust-embedded-sts-prod.yaml` pins image **v3.118.0** while prod
-runs **v3.123.2**, and a server-side apply **conflicts on `.image`** with field manager
-`kubectl-set`. Applying it would have rolled the image *backward* — to a build the manifest's
-own header says uses the known-wrong `event_id` chain ordering from #362. This is
-[apply-safety](agents/rules/apply-safety.md) exactly: the field I wanted was env, the object
-carried unrelated drift.
+- ⚠ **Absent is the correct off, not `0`.** The three off-states are *different shapes*: the
+  booleans are an allow-list `matches!("1"|"true"|"yes"|"on")`, while `SOURCE` is a `match`
+  whose `_ => None` is a fail-safe for **unrecognised** values. A blanket `0` reads off only by
+  landing in those fail-safe branches, never as a declared default.
+- ⚠⚠ **Never (dis)arm by applying the ops manifest.** It pins image **v3.118.0** while prod
+  runs v3.123.2, and a server-side apply **conflicts on `.image`** with field manager
+  `kubectl-set` — it would roll the image *backward*, into the known-wrong `event_id` ordering
+  the manifest's own header warns about. Use a targeted JSON patch: `test` ops asserting each
+  name at its index, `remove` in **descending** index order, dry run diffed **whole-object**
+  (expect exactly 6 changed leaf paths, every survivor byte-identical).
+- ⚠ **Either direction needs a positive control.** The patch touches `spec.template`, so the
+  pod rolls and every counter resets — `chain_populate_total = 0` is *also* what an idle new
+  pod shows. The cleanest discriminator found: an **armed** boot logs `event-chain DDL
+  skipped` warns as the chain path initialises, where a **disarmed** pod logs **zero** chain
+  lines at all. Config itself reads straight out of the process:
+  `kubectl exec … -- env | grep "^NOETL_CHAIN_"`.
+- ⚠ **Honest limit on the re-arm verification.** `chain_populate` has not moved since 19:23Z,
+  and that is explained rather than worrying: `chain_head_hydrate` is **0 across all
+  outcomes**, i.e. **no execution has advanced** on the new pod, so there is nothing to
+  populate. Worker logs confirm sparse traffic (last execution 19:20:04Z, previous 16:20:35Z).
+  The functional proof that this exact config populates is the pre-disarm pod: extended=50
+  over 3h55m. I did not drive a synthetic execution to force the counter.
 
-So: a JSON patch with `test` ops asserting each name at its index, then `remove` in descending
-index order. Server-side dry run diffed **whole-object**: exactly **6 changed leaf paths** (3
-names + 3 values, all removed), env 67 → 64, **all 64 survivors byte-identical**, image
-untouched. Every hunk explained before applying.
-
-### Verification — and why a zero was not enough
-
-⚠ The patch touches `spec.template`, so the pod **rolled by construction**. A fresh process
-resets every counter, so "chain counters are 0" is *also* what an idle new pod looks like.
-The test needs a positive control:
-
-| signal | armed pod | after (≈25 min) |
-| :-- | :-- | :-- |
-| `chain_populate_total`, all 18 outcomes | extended=50, in_sync=1, opened=1, dangling_prev=1 | **0** |
-| `projection_advanced_total` | 0 | 0 |
-| **positive control** — parity `match` | — | **0 → 15 → 21**, still climbing |
-| **positive control** — `chain_head_hydrate{cache_hit}` | 1351 | **162 → 175** |
-| divergence, 16 series summed | 0 | **0** |
-| refusals, 10 series summed | 0 | **0** |
-| pod | 1/1 r=0 | **1/1 r=0** |
-
-The pod is doing real work while the populator stays exactly silent — that is what separates
-*disarmed* from *no traffic*.
-
-Decisive check, from inside the process: `env | grep "^NOETL_CHAIN_"` → **nothing**. Process
-env cross-checks against the STS 1:1 (58 `NOETL_` each; `NOETL_SYSTEM_PLUGIN_DIR` is
-image-baked, and `NOETL_PORT` was hidden by my own `_PORT=` filter, not missing).
-
-`ERROR` 0. The 102 `WARN`s are the pre-existing `auth_gate` shadow mode — its env var is
-unchanged between the 67- and 64-var sets. The `"resolving to OFF rather than"` warn that
-would appear if `SOURCE` were set without `POPULATE` is **absent (0)**, as it should be when
-all three are gone. All 6 running pods in the namespace ready, 0 restarts.
-
-### ⚠ What these gates do NOT control
-
-The **chain-head hydrator** and the **root-invariant sampler** read the authoritative Postgres
-log, not the chain store, and correctly kept running: **`one_root=1088`, `multi_root=0`,
-`no_root=0`** after the change — the chain invariant still holds. Do not read their activity
-as the gates being still armed.
-
-### Rollback — re-arms in one command, ~17s plus a roll
-
-All three must go back **together**: `SOURCE=chain` resolves to OFF without `POPULATE`, and
-`POPULATE` alone is inert (its only caller is behind the source gate).
+### Rollback (to disarmed), if it is ever wanted
 
 ```bash
 PROD=gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot
 kubectl --context "$PROD" -n noetl patch sts noetl-server-rust-embedded --type=json -p '[
- {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"NOETL_CHAIN_ADVANCE","value":"true"}},
- {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"NOETL_CHAIN_POPULATE","value":"true"}},
- {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"NOETL_CHAIN_SOURCE","value":"chain"}}]'
+ {"op":"test","path":"/spec/template/spec/containers/0/env/66/name","value":"NOETL_CHAIN_SOURCE"},
+ {"op":"remove","path":"/spec/template/spec/containers/0/env/66"},
+ {"op":"test","path":"/spec/template/spec/containers/0/env/65/name","value":"NOETL_CHAIN_ADVANCE"},
+ {"op":"remove","path":"/spec/template/spec/containers/0/env/65"},
+ {"op":"test","path":"/spec/template/spec/containers/0/env/64/name","value":"NOETL_CHAIN_POPULATE"},
+ {"op":"remove","path":"/spec/template/spec/containers/0/env/64"}]'
 ```
 
-Expect env 64 → 67 and a pod roll. The same patch is recorded inline in the ops manifest so a
-rollback needs no archaeology.
-
-⚠ **Honest limit on the window.** ≈25 minutes of clean signal. Per *volume is not duration*,
-that is shorter than the ~1/hour period of the #362 reordering mechanism, so this window
-cannot by itself rule that mechanism out. The reason it does not need to: disarming removes
-the chain store from the read path entirely, so the #362 ordering defect can no longer reach
-serving. The empirical claim here is narrower and sufficient — nothing regressed, and the
-machinery is off.
+Also recorded inline in the ops manifest, so neither direction needs archaeology.
 
 ## Catalog — reclaim, and a driver that made the rest reachable
 
