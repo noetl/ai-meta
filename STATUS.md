@@ -148,6 +148,90 @@ kubectl --context "$PROD" -n noetl patch sts noetl-server-rust-embedded --type=j
 
 Also recorded inline in the ops manifest, so neither direction needs archaeology.
 
+## Catalog — both reverse indexes, and no fifth dataset
+
+[catalog#13](https://github.com/noetl/catalog/pull/13) + [#14](https://github.com/noetl/catalog/pull/14),
+merged on green. **109 tests**, fmt + `clippy -D warnings` clean, **AC3 still exactly 4 `Dataset`
+impls**.
+
+Two queries the model could not answer: *"every resource using credential X"* (the one that
+matters when rotating a keychain alias) and *"every resource of type X"* — `catalog list` printed
+*"a full path listing needs an index this store does not yet keep"*. A fifth dataset answers both
+and breaks AC3, so each index lives **inside an existing dataset** as a second row kind:
+
+| dataset | forward key | synthetic key | answers |
+| :-- | :-- | :-- | :-- |
+| `c3` | `path` | `\u{1}attr/<name>` | `resources_with_attribute` |
+| `c1` | `path` | `\u{1}type/<kind>` | `resources_of_type` |
+
+Sound because `ehdb-l0` matches the index key by **exact string equality** (`engine.rs:1489`). The
+sentinels are **control characters** — a path reading `attr/uses_tool.postgres` would otherwise
+silently answer a reverse query — and a forward write intruding on either space is **refused**,
+because a path comes from a document and is untrusted input.
+
+### ⚠⚠ The RED was never a zero
+
+| index | with `.last()` planted |
+| :-- | :-- |
+| c3 | `uses_credential.adiona_actor: 1 path(s), expected 49` |
+| c3 after an unset | `0 path(s), expected 48` |
+| c1 | `playbook: 1 path(s), expected 53` |
+
+**Partial, returned successfully.** The middle row was unpredicted and is the worst: once any
+resource unsets the attribute, the latest op under the shared key is a **tombstone**, so `.last()`
+reports *"nobody uses this credential"* while 48 do — which would green-light a rotation that
+breaks all 48. Every assertion is **set equality**; a count of 49 can still be the wrong 49. In
+both PRs 2 of 5 tests passed under the RED, correctly — they do not exercise the fold.
+
+### Verified against ground truth derived independently from git
+
+```text
+git truth adiona_actor:   49   catalog: 49   SET EQUALITY, byte for byte
+git truth adiona_migrator: 4   catalog:  4   SET EQUALITY, byte for byte
+union 53, intersection 0 · uses_tool.postgres 53 · nonexistent attr 0
+list --type playbook -> 53 · --type Playbook -> 53 (case-insensitive)
+```
+
+### Three bugs of my own, each caught by a test rather than review
+
+1. **The tombstone that was never written.** Archiving a *version* is not archiving the *path* —
+   v1 archived with v2, v3 live must stay listed. I got that right and the **type-name lookup**
+   wrong: it read from `versions()`, which folds latest-op-per-version and emits only
+   `Registered`, so once every version was archived it returned an **empty vec**, the fallback
+   returned early, and no tombstone was written. The path stayed listed forever — the same
+   under-reporting the function exists to prevent, by the opposite route.
+2. **`partition()` derived from `r.path`** would send a reader to the **wrong shard**, returning
+   *nothing* rather than erroring. Both datasets now derive it from `index_key()` so they cannot
+   disagree.
+3. **Synthetic rows in a forward fold** are excluded from the **input**, not the output: a reverse
+   row's `name()` equals a real attribute name and would **shadow** it — a wrong value, not a
+   missing one.
+
+Also closed a self-contradiction: ingest left `resource_type("playbook")` as `None` while
+`resources_of_type("playbook")` returned all 53, so the CLI printed *"type playbook is not
+declared in this store"* above a successful listing of 53. Ingest now declares on first use.
+
+**Cost, stated:** 2× the row count in both datasets (106 logical attributes → 212 `c3` rows;
+40 KiB against `c1`'s 148 KiB). The alternative is 53 indexed reads today, ~1,600 at expected
+size.
+
+**Scope, measured not assumed:** a `kind:` sweep across travel/noetl/ops finds 183 `Playbook`
+plus `Deployment`/`Service`/`ConfigMap`/`ScaledObject`/`Namespace`/`Secret`/`PVC`/`VMRule` —
+**Kubernetes manifests, not NoETL internal resources**, so out of scope. No third NoETL resource
+type exists in the tree to add, so "a second resource type" is already satisfied by
+`subscription` (catalog#7).
+
+### Next catalog phase, by evidence — NOT out of work
+
+1. **Relations against a corpus that has them.** The adiona 53 are leaf playbooks calling no
+   child, so `relations=0` is correct there and the relation path has **never been exercised on
+   real data**. The 36 registered `muno/*` playbooks do call children — that is the corpus with a
+   real denominator.
+2. **Observability.** `Ticked { sealed, merged, reclaimed }` and `Ingested { scanned, registered,
+   skipped }` are returned and recorded nowhere. Per `observability.md` the three artefacts ship
+   with the change, and reclaim especially needs to be visible — its absence was the silent cost
+   catalog#11 fixed.
+
 ## Catalog — reclaim, and a driver that made the rest reachable
 
 Both merged on green: [catalog#11](https://github.com/noetl/catalog/pull/11),
