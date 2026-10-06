@@ -47,6 +47,100 @@ thing the audit prints.
   is an owner decision.
 - [#380](https://github.com/noetl/ai-meta/issues/380) — blocked on noetl/docs#188 merging.
 
+## 🟢 PROD: the chain-store gates are DISARMED — owner-approved, applied and verified
+
+Applied **2026-10-06 18:36:35Z**. Server env **67 → 64 vars**; STS generation 54 → 55,
+revision `559f688dff` → `777f58dcc4`. Image **unchanged** at `49eb47fc` (v3.123.2).
+ops#322 records the as-built.
+
+### Baseline (captured before the change)
+
+| var | value before | reader | correct off |
+| :-- | :-- | :-- | :-- |
+| `NOETL_CHAIN_POPULATE` | `true` | `matches!("1"\|"true"\|"yes"\|"on")` in `ehdb-l0` | **unset** |
+| `NOETL_CHAIN_ADVANCE` | `true` | same matcher, `chain_advance.rs` | **unset** |
+| `NOETL_CHAIN_SOURCE` | `chain` | `match { … _ => None }`, `event_chain.rs:219` | **unset** |
+
+Env count 67. Pod `noetl-server-rust-embedded-0`, 1/1, restarts 0, up 3h53m, digest
+`49eb47fc`, `build_info{version="3.123.2"}`.
+
+⚠ **Absent, not `0`.** All three document their default as off *for the unset case*, and the
+off-states are different shapes — a blanket `0` would read off only by landing in each
+reader's **fail-safe** branch, and for `SOURCE` it would be an *unrecognised* value rather
+than an off value. Unset is the declared default and the state a reader can verify.
+
+### Why a targeted env patch and not a manifest apply
+
+⚠⚠ `ci/manifests/noetl/server-rust-embedded-sts-prod.yaml` pins image **v3.118.0** while prod
+runs **v3.123.2**, and a server-side apply **conflicts on `.image`** with field manager
+`kubectl-set`. Applying it would have rolled the image *backward* — to a build the manifest's
+own header says uses the known-wrong `event_id` chain ordering from #362. This is
+[apply-safety](agents/rules/apply-safety.md) exactly: the field I wanted was env, the object
+carried unrelated drift.
+
+So: a JSON patch with `test` ops asserting each name at its index, then `remove` in descending
+index order. Server-side dry run diffed **whole-object**: exactly **6 changed leaf paths** (3
+names + 3 values, all removed), env 67 → 64, **all 64 survivors byte-identical**, image
+untouched. Every hunk explained before applying.
+
+### Verification — and why a zero was not enough
+
+⚠ The patch touches `spec.template`, so the pod **rolled by construction**. A fresh process
+resets every counter, so "chain counters are 0" is *also* what an idle new pod looks like.
+The test needs a positive control:
+
+| signal | armed pod | after (≈25 min) |
+| :-- | :-- | :-- |
+| `chain_populate_total`, all 18 outcomes | extended=50, in_sync=1, opened=1, dangling_prev=1 | **0** |
+| `projection_advanced_total` | 0 | 0 |
+| **positive control** — parity `match` | — | **0 → 15 → 21**, still climbing |
+| **positive control** — `chain_head_hydrate{cache_hit}` | 1351 | **162 → 175** |
+| divergence, 16 series summed | 0 | **0** |
+| refusals, 10 series summed | 0 | **0** |
+| pod | 1/1 r=0 | **1/1 r=0** |
+
+The pod is doing real work while the populator stays exactly silent — that is what separates
+*disarmed* from *no traffic*.
+
+Decisive check, from inside the process: `env | grep "^NOETL_CHAIN_"` → **nothing**. Process
+env cross-checks against the STS 1:1 (58 `NOETL_` each; `NOETL_SYSTEM_PLUGIN_DIR` is
+image-baked, and `NOETL_PORT` was hidden by my own `_PORT=` filter, not missing).
+
+`ERROR` 0. The 102 `WARN`s are the pre-existing `auth_gate` shadow mode — its env var is
+unchanged between the 67- and 64-var sets. The `"resolving to OFF rather than"` warn that
+would appear if `SOURCE` were set without `POPULATE` is **absent (0)**, as it should be when
+all three are gone. All 6 running pods in the namespace ready, 0 restarts.
+
+### ⚠ What these gates do NOT control
+
+The **chain-head hydrator** and the **root-invariant sampler** read the authoritative Postgres
+log, not the chain store, and correctly kept running: **`one_root=1088`, `multi_root=0`,
+`no_root=0`** after the change — the chain invariant still holds. Do not read their activity
+as the gates being still armed.
+
+### Rollback — re-arms in one command, ~17s plus a roll
+
+All three must go back **together**: `SOURCE=chain` resolves to OFF without `POPULATE`, and
+`POPULATE` alone is inert (its only caller is behind the source gate).
+
+```bash
+PROD=gke_shastaratech-noetl-prod_us-central1_noetl-prod-autopilot
+kubectl --context "$PROD" -n noetl patch sts noetl-server-rust-embedded --type=json -p '[
+ {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"NOETL_CHAIN_ADVANCE","value":"true"}},
+ {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"NOETL_CHAIN_POPULATE","value":"true"}},
+ {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"NOETL_CHAIN_SOURCE","value":"chain"}}]'
+```
+
+Expect env 64 → 67 and a pod roll. The same patch is recorded inline in the ops manifest so a
+rollback needs no archaeology.
+
+⚠ **Honest limit on the window.** ≈25 minutes of clean signal. Per *volume is not duration*,
+that is shorter than the ~1/hour period of the #362 reordering mechanism, so this window
+cannot by itself rule that mechanism out. The reason it does not need to: disarming removes
+the chain store from the read path entirely, so the #362 ordering defect can no longer reach
+serving. The empirical claim here is narrower and sufficient — nothing regressed, and the
+machinery is off.
+
 ## Catalog — reclaim, and a driver that made the rest reachable
 
 Both merged on green: [catalog#11](https://github.com/noetl/catalog/pull/11),
