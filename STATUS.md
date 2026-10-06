@@ -100,6 +100,39 @@ measured-good capability for no stated benefit — the riskier move of the two.
   The functional proof that this exact config populates is the pre-disarm pod: extended=50
   over 3h55m. I did not drive a synthetic execution to force the counter.
 
+### ⚠ What the two rolls actually cost: one in-flight mirror batch each
+
+Found by not accepting a clean-looking reading. ~30 min after the re-arm, eventlog cross-store
+divergence had gone from **0 of 130** (armed pod, 3h55m, before any roll) to **3 of 24**
+(12.5%) — and it was climbing. It is **not** a chain-gate effect; the chain counters are clean.
+Reading the pair of counters identifies it exactly:
+
+```
+eventlog_mirror_attempt_total{outcome="unavailable"}   2      <- pinned, == two rolls
+crossstore_divergence_total{kind="count",tier=eventlog}  1 -> 2 -> 3   (climbing)
+eventlog_mirror_queue_total{outcome="drained"}        188 -> 262        (healthy)
+mirror lag p100 < 2.5s over 188 samples; pending_mirror 0
+```
+
+**Two in-flight batches were lost, one per roll**, when the relay was unavailable during
+restart. That left a **permanent count deficit**, and the comparator **re-reports the same
+deficit on every sampling pass** — so `divergent` grows with no new loss.
+
+⚠ **The reading hazard:** `divergent` climbing while `unavailable` is flat looks like a
+worsening leak and is actually a fixed deficit counted repeatedly, because the counter counts
+*comparisons* rather than *distinct diverged executions*. The discriminator is the pair, never
+`divergent` alone.
+
+This generalises past my two rolls — a release, a config change or an autoscaler event would
+each do it. The implied fix is a **graceful-shutdown drain** (the mirror abandons its queue,
+where `L0Engine::drop` joins its uploader). `NOETL_EHDB_MIRROR_REPAIR_SWEEP=true` is set and did
+not close the gap within ~40 min. Recorded with the full measurement on
+[#343](https://github.com/noetl/ai-meta/issues/343); disposition is a design call, not mine.
+
+**Unaffected:** the chain machinery being toggled — `extended` climbing 6 → 9 with `diverged`,
+`fork`, `multiple_roots`, `stale_log`, `length_disagreement`, `no_root` all **0**;
+`one_root=1088`; ERROR 0; pod 1/1, restarts 0.
+
 ### Rollback (to disarmed), if it is ever wanted
 
 ```bash
