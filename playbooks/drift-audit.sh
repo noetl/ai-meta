@@ -28,6 +28,11 @@ hdr() { printf "\n\033[1m== %s ==\033[0m\n" "$1"; }
 drift() { DRIFT=$((DRIFT+1)); printf "  \033[31mDRIFT\033[0m  %s\n" "$1"; }
 ok()   { printf "  \033[32mOK\033[0m     %s\n" "$1"; }
 skip() { printf "  SKIP   %s\n" "$1"; }
+# Not counted in DRIFT: a stale checkout is not a representation disagreeing with the
+# system, it is this script measuring the wrong thing. Kept out of the finding count so
+# the count stays meaningful, and printed first AND last so it cannot be skimmed past.
+STALE_TREE=0
+warn() { printf "  \033[33mWARN\033[0m   %s\n" "$1"; }
 
 # Fetch a code submodule's origin/main once per run, before any check reads that
 # ref.  Three checks (inert tests, env-var-vs-wiki, orphan metric recorders) read
@@ -58,6 +63,87 @@ run()  { [ "$ONLY" = "all" ] || [ "$ONLY" = "$1" ]; }
 # under `set -u` a variable scoped to another block makes the check ABORT while
 # the script still prints "No drift found".  That happened — the catalog check
 # died on an unbound OLD_PROJECT and reported clean.
+# ---------------------------------------------------------------- preflight
+# ⚠⚠ EVERY check below reads the WORKING TREE, not the committed pointers.
+#
+# That is usually what you want — you are auditing what is checked out. It is a trap
+# when the checkout has drifted from what ai-meta records, because the findings then
+# describe your tree while reading like statements about the recorded state.
+#
+# This fooled the author twice on 2026-10-05, in two different directions:
+#
+#   * `schema-copies` reported DRIFT after the fix had landed, because `repos/noetl`
+#     was 2 commits behind its pointer and its DDL lacked the ported table;
+#   * `pinned-sets` reported 5 NO-GUARD after 3 had been registered, because ai-meta
+#     itself was on a feature branch whose `playbooks/lib/pinned_sets.py` predated the
+#     registration — the script was run from origin/main, but it loads that data file
+#     from $ROOT.
+#
+# Both looked exactly like regressions. Neither was. So the state of the tree is now
+# the first thing printed, and the last.
+#
+# Deliberately a WARN rather than a DRIFT: a dev checkout with dirty submodules is
+# normal and counting it would make the finding total useless. But it is printed
+# unconditionally, before any check and again in the summary.
+hdr "preflight: is this checkout the thing you think you are auditing?"
+SELF_HEAD="$(cd "$ROOT" && git rev-parse HEAD 2>/dev/null || echo unknown)"
+SELF_BRANCH="$(cd "$ROOT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+SELF_MAIN="$(cd "$ROOT" && git rev-parse origin/main 2>/dev/null || echo unknown)"
+if [ "$SELF_HEAD" = "$SELF_MAIN" ]; then
+  ok "ai-meta is at origin/main (${SELF_HEAD:0:8})"
+else
+  STALE_TREE=$((STALE_TREE+1))
+  warn "ai-meta is on '$SELF_BRANCH' (${SELF_HEAD:0:8}), NOT origin/main (${SELF_MAIN:0:8})"
+  echo "         Scripts and data files under playbooks/ come from THIS tree. A check"
+  echo "         whose logic you updated on main will still run the branch's copy."
+fi
+sm_total=0; sm_drift=0; sm_missing=0; sm_list=""
+while IFS= read -r sm; do
+  [ -z "$sm" ] && continue
+  sm_total=$((sm_total+1))
+  # ⚠ `.git` must exist, and the check must be THIS, not a successful rev-parse.
+  # An uninitialised submodule directory is empty but still inside the parent repo, so
+  # `cd repos/server && git rev-parse HEAD` happily returns AI-META's HEAD — which made
+  # the first version of this preflight report 31 of 31 trees "differing", every one of
+  # them a phantom whose tree sha was ai-meta's own.
+  if [ ! -e "$ROOT/$sm/.git" ]; then
+    sm_missing=$((sm_missing+1)); continue
+  fi
+  if ! tree_head="$(cd "$ROOT/$sm" 2>/dev/null && git rev-parse HEAD 2>/dev/null)"; then
+    sm_missing=$((sm_missing+1)); continue
+  fi
+  ptr="$(cd "$ROOT" && git rev-parse "HEAD:$sm" 2>/dev/null || true)"
+  [ -z "$ptr" ] && continue
+  if [ "$tree_head" != "$ptr" ]; then
+    sm_drift=$((sm_drift+1))
+    sm_list="${sm_list}         ${sm} tree=${tree_head:0:8} ptr=${ptr:0:8}\n"
+  fi
+done <<< "$(cd "$ROOT" && git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{print $2}')"
+echo "         submodules declared: $sm_total   <- the denominator"
+if [ "$sm_missing" -gt 0 ]; then
+  echo "         not checked out / unreadable: $sm_missing (their checks will SKIP)"
+fi
+sm_readable=$((sm_total - sm_missing))
+if [ "$sm_readable" -eq 0 ]; then
+  # ⚠ Vacuous-pass arm. With nothing readable, sm_drift is 0 and "every tree matches"
+  # would be technically true and completely misleading — the shape this whole script
+  # exists to catch. A linked git worktree has uninitialised submodules, which is
+  # exactly how a fixed check once reported "0 first-party .rs of 0" and then OK.
+  STALE_TREE=$((STALE_TREE+1))
+  warn "NO submodule tree is readable ($sm_missing of $sm_total) — every check below"
+  echo "         that reads a submodule will SKIP or measure nothing. This is what a"
+  echo "         linked git worktree looks like; run the audit from the primary"
+  echo "         checkout, or run: git submodule update --init --recursive"
+elif [ "$sm_drift" -eq 0 ]; then
+  ok "all $sm_readable readable submodule tree(s) match their committed pointer"
+else
+  STALE_TREE=$((STALE_TREE+1))
+  warn "$sm_drift of $sm_total submodule tree(s) differ from the pointer ai-meta records"
+  printf "%b" "$sm_list"
+  echo "         Findings below describe THESE trees, not what ai-meta records."
+  echo "         Sync with:  git submodule update --init --recursive"
+fi
+
 OLD_PROJECT="noetl-demo-19700101"
 
 # ---------------------------------------------------------------------------
@@ -1387,6 +1473,11 @@ if [ "$DRIFT" -gt 0 ]; then
   printf "Read the evidence before acting — several of these have a stale ISSUE as well as a stale artifact.\n"
 else
   printf "\033[32mNo drift found by these checks.\033[0m\n"
+fi
+if [ "$STALE_TREE" -gt 0 ]; then
+  printf "\n\033[33m⚠ This run measured a checkout that differs from what ai-meta records.\033[0m\n"
+  printf "See the preflight at the top. A finding here may be your tree rather than the\n"
+  printf "system, and an OK here may be your tree rather than the system.\n\n"
 fi
 printf "These checks are not exhaustive: they cover the classes already SEEN.\n"
 printf "Check 6 catches only the FULLY-ticked case.  Partially-ticked issues whose\n"
