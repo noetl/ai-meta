@@ -5,7 +5,47 @@ History lives in the [ai-meta wiki's Sessions Log](https://github.com/noetl/ai-m
 open work lives in the [`ai-task` issue queue](https://github.com/noetl/ai-meta/issues?q=is%3Aopen+label%3Aai-task).
 This file is the short answer to *"what is in flight right now."*
 
-**Last updated:** 2026-10-05 (night)
+**Last updated:** 2026-10-05 — **monitoring**
+
+## 🟢 MONITORING — no agent-actionable work remains
+
+As of 2026-10-05 the autonomous queue is empty. This is not "nothing is open"; it is
+**nothing is open that an agent should take**. Measured before saying so:
+
+| check | result |
+| :-- | :-- |
+| latest completed run **per workflow** on all 16 default branches | **0 currently failing** |
+| `noetl/server` v3.123.0 release | 7 of 7 jobs success, amd64 + arm64 + manifest, AR `latest,v3.123.0` |
+| `drift-audit.sh` checks touched this session | `env-docs` OK · `inert-tests` OK (566 first-party files) · `schema-copies` identical at the recorded pointers · `pinned-sets` 3 registrations present on `main` |
+| scheduled wiki sweep | green, 15 of 15 wikis, 243 md files |
+
+⚠ Two cautions on those numbers, both earned today. The per-workflow sweep still lists
+dead Dependabot update-ids as "failing" forever, because each update gets its own
+workflow name and its last run is permanently that failure — `noetl/noetl`'s four are
+all from **before** `dependabot.yml` was removed. And `drift-audit.sh` reads the
+**working tree**: in the primary checkout 22 of 33 submodule trees differ from their
+pointers, so two checks read as regressions when they were not. That is now the first
+thing the audit prints.
+
+### What is open, and why an agent should not take it
+
+- [#410](https://github.com/noetl/ai-meta/issues/410) — apply the fixed `PodMonitoring`.
+  **The owner's call**: it resumes a 25-day-dark scrape and can satisfy a paging
+  condition on the first scrape. The manifest is merged and the diff pre-verified.
+- **Rolling v3.123.0 to prod** — the owner's call. The image exists; nothing deploys
+  automatically.
+- [#422](https://github.com/noetl/ai-meta/issues/422) — the reader shipped. The `/metrics`
+  gauge would be **invisible until #410 lands**, and replay/discard needs a payload-scrub
+  design, not an endpoint.
+- [#406](https://github.com/noetl/ai-meta/issues/406) — an accepted upstream wait.
+  `quick-xml` needs a crypto-backend decision; `rsa` has no patched release. **3 is the
+  expected RustSec reading**, not a regression.
+- [#234](https://github.com/noetl/ai-meta/issues/234) — **do not sweep.** One remaining
+  reference is a working dependency: the travel Maps secret exists only in the old
+  project.
+- [#235](https://github.com/noetl/ai-meta/issues/235) — the disposition of a frozen column
+  is an owner decision.
+- [#380](https://github.com/noetl/ai-meta/issues/380) — blocked on noetl/docs#188 merging.
 
 ## Waiting on the owner
 
