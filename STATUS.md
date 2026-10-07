@@ -171,13 +171,31 @@ distinct diverged executions.
 | board: **8 closed** issues | *In progress* | **Done** (#251 #297 #339 #341 #342 #378 #402 #415) |
 | board: **#241 OPEN** | **Done** ⚠ the dangerous direction | *In progress* |
 | ai-meta open-issue count | "100" | **104** — `--limit` is a **cap**, not a page size |
+| CI gate claim | "3 of 8 gate clippy" ⚠ **published and wrong** | **all 8 gate**, all pin 1.99.0, `cli` has 2 named allows |
 
 ### ⚠ Two probes of mine that were wrong
 
-1. **The CI-gate table.** First pass reported `catalog` as `|| true` (cannot fail). The grep
-   matched `|| true` inside **comments that say "NO `|| true`"** — comments counting as code.
-   Corrected: **3 of 8 Rust repos gate clippy** (`catalog`, `ehdb`, `signal-mesh`); 5 cannot
-   fail (#374). `cargo test` *does* run everywhere (#232) — only the lint gate is missing.
+1. ⚠⚠⚠ **The CI-gate table — wrong TWICE, and the published figure was also wrong.**
+   The first pass reported `catalog` as `|| true` because the grep matched `|| true` inside
+   **comments that say "NO `|| true`"** (comments counting as code). I corrected that and
+   published **"3 of 8 gate; 5 cannot fail"** — **also wrong**, for a different reason: I
+   measured the **local submodule checkouts, 7–23 commits behind `origin/main`**, so I read
+   the pre-#374 state as current.
+
+   **The truth, measured on `origin/main`: all 8 Rust repos gate clippy with `-D warnings`,
+   all 8 pin 1.99.0, and only `cli` carries named allows (2, justified).** #374 and #378
+   both closed correctly — **there is no clippy-gate debt.**
+
+   ⚠ This happened **inside the sweep whose purpose was killing stale assertions**, in the
+   same edit that told readers to *"read the version from the pod digest, never from this
+   table"* — while I read a workflow from a stale tree. **Measure a repo claim against
+   `origin/<default>`, never a local checkout**, which is already a recorded false-zero
+   source (it once read `adiona yaml: 0` against a tree 41 commits behind while
+   `origin/main` carried 53).
+
+   ⚠ A **third** defect in the same three-line probe: `head -1` of the clippy lines picks
+   `cargo clippy --version`, so `catalog` would have misread as ungated even on a fresh
+   tree. `cargo test` *does* run everywhere (#232).
 2. **`gh issue create --json`** is unsupported and returned empty, which I nearly read as a
    failure. Verified by listing before retrying — an empty return is not evidence either way.
 
