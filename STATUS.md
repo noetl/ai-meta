@@ -1,8 +1,78 @@
 # STATUS — present tense
 
-Last refreshed: **2026-10-07** (evening)
+Last refreshed: **2026-10-07** (late)
 
 ---
+
+## ✅✅✅ Three prod items completed — and SIX defects in one playbook, all reading as "empty"
+
+### 1. `calendar/list` re-registered against the LIVE project — v1 → v6
+
+| # | defect | PR |
+| :-- | :-- | :-- |
+| 1 | `kind: agent` — not one of the 25 `ToolKind` variants; in the reject list | travel#135 |
+| 2 | `gcp_project: noetl-demo-19700101` — retired, Firestore frozen since 2026-08-09 | travel#135 |
+| 3 | **no step named `start`** — rejected at parse time (`src/playbook/parser.rs:184`) | travel#136 |
+| 4 | render read fields at the top level; they live under `data` → **0 of 12** survived | travel#137 |
+| 5 | `{{ step.result }}` resolves to **nothing** — read a child by the **bare step name** | travel#138 |
+| 6 | no `return_result` → the dispatch was **async**; step got `{"status":"started"}` | travel#139 |
+
+⚠⚠ **#3 fires BEFORE tool-kind validation, so it masked #1.** My earlier report that the
+tool-kind fix made the playbook runnable was **wrong** — only executing it showed that.
+
+⚠⚠ **#2 is why none of it was noticed.** A wrong GCP project returns an **empty
+collection, not a 404**, so a single symptom covered five causes and never looked like a
+bug.
+
+⚠ **#6 was invisible to a 29-check guard.** That guard execs each step's embedded `code:`;
+the bodies were correct and only the *declaration* was wrong. **A guard over step bodies
+is structurally unable to see a whole-step or whole-workflow rule.** Three new checks are
+structural over the YAML.
+
+**Proof** — same thread, same registered playbook, only `gcp_project` differing:
+
+| run | `gcp_project` | `event_count` | `documents_returned` |
+| :-- | :-- | --: | --: |
+| live | `shastaratech-noetl-prod` | **12** | **12** |
+| control | `noetl-demo-19700101` | **0** | **0** |
+
+Firestore holds exactly **12** documents at
+`chat_threads/chat-mtalhs7m-78hi4c/trip/current/events`. The live number is right and the
+control shows the discriminator works.
+
+### 2. Six Firestore composite indexes deployed
+
+Baseline **0** → **6, all `READY`**, **set-equality exact** against
+`firestore.indexes.json`. `firebase` CLI is absent so `gcloud firestore indexes composite
+create` was used; the account holds `roles/owner`, so no permission blocker. Index
+creation blocks on the build, so it ran as a background job.
+
+### 3. All 53 `adiona/*` playbooks registered
+
+**53/53 set-equality**, all **v1**, **0 rows removed**. Audited first: 53/53 parse, 53
+distinct paths, **only `kind: postgres`**, **all have a `start` step**, and **no GCP
+project pins** — they reach external Postgres by keychain alias (`adiona_actor` ×49,
+`adiona_migrator` ×4), so the Firestore project does not apply to them. Catalog 1395 →
+1453; the **+58 reconciles exactly** as 53 adiona + the 5 `calendar/list` versions.
+
+⚠ Execution of these still depends on `adiona_actor` / `adiona_migrator` existing in the
+keychain — I did not touch credentials, and 4 of the 53 are **migrator** playbooks, now
+runnable by anyone who can execute. Reversible via `POST /api/catalog/delete` (soft).
+
+### ⚠ My own measurements that were wrong first
+
+- **Prod server is v3.123.2**, not the v3.122.0 this file claimed.
+- I printed `registered=53, failed=0` and "non-success: 53" in the same breath — my filter
+  looked for `"success"` when the status word is `"registered"`.
+- Two probes returned a confident empty: a mistyped scratchpad path, and `cargo` missing
+  from the `PATH` I exported.
+- `mk() {…}` refused (alias) and `$K get pods` did not word-split — two zsh traps already
+  in the index, hit again.
+
+The port-forward carried every prod reading, and the **negative control confirmed it**:
+killing the forward killed the probe.
+
+travel#135–#139 · travel wiki `84b8cc5` · ai-meta wiki `8032387`
 
 ## ⭐⭐ The travel BUSINESS catalog is Firestore — and three silent defects on the way
 
