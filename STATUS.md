@@ -148,6 +148,62 @@ kubectl --context "$PROD" -n noetl patch sts noetl-server-rust-embedded --type=j
 
 Also recorded inline in the ops manifest, so neither direction needs archaeology.
 
+## ✅ #343 — there is NO mirror loss; the shutdown drain already exists and works
+
+I set out to build the graceful-shutdown drain. **It is already built, already called, and
+measurably working**, and the premise for needing it was my own error. **No code change.**
+
+### Measured on the serving pod, 22-hour window
+
+```
+enqueued             11330
+drained              11330
+shutdown_abandoned       0      <- the loss counter
+queue loss               0      (enqueued - drained)
+mirrored on 1st try  11323
+recovered on retry       7
+mirrored + recovered 11330      == enqueued ✅
+parity match          1332 / divergent 7   = 99.48% agreement
+```
+
+Every enqueued event reached the tier. `flush_on_shutdown()`
+(`ehdb_eventlog_mirror_queue.rs:449`) is called from `main.rs:1464` after
+`graceful_shutdown` on SIGTERM; its own comment already states the stake — *"Dropping them
+on SIGTERM would produce a permanent `missing_event`."*
+
+### ⚠ Three errors of mine, corrected
+
+1. **`attempt_total{outcome="unavailable"}` is not a loss counter.** It is
+   `AttemptOutcome::Retryable` — a failed attempt that is retried. The counter to read it
+   against is `mirror_total{outcome="recovered"}`, which says all 7 affected batches
+   **succeeded on retry**. I built a causal story ("one lost batch per roll") on a retry
+   counter.
+2. **I attributed `unavailable=2` to rolls that predate the pod.** It started 19:23:33Z; a
+   counter cannot record anything before that.
+3. ⚠⚠ **The discriminator added *for this very issue* already answered the sub-question** —
+   `send_error_total{kind="timeout"} 1`, every other kind 0 — and sat unread while I
+   hypothesised. It exists because a prior session could not tell a timeout from a refused
+   connection, and its own doc says *"raising a timeout before the error says what it is
+   converts a guess into a mitigation nobody can evaluate afterwards."*
+
+### What the divergences are
+
+`divergent = 7` equals `recovered = 7`. A batch that fails and recovers on retry arrives
+**late**, so a comparator sampling that window finds the tier short and logs a
+`kind="count"` divergence — a **timing artifact of the retry path**, the same "two parity
+oracles disagree by construction" family as #325.
+
+⚠ Not claimed as proven identity: counters cannot establish that two sets of 7 are the same
+7. Proving it needs the divergent execution ids against the recovered batches' ids, which
+the metrics do not carry.
+
+### Why nothing was changed
+
+There is no drain to add and no loss to stop. Inventing a fix would mean changing working
+code on a story the data refutes. The residual — whether the comparator should tolerate an
+in-flight retry window rather than reporting a divergence it will never see again — re-tunes
+a paging alert and is **owner-gated**, like #325.
+
 ## 🔎 2026-10-07 sync sweep — docs, wikis, issues and the board vs the measured state
 
 Measure-first throughout. Two of my own probes were wrong and are recorded as such.
