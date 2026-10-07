@@ -1,8 +1,74 @@
 # STATUS — present tense
 
-Last refreshed: **2026-10-06 15:50Z**
+Last refreshed: **2026-10-07**
 
 ---
+
+## ⭐⭐ TWO CATALOGS — the line, and a bleed found in my own fixtures
+
+"Catalog" names two different concerns, and conflating them is the mistake worth designing
+against.
+
+| | **internal catalog** — `noetl/catalog` | **business catalog** — NOT that repo |
+| :-- | :-- | :-- |
+| holds | noetl's own objects: `playbook`, `credential`, `mcp`, `agent`, `memory`, `subscription` | domain data: hotels, flights, trips, items, categories, translations |
+| storage | **EHDB only.** No external datastore, ever. | **Anything** — external Postgres, a third-party API, an object store |
+| interface | `/api/catalog/*` (API-only, no SQL) | a **playbook step**, under that playbook's policy block |
+| scales with | how many things noetl knows about | how much domain data a tenant has |
+
+> **The internal catalog holds the playbook that reads the business data. It never holds the
+> business data.**
+
+### ⚠ The bleed was in my own test fixtures
+
+Two files modelled **business entities as internal objects**. I wrote both:
+
+| file | held | now |
+| :-- | :-- | :-- |
+| `foreign_key_identity.rs` | `table_row` + `categories/10`, `category_types/1`, `trip_category/1`, `trips/100` — adiona business rows | `playbook → mcp` and `playbook → credential` (`muno/playbooks/profile`, `automation/agents/mcp/firestore`, `credential/adiona_actor`) |
+| `localization.rs` | `resource_type: "category"` + `category_name` in en/de/ka — adiona's categories *and* their translations | `resource_type: "memory"`, `memory/notes/welcome`, `display_name` |
+
+Nothing in the store enforced this — a resource type is a free string by design, which is
+why the generality works. **A fixture is where the intended use gets taught**, so a business
+entity in a fixture is the bleed, even with no code change behind it.
+
+Re-audit after: the only resource types in committed code are `playbook` (13), `subscription`
+(1) and `memory` (1), and **no business entity name appears anywhere**.
+
+### Localization is the sharpest case
+
+It was built citing adiona's **24 `_translate` / `_content` tables** — which are **business**
+tables. `adiona.item_content` carries `lang_code` in **external Postgres**, read by
+`adiona/playbooks/catalog_list.yaml` through `kind: postgres` + `auth: adiona_actor`. So the
+evidence for localization is entirely business-side: **no internal object type has a
+demonstrated need for it.** The `lang` dimension stays because it is already built, tested
+and **inert** — it is not built on further, and it is now documented as such.
+
+### The business catalog already exists — documented, not designed
+
+Measured in `noetl/travel`: **53** `adiona/playbooks/*.yaml` reach the external `adiona.*`
+schema through `kind: postgres` + `auth: adiona_actor`; flights, hotels, places and documents
+go through `mcp/duffel` (3), `mcp/hotelbeds` (2), `mcp/google-places` (3), `mcp/firestore` (3).
+
+That is exactly what `execution-model.md` already mandates: a data touch inside a playbook
+step, credential by keychain alias, server API for `noetl.*`. **The business catalog *is*
+that pattern** — there is no component to build and nothing to migrate.
+
+### Why adiona was only ever inspiration
+
+Because **adiona *is* a business catalog**, so its relational model already lives on the
+business side. What the internal catalog took was structural, not schematic: one polymorphic
+identity instead of a table per entity type, the EAV collapse, the self-referencing taxonomy,
+the typed value union. Its tables were never the target — which is why there is no DDL parser
+and why acceptance is set-equality over noetl's own objects.
+
+`catalog#25` (`0e34865`), 152 tests, fmt + clippy clean. travel#72 corrected the same way:
+the model *as an object* is plausibly internal; the **weights are neither catalog** (object
+store, with a catalog row holding the reference); and **training data drawn from the domain
+is business data that must not be pushed into EHDB**.
+
+⚠ `repos/catalog` was never registered as a submodule, so there was no pointer to bump —
+registered in this change set as the 34th.
 
 ## adiona/frontend triage — COMPLETE, 8 of 8 open issues, zero frontend code touched
 
