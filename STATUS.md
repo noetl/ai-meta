@@ -1,8 +1,90 @@
 # STATUS — present tense
 
-Last refreshed: **2026-10-07** (late)
+Last refreshed: **2026-10-07** (negation pass)
 
 ---
+
+## 🔴 NEGATION PASS — what "done" was not, and what now closes it
+
+Adversarial sweep over everything claimed complete. The read paths survived; the write
+and removal surface did not.
+
+### Survived the negation (genuinely done)
+
+Proved by **set equality against git/Firestore ground truth**, on real data — 67
+playbooks, 140 attributes ingested over the API:
+
+| query shape | result |
+| :-- | :-- |
+| reverse attribute index (`uses_credential.adiona_actor`) | **49/49 set-equal**, `adiona_migrator` 4/4 |
+| by-type (`?type=playbook`) | **67/67 set-equal** vs an independent git count |
+| forward relations | **7/7 set-equal** |
+| reverse relations | **7/7 set-equal** |
+| auth (503 unconfigured / 403 wrong token / open reads) | correct |
+| metrics | **not inert** — `sealed` 0→4, ingest 67→74, positive control passes |
+| ingest denominator | `scanned=71 registered=67 skipped=4`, and 67 matches an independent count of files with a top-level `kind:` |
+
+⚠ Two of my own probes read `0` against a working API because I guessed the response
+keys (`relations`/`target_path` instead of `edges`/`to_path`, then `callers`/`from_path`).
+**The envelope differs between the forward and reverse endpoints**, which is how it
+caught me twice.
+
+### 🔴 Falsified — seven store methods had ZERO callers outside their own tests
+
+`archive` · `restore` · `unset_attribute` · `unset_localized_attribute` ·
+`retract_relation` · `attributes_in` · `languages_of`
+
+The capability was built and **no endpoint reached it**. So:
+
+| # | falsified claim | now |
+| :-- | :-- | :-- |
+| 1 | "full CRUD" — there was **no DELETE or UPDATE verb anywhere**; all six probes returned 405 | `DELETE /objects`, `POST /restore`, `DELETE /attributes`, `DELETE /relations`, all **soft** |
+| 2 | `GET /types` could only ever report noetl's **six** — a custom declared type was invisible, and the test asserting `declared == known` **passed vacuously** | enumerated via a `TYPE_REGISTRY_KEY` sentinel in the existing `c4` dataset; **still no fifth Dataset (AC3)** |
+| 3 | `GET /objects` **required** `type`, so "what is in this catalog" was unanswerable | `type` optional, walks every declared type |
+| 4 | every store error was **HTTP 500** — a bogus tool kind and a wrong value type both 500'd | caller errors are **400** |
+| 5 | the API **could not write a localized attribute at all** — `SetAttribute` had no `lang`, so `languages_of` answered `[]` whatever was written | `lang` on the write path; `?lang=` on the read |
+| 6 | a value sent in the shape it is **read** in was stored **double-wrapped** as `json` | tagged form parsed first |
+
+### 🔴 Falsified — "53 adiona playbooks registered" said nothing about runnable
+
+`POST /api/execute {"path":"adiona/v1/catalog_list"}` → **400**,
+`data did not match any variant of untagged enum ToolDefinition`.
+
+Cause: `ToolSpec.params` was `HashMap<String,Value>` — **map-only** — and these bind `$1`
+positionally. ⚠ **The dispatcher always wanted an array and the server was the only
+objector**: `noetl-tools` `tools/postgres.rs:29` is `pub params: Vec<serde_json::Value>`,
+its own test uses `[42]`, `duckdb.rs` uses `[1,"hello"]`, and **only `http.rs` uses a
+map**. Same defect `command` already had and was fixed for. Fixed in server#498,
+**released as v3.123.3**.
+
+### Proof discipline
+
+Catalog: **157 tests, 0 fail**; **7 mutants, 7 caught**; **20 HTTP checks against real
+ingested data** asserting set equality — archiving shrinks the live set by *exactly one*,
+unsetting one credential attribute takes the reverse index **49 → 48 (not → 0)**,
+retracting one edge leaves the *other three* callers.
+
+⚠⚠ **My first mutation battery ran against a RED baseline** — a repo guard
+(`every_rust_source_on_disk_is_git_tracked`) had correctly caught my new test file being
+untracked — so all seven readings were worthless and were re-run after the baseline was
+green. One mutant first read SURVIVED because **the mutant itself was malformed**; redone
+rather than reported.
+
+Server: RED was a **runtime** failure, not a compile error — the test bodies go through
+`serde_json::to_value` so they compile against the old type. 2 of 3 failed with the exact
+production message while the map case passed, so the test discriminates.
+
+### ⚠ Gaps found and deliberately NOT closed
+
+| gap | why |
+| :-- | :-- |
+| **Prod roll of server v3.123.3** | the 53 adiona playbooks stay unrunnable in prod until it lands — prod is **3.123.2**. A deployment, so the owner's call. |
+| `catalog-server` has **no Dockerfile and no release workflow** | it is deployed nowhere; that is also why the breaking response-shape change is safe now |
+| `attribute_schema` is still **fully inert** | declared, has a builder, set in one test, read by nothing. Wire it as per-type validation or delete it — a design decision, not a bug fix |
+| business catalog has **no write path** and no domain round-trip | nothing has ever been written to `catalog/items` in Firestore; only `items/list` was ever proven |
+| forward/reverse response envelopes differ (`edges`/`to_path` vs `callers`/`from_path`) | cosmetic, but it defeated my own probe twice |
+
+catalog#26 · server#498 (v3.123.3)
 
 ## ✅✅✅ Three prod items completed — and SIX defects in one playbook, all reading as "empty"
 
