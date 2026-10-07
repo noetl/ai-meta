@@ -148,78 +148,103 @@ kubectl --context "$PROD" -n noetl patch sts noetl-server-rust-embedded --type=j
 
 Also recorded inline in the ops manifest, so neither direction needs archaeology.
 
-## 🔴 Catalog — agent-actionable work is EXHAUSTED; what remains needs the owner
+## Catalog — scope CORRECTED: generic over noetl's own objects, API-only, no SQL
 
-catalog#13–#18 merged on green. **120 tests**, fmt + `clippy -D warnings` clean, AC3 still
-exactly 4 `Dataset` impls. Stating this explicitly rather than re-emitting a report: I am not
-idling, and I am not inventing work.
+catalog#19–#22. **142 tests**, fmt + `clippy -D warnings` clean, AC3 still exactly 4
+`Dataset` impls. The earlier "work exhausted" note is superseded: the scope changed.
 
-### What remains, and why each needs you
+**Spec §2.9** now states it plainly: a generic catalog for **noetl's own internal object
+types**, with **no SQL surface of any kind** and the **API as the only interface**. adiona
+is cited as inspiration for the relational/EAV patterns only — its schema is not mapped
+in, there is no DDL parser, and the acceptance proof is not an adiona slice. Dropped: the
+`catalog-schema` DDL crate, the adiona round-trip test, further localization work (the
+`lang` dimension stays but is inert for noetl objects and is not built on).
 
-| item | blocker |
-| :-- | :-- |
-| **AC10** — `/api/catalog` wire shapes + the e2e register→execute loop | Nothing in `noetl/server` links `catalog-store`. The crate has **no consumer on any serving path**, so this cannot be discharged from inside it. Wiring it in is a server change with its own owner gate. |
-| **The `noetl/catalog` wiki** | `has_wiki=true` in settings, but `git ls-remote https://github.com/noetl/catalog.wiki.git` returns **`Repository not found`** — GitHub creates the wiki repo only after a first page is made *through the web UI*. Content is staged in-repo (catalog#18) and ready to push. Needs a human with repo access. |
-| Spec §13 Q1 — does `noetl.registry` merge in? | Needs the missing RFCs or a decision. |
-| Spec §13 Q2 — DDL ownership during transition | Transfer to `repos/server` is explicitly owner-gated; two byte-identical `schema_ddl.sql` copies must move together. |
-| Spec §13 Q3 — is `Observed` provenance worth the write volume? | A write per execution. Sampled vs derived-on-read is a product call. |
-| Spec §13 Q4 — own `local_root`/PVC, or share the server's? | Shared couples `FORMAT_VERSION` across deploys; separate is another volume to size. |
+### The object types, discovered from `noetl.resource`
 
-### Three reverse indexes, one device, no fifth dataset
+Five seeded rows, and **`noetl.catalog.kind` has a foreign key to it**. Their
+`executable` / `catalog` flags map onto `ResourceType`'s `executable` / `catalogued`
+exactly, which is why those two fields exist: `playbook`·t/t, `credential`·f/t,
+`mcp`·f/t, `agent`·t/t, `memory`·f/t — plus `subscription` as the sixth, de facto.
 
-`Dataset::index_key` returns one `&str`, so one dataset indexes one dimension — and AC3 forbids
-adding a dataset. Resolution: a second row kind inside each existing dataset, keyed by a
-control-character sentinel, sound because `read_index_after` matches the key by **exact string
-equality** (`ehdb-l0` `engine.rs:1489`).
+⚠ **Two findings for noetl/server**, reported rather than papered over:
+1. **`subscription` is not seeded in `noetl.resource`** while the server validates
+   `kind: Subscription` as "a first-class catalog type" and travel registers such
+   documents — so nothing exists for `noetl.catalog.kind`'s FK to reference.
+2. **A resource type is not a tool kind.** `ToolKind` has **25** variants governing
+   `tool.kind` inside a step; `agent`/`mcp`/`provider`/`result_fetch` are *rejected* as
+   tool kinds (#256) while `agent` and `mcp` are perfectly good resource types.
 
-| dataset | synthetic key | query |
-| :-- | :-- | :-- |
-| `c1` | `\u{1}type/<kind>` | every resource of type X |
-| `c2` | `\u{1}to/<path>` | **who calls X** |
-| `c3` | `\u{1}attr/<name>` | who uses credential X |
+### The allowlist is gone — the core generic requirement
 
-⚠⚠ **All four REDs were partial answers, never empty ones:** 1 of 49 · **0 of 48** · 1 of 53 ·
-1 of 40. The `0 of 48` is the one to remember — once any resource unsets the attribute, the
-latest op under the shared key is a tombstone, so `.last()` reports *"nobody uses this
-credential"* while 48 do, which would green-light a rotation breaking all 48. Every assertion is
-**set equality** against ground truth derived independently from git.
+It gated on `matches!(type_name, "playbook" | "subscription")`, so **four of noetl's own
+six types were rejected**. Every kind now registers; **reporting** replaced the gate — an
+unseen type lands in `new_types` and is printed, so nothing is silently dropped or
+invented. `SkipReason::UnknownKind` and its metric label were **deleted** as unreachable.
 
-### Relations: correct on real data, and my denominator was wrong
+⚠ That exposed a gap in my own guard: it checked each pinned label was produced by *some
+arm*, hand-built — existence-vs-reachability **inside a reachability test**. A new test
+drives a real ingestion instead.
 
-The relation path had **never run against real data** — the adiona 53 are leaf playbooks, so
-`relations=0` there proves nothing. Over `muno/*` it is **correct**: **7 occurrences folding to 5
-distinct edges**, matching ground truth derived by reading the documents.
+### First-class relations, and three failures from one change
 
-⚠ Correction: "36 registered `muno/*` playbooks" was the **prod catalog registration count**;
-`travel@origin/main` carries **12**, of which 4 have child references.
+`RelationKind::References(ForeignKey { nullable, cardinality, on_delete, … })`. ⚠⚠ Making
+the kind carry data broke the **edge identity three ways at once**, because both edge-key
+sites used `format!("{:?}", kind)`:
 
-⚠⚠ **Three mutations, and the first two did not fire.** My predicted hazard was wrong twice —
-`edge_key()`'s reverse arm already keys on `from_path`, and `relations_to` never calls it. Only
-mutating `relations_to`'s own fold closure fired. A mutation that passes is not reassurance; it
-means the mutated thing was not holding the property up.
+* one reference re-asserted with corrected metadata became **2 edges**;
+* the reverse answer returned the literal `"References(ForeignKey { nullable: false, … })"`
+  as its kind *label*;
+* and **a retraction matched nothing — the stale edge was unremovable**.
 
-### Observability: 11 series, and the 155-byte RED
+Fixed with `discriminant()`: identity is (target, version, kind); the payload is a
+property *of* the edge. Also closed a footgun — `retract_relation` with an unknown label
+silently wrote a tombstone matching no edge, and now refuses.
 
-Six non-test recorder call sites. ⚠⚠ With the unconditional pins removed the whole scrape is
-**155 bytes containing only `build_info`** — the three counter families pruned by
-`Registry::gather`, exactly the shape in which the prod gateway served a 200 with zero bytes.
-⭐ `build_info` surviving is why it is the right discriminator: that scrape says *"the binary has
-the code and nothing is firing"*, which is a different diagnosis from empty.
+### `/api/catalog/*` is the only interface
 
-⚠ The counters are **per-process**, so a standalone `catalog metrics` is all-zero *by
-construction*; the subcommand prints that rather than letting a zero be misread. No new knob, so
-no deployment-spec row owed.
+15 endpoints — declare type, register object, set attribute, assert relation, tick,
+metrics, and **four query shapes**: by type, by attribute (reverse), by relation, by
+reverse-relation.
 
-### The ACs are audited in code, not ticked in a table
+⚠⚠ **Every read returns the full set with its count, never a page.** RED-proven at the
+**HTTP boundary** by crippling each fold and watching a **200 OK carry a wrong answer**:
+`by attribute adiona_actor: 1 of 7`, `callers of a_0: 2 of 5`. Not an error, not empty — a
+plausible list.
 
-**9 cited, 1 open, 0 broken.** Each criterion names a test function and the audit asserts it
-exists in the file it claims — proven by mutation (renamed test + missing file ⇒ `2 broken
-citations`). ⚠ **AC8 was covered but untraceable** (zero mentions anywhere); **AC1 and AC9 had no
-test at all**, only prose. ⚠ AC1's naive form false-flags a `"SELECT 1;"` inside a YAML fixture —
-SQL in a document the catalog *catalogues*, not SQL it *runs*.
+The acceptance proof runs **over HTTP with set equality**: all six types declared plus a
+seventh unknown one accepted-and-reported, 9 playbooks + 3 credentials + 2 agents
+registered, then set-equality on every query shape including credentials-in-use (7 / 2,
+union covering each playbook exactly once) and all 5 callers of one agent.
 
-The audit deliberately does **not** fail on AC10 being open: a check that fails on a known gap
-gets disabled, while one that prints it every run keeps it visible.
+Auth mirrors noetl/server: **503 when unconfigured** — no permissive default, because an
+unset token meaning "allow" is how a misconfigured deploy silently opens a write path —
+403 on missing/malformed/mismatched, constant-time compared. Reads open; refused writes
+proven to leave nothing behind. Live-smoked against a real server.
+
+⚠ `unsafe_code = "forbid"` forced a **better design**: the token lives in `ApiState`, not
+read from `std::env` per request, because the env version could only be tested by mutating
+a process global. ⚠ Writes serialize behind a `Mutex` — the honest shape of EHDB's
+single-writer assumption, not a shortcut.
+
+**AC10 narrowed, not ticked.** Its "no consumer on a serving path" half is closed, but the
+literal wording is about **noetl/server's** surface and execute path, and nothing there
+links `catalog-store`.
+
+### Two of my own mistakes this stretch
+
+1. **CI caught a race I introduced.** The metrics delta test read `scanned=+6` for a run
+   that scanned 3, from a concurrent test sharing the process-global registry. The hazard
+   was documented *in a comment I wrote*, in another file. RED: **2 of 8 runs failed
+   without the lock, 0 of 8 with it** — a ~25% rate is exactly why one local run passed.
+2. **A test of mine was wrong while the code was right.** I expected `kind: "Invokes"` to
+   be refused; normalising it to canonical `invokes` is correct per noetl/server#429.
+
+### Next
+
+Item 4 of the corrected plan: attribute typing / constraints **where they serve real
+noetl object fields** — `attribute_schema` exists with **0 enforcement call sites**, and
+the scope is real fields rather than speculative ones.
 
 ## Catalog — both reverse indexes, and no fifth dataset
 
