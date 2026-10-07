@@ -1,8 +1,97 @@
 # STATUS — present tense
 
-Last refreshed: **2026-10-07**
+Last refreshed: **2026-10-07** (evening)
 
 ---
+
+## ⭐⭐ The travel BUSINESS catalog is Firestore — and three silent defects on the way
+
+The other half of the two-catalog split, built where it belongs.
+
+| | **internal catalog** | **business catalog** |
+| :-- | :-- | :-- |
+| holds | NoETL's own objects | items, categories, attributes, images, bundles, reservations |
+| storage | **EHDB only** | **Firestore** — this domain's choice |
+| interface | `/api/catalog/*` | a **playbook step** under its policy block |
+
+### Audit first: the connector already existed
+
+`automation/agents/mcp/firestore`, registered **v11**, 904 lines, **ten tools**
+(`get_doc` `set_doc` `delete_doc` `query_collection` `append_event` `replay_events`
+`batch_get_docs` `batch_set_docs` `batch_append_events` `batch_write`), Firestore
+**REST v1**, **Workload Identity / ADC** — no key, no secret, nothing in the keychain.
+
+**No `firestore` tool kind exists and none was needed.** The 25 `ToolKind` variants
+include `Gcs` (Cloud Storage), not Firestore. Four limits, read off the *registered*
+implementation rather than its docstrings ([#451](https://github.com/noetl/ai-meta/issues/451)):
+AND-only `where` over `= < <= > >= array-contains`; built **without** `allDescendants`
+so **no collection-group queries**; `limit` capped at 500 with **no cursor**;
+`delete_doc` does not recurse.
+
+### ⚠ A hypothesis of mine that the data refuted
+
+I reasoned to a **read/write project split-brain** — inline read on
+`shastaratech-noetl-prod`, MCP write on `noetl-demo-19700101` — and checked instead of
+publishing. Refuted: `slot_state` is live in `shastaratech-noetl-prod` to **2026-09-30**
+and frozen in `noetl-demo-19700101` since **2026-08-09**; both paths use the live one.
+
+The check found the real shape. **Registered** says `shastaratech-noetl-prod`; **git**
+said `noetl-demo-19700101`. Re-registering from git would have caused two silent
+failures at once:
+
+1. **Repointed the whole business catalog at a project frozen two months ago.** ⚠⚠ Both
+   projects hold a `(default)` database and a `chat_threads` collection, so the wrong
+   project returns an **empty collection, not a 404** — and the planner treats an empty
+   `slot_state` read as *"a brand-new thread… not an error"*. Every conversation would
+   have looked new. **The defect is actively disguised by correct 404-tolerance in the
+   consumer.**
+2. **Dropped half of every turn's writes.** `batch_write`'s `set_docs_extra` /
+   `append_events_extra` — which `persist_all_atomically` depends on — are absent from
+   the git copy, and absent keys are **ignored silently, not rejected**.
+
+Third defect: travel's `playbooks/catalog/calendar/list`, **registered in prod as v1**,
+declared **`kind: agent`** — in the server's explicit reject list, so it could never
+run — *and* pinned the dead project. travel#134.
+
+### ⚠ Zero composite Firestore indexes are deployed
+
+And the travel repo had **no index declaration file at all** — `firestore.rules` governs
+client access and says nothing about indexes. Every query in the new model needs one.
+`firestore.indexes.json` declares six; applying it is a prerequisite, not a side effect
+of the merge.
+
+### The model: structural borrowing, restated for a document store
+
+A recursive CTE becomes a **materialised ancestor array** (`items.category_ids`,
+`categories.ancestor_ids`) queried with one `array-contains`. Localization becomes
+`items/{id}/content/{lang_code}` where the **document id is the language**, so a
+localized read is a `get_doc` at a computed path. `attrs` is a map, so Firestore
+auto-indexes `attrs.<key>` and the EAV rows arrive with the parent.
+
+⚠⚠ **Firestore enforces no referential integrity.** `nullable` and cardinality are
+advisory; **`on_delete: cascade` must be written as playbook steps**, because
+`delete_doc` deliberately does not recurse and an orphaned subcollection is invisible to
+every query under its deleted parent while still billed and readable by path. Soft
+delete preferred, matching `POST /api/catalog/restore`.
+
+### Verification
+
+`scripts/business_catalog_items_test.py` — **29 checks**, the playbook's own embedded
+code, no network, no credentials. A **RED control** feeds `query_collection`'s
+`documents` key to a `batch_get_docs` reply (the exact wrong shape my first draft used),
+because that bug yields an **empty join** that is indistinguishable from "no item has a
+translation". **4 of 4 injected mutants caught**; green baseline after restore, so the
+4/4 is not a red-baseline artifact. Verified **running**, not merely present:
+`guards discovered: 6 … guards run: 6 failed: 0`.
+
+⚠ **Three of my own measurements were wrong first.** The `ops` checkout was **28 commits
+behind `origin/main`**; the `travel` checkout was on a **feature branch with no `adiona/`
+at all** (0 paths vs 93 on `origin/main`); and two probes returned a confident empty —
+one from a mistyped scratchpad path, one because `cargo` was not on the `PATH` I
+exported. All three are the stale-checkout / false-zero families already in the index,
+hit again in one session.
+
+travel#135 · ops#324 · travel#134 closed · wikis `a28d21e` + `537f3d6` · ai-meta@6ea4025
 
 ## ⭐⭐ TWO CATALOGS — the line, and a bleed found in my own fixtures
 
