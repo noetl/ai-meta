@@ -148,6 +148,66 @@ kubectl --context "$PROD" -n noetl patch sts noetl-server-rust-embedded --type=j
 
 Also recorded inline in the ops manifest, so neither direction needs archaeology.
 
+## 🔎 2026-10-07 sync sweep — docs, wikis, issues and the board vs the measured state
+
+Measure-first throughout. Two of my own probes were wrong and are recorded as such.
+
+### Prod, verified from the pod
+
+**v3.123.2** · digest `49eb47fc` · 1/1 · restarts **0** · env **67**. Chain gates **armed
+and working**: all three in the process env, `chain_populate{extended}=229`, bad states
+(diverged / fork / multiple_roots / stale_log) **0**. #410 applied and **closed**.
+
+⚠ Eventlog divergence **7**, `kind=count` only, `mirror_attempt{unavailable}` **still
+pinned at 2**. The pair is the reading: flat `unavailable` with climbing `count` is a
+**bounded deficit re-counted**, not a leak — the comparator counts *comparisons*, not
+distinct diverged executions.
+
+### Drift corrected
+
+| what | was | now |
+| :-- | :-- | :-- |
+| wiki Ecosystem-map server cell | *"v3.123.0 in prod, digest 091ff47f"* | **v3.123.2 / `49eb47fc`**, with "read it from the pod digest, never this table" |
+| board: **8 closed** issues | *In progress* | **Done** (#251 #297 #339 #341 #342 #378 #402 #415) |
+| board: **#241 OPEN** | **Done** ⚠ the dangerous direction | *In progress* |
+| ai-meta open-issue count | "100" | **104** — `--limit` is a **cap**, not a page size |
+
+### ⚠ Two probes of mine that were wrong
+
+1. **The CI-gate table.** First pass reported `catalog` as `|| true` (cannot fail). The grep
+   matched `|| true` inside **comments that say "NO `|| true`"** — comments counting as code.
+   Corrected: **3 of 8 Rust repos gate clippy** (`catalog`, `ehdb`, `signal-mesh`); 5 cannot
+   fail (#374). `cargo test` *does* run everywhere (#232) — only the lint gate is missing.
+2. **`gh issue create --json`** is unsupported and returned empty, which I nearly read as a
+   failure. Verified by listing before retrying — an empty return is not evidence either way.
+
+### Issues reconciled
+
+**Filed** (both were untracked findings from the catalog object-type enumeration):
+
+* **#446** — `subscription` is a first-class catalog type in the server with **no
+  `noetl.resource` row** for `noetl.catalog.kind`'s FK to reference. Deliberately does not
+  diagnose whether the FK is enforced on prod; `'Playbook'` (875 rows) has no row either.
+* **#447** — a **resource type is not a tool kind**: 5(+1) vs **25** namespaces, `agent`/`mcp`
+  valid in one and *rejected* in the other.
+
+**Updated** with re-measured state: **#343** (the pinned-at-2 reading above), **#422**
+(reader DONE via server#495; **gauge still absent — 0 series in a 66,688-byte scrape**, a
+real absence not an empty scrape; replay still absent), **#406** (both upstream waits stand;
+closing it would lose the reason the exposure is accepted).
+
+### Catalog docs — catalog#23
+
+README rewritten to what is built (5 crates, the full API surface, the four-dataset
+invariant, the three reverse indexes, adiona as inspiration only, and a table of what was
+**consciously dropped**). A **CURRENT SCOPE banner** heads the spec, because earlier
+sections still read as though adiona were the target. The staged wiki page is marked
+**STAGED NOT PUBLISHED** with the exact publish steps.
+
+⚠ The `noetl/catalog` **wiki repo still does not exist** — `catalog.wiki.git` returns
+`Repository not found`; GitHub creates it only after a first page is saved through the
+**web UI**. One manual step, impossible from a clone, and nothing claims otherwise.
+
 ## Catalog — scope CORRECTED: generic over noetl's own objects, API-only, no SQL
 
 catalog#19–#22. **142 tests**, fmt + `clippy -D warnings` clean, AC3 still exactly 4
