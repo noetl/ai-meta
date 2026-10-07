@@ -103,3 +103,6 @@
 [submodule "repos/signal-mesh-wiki"]
 	path = repos/signal-mesh-wiki
 	url = git@github.com:noetl/signal-mesh.wiki.git
+[submodule "repos/catalog"]
+	path = repos/catalog
+	url = git@github.com:noetl/catalog.git
