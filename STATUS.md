@@ -148,6 +148,79 @@ kubectl --context "$PROD" -n noetl patch sts noetl-server-rust-embedded --type=j
 
 Also recorded inline in the ops manifest, so neither direction needs archaeology.
 
+## 🔴 Catalog — agent-actionable work is EXHAUSTED; what remains needs the owner
+
+catalog#13–#18 merged on green. **120 tests**, fmt + `clippy -D warnings` clean, AC3 still
+exactly 4 `Dataset` impls. Stating this explicitly rather than re-emitting a report: I am not
+idling, and I am not inventing work.
+
+### What remains, and why each needs you
+
+| item | blocker |
+| :-- | :-- |
+| **AC10** — `/api/catalog` wire shapes + the e2e register→execute loop | Nothing in `noetl/server` links `catalog-store`. The crate has **no consumer on any serving path**, so this cannot be discharged from inside it. Wiring it in is a server change with its own owner gate. |
+| **The `noetl/catalog` wiki** | `has_wiki=true` in settings, but `git ls-remote https://github.com/noetl/catalog.wiki.git` returns **`Repository not found`** — GitHub creates the wiki repo only after a first page is made *through the web UI*. Content is staged in-repo (catalog#18) and ready to push. Needs a human with repo access. |
+| Spec §13 Q1 — does `noetl.registry` merge in? | Needs the missing RFCs or a decision. |
+| Spec §13 Q2 — DDL ownership during transition | Transfer to `repos/server` is explicitly owner-gated; two byte-identical `schema_ddl.sql` copies must move together. |
+| Spec §13 Q3 — is `Observed` provenance worth the write volume? | A write per execution. Sampled vs derived-on-read is a product call. |
+| Spec §13 Q4 — own `local_root`/PVC, or share the server's? | Shared couples `FORMAT_VERSION` across deploys; separate is another volume to size. |
+
+### Three reverse indexes, one device, no fifth dataset
+
+`Dataset::index_key` returns one `&str`, so one dataset indexes one dimension — and AC3 forbids
+adding a dataset. Resolution: a second row kind inside each existing dataset, keyed by a
+control-character sentinel, sound because `read_index_after` matches the key by **exact string
+equality** (`ehdb-l0` `engine.rs:1489`).
+
+| dataset | synthetic key | query |
+| :-- | :-- | :-- |
+| `c1` | `\u{1}type/<kind>` | every resource of type X |
+| `c2` | `\u{1}to/<path>` | **who calls X** |
+| `c3` | `\u{1}attr/<name>` | who uses credential X |
+
+⚠⚠ **All four REDs were partial answers, never empty ones:** 1 of 49 · **0 of 48** · 1 of 53 ·
+1 of 40. The `0 of 48` is the one to remember — once any resource unsets the attribute, the
+latest op under the shared key is a tombstone, so `.last()` reports *"nobody uses this
+credential"* while 48 do, which would green-light a rotation breaking all 48. Every assertion is
+**set equality** against ground truth derived independently from git.
+
+### Relations: correct on real data, and my denominator was wrong
+
+The relation path had **never run against real data** — the adiona 53 are leaf playbooks, so
+`relations=0` there proves nothing. Over `muno/*` it is **correct**: **7 occurrences folding to 5
+distinct edges**, matching ground truth derived by reading the documents.
+
+⚠ Correction: "36 registered `muno/*` playbooks" was the **prod catalog registration count**;
+`travel@origin/main` carries **12**, of which 4 have child references.
+
+⚠⚠ **Three mutations, and the first two did not fire.** My predicted hazard was wrong twice —
+`edge_key()`'s reverse arm already keys on `from_path`, and `relations_to` never calls it. Only
+mutating `relations_to`'s own fold closure fired. A mutation that passes is not reassurance; it
+means the mutated thing was not holding the property up.
+
+### Observability: 11 series, and the 155-byte RED
+
+Six non-test recorder call sites. ⚠⚠ With the unconditional pins removed the whole scrape is
+**155 bytes containing only `build_info`** — the three counter families pruned by
+`Registry::gather`, exactly the shape in which the prod gateway served a 200 with zero bytes.
+⭐ `build_info` surviving is why it is the right discriminator: that scrape says *"the binary has
+the code and nothing is firing"*, which is a different diagnosis from empty.
+
+⚠ The counters are **per-process**, so a standalone `catalog metrics` is all-zero *by
+construction*; the subcommand prints that rather than letting a zero be misread. No new knob, so
+no deployment-spec row owed.
+
+### The ACs are audited in code, not ticked in a table
+
+**9 cited, 1 open, 0 broken.** Each criterion names a test function and the audit asserts it
+exists in the file it claims — proven by mutation (renamed test + missing file ⇒ `2 broken
+citations`). ⚠ **AC8 was covered but untraceable** (zero mentions anywhere); **AC1 and AC9 had no
+test at all**, only prose. ⚠ AC1's naive form false-flags a `"SELECT 1;"` inside a YAML fixture —
+SQL in a document the catalog *catalogues*, not SQL it *runs*.
+
+The audit deliberately does **not** fail on AC10 being open: a check that fails on a known gap
+gets disabled, while one that prints it every run keeps it visible.
+
 ## Catalog — both reverse indexes, and no fifth dataset
 
 [catalog#13](https://github.com/noetl/catalog/pull/13) + [#14](https://github.com/noetl/catalog/pull/14),
