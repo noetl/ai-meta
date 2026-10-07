@@ -32,8 +32,32 @@ Nothing in the store enforced this — a resource type is a free string by desig
 why the generality works. **A fixture is where the intended use gets taught**, so a business
 entity in a fixture is the bleed, even with no code change behind it.
 
-Re-audit after: the only resource types in committed code are `playbook` (13), `subscription`
-(1) and `memory` (1), and **no business entity name appears anywhere**.
+⚠ **My first re-audit had a bad denominator** and I published it. It scanned one idiom —
+`resource_type: "x"` — found 15 literals, and reported the resource types as *playbook (13),
+subscription (1), memory (1)*. There are **three** idioms. Adding the helper constructors
+(`ent(..)`, `eref(..)`) and `ResourceType::` literals takes the population to **46**, and the
+set to **six**: `playbook`, `subscription`, `memory`, `credential`, `mcp`, `agent` — the
+narrow scan had missed three of the six entirely, including both halves of the FK fixture it
+was supposed to be checking. All six are real internal types, so the conclusion held; the
+measurement did not.
+
+I also claimed **no business entity name appears anywhere**, which is false as written. The
+honest form, by data vs prose:
+
+| name | total | prose/comment | **as data** |
+| :-- | --: | --: | --: |
+| `categories` | 4 | 4 | **0** |
+| `category_type` | 3 | 3 | **0** |
+| `trip_category` | 2 | 2 | **0** |
+| `table_row` | 1 | 1 | **0** |
+| `item_content` | 1 | 1 | **0** |
+
+**Zero as data** is the claim that matters, and it holds. The 11 mentions are doc-comments
+recording where the structural ideas came from — including the one I added saying what the
+fixture used to hold — which is provenance worth keeping, not bleed. Two further greps were
+substring artifacts of my own making: 9 of 14 `trips` hits are `round_trips`, and every
+`flights` hit is the **playbook name** `muno/playbooks/flights-details`, an internal object
+that happens to be about flights.
 
 ### Localization is the sharpest case
 
