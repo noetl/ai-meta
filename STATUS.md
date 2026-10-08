@@ -1,8 +1,80 @@
 # STATUS — present tense
 
-Last refreshed: **2026-10-08** (deployability + business write path)
+Last refreshed: **2026-10-08** (EHDB audit + measures)
 
 ---
+
+## 📐 EHDB: audited, and measured for the first time
+
+### The audit — EHDB is not stubbed, it was UNMEASURED
+
+| probe | result |
+| :-- | :-- |
+| `todo!` / `unimplemented!` / `TODO` / `FIXME` / `XXX` | **0** across 177 `.rs` files — positive-controlled (the same grep finds 979 `pub fn`), so the zero is real |
+| tests | **1120** `#[test]`/`#[tokio::test]` across 81 files; baseline green |
+| every `stub` hit | a **deliberate negative control** (`Backend::Stub` exists so the conformance suite can be shown to reject it) |
+| ⚠ **benchmarks** | **`ehdb-l0` — the engine on the production path — 88 `.rs` files, ZERO bench files.** `ehdb-reference`, the *reference model*, had 22 files and **two**. **82% of the workspace unbenchmarked.** |
+
+⚠ **Three of my own recollections were wrong and the audit corrected them:** a
+`ProjectionDriver` trait **does** exist; `fold_latest_by` is the *catalog's* helper, not
+EHDB's; and **`single root` has zero mentions in EHDB at all** — that invariant lives in the
+server, not here.
+
+### The measures (ehdb#381, wiki `3b98c70`, doc `docs/measures/l0-benchmarks.md`)
+
+**Result 1 — the fsync is ~95% of posture-A write cost.**
+
+| path | records/s | µs/record |
+| :-- | --: | --: |
+| posture A (`EveryAppend`) | **267** | 3749 |
+| group commit, batch 8 | **1 010** | 990 |
+| group commit, batch 80 | **5 450** | 184 |
+
+**20.4x.** ⚠ Group commit needs `FlushPolicy::CallerDriven`; without it batching costs
+*more*.
+
+⭐ **Independently corroborated.** The existing wiki page measured `ehdb-reference` at
+"~3.9 ms → ~256 appends/s"; the production engine measures **3.749 ms → 267/s** — within
+**4%**, different crate, different harness.
+
+**Result 2 — a read steps 15.6x per record at `seal_max_records = 1024`.**
+
+| records on one key | time | ns/record |
+| --: | --: | --: |
+| 900 | 49.1 µs | **54.6** |
+| 1 100 | 933.8 µs | **848.9** |
+| 4 400 | 3.760 ms | 854.6 |
+
+A **22% length increase costs 19x**, then per-record cost is **flat** — a one-time step, not
+quadratic. **A chain over 1024 events costs ~13x what sub-1024 extrapolation predicts.**
+[#453](https://github.com/noetl/ai-meta/issues/453), where whether the step is *acceptable*
+is an open judgement call.
+
+**Invariant measures** — ordering, fold determinism, reopen parity — each with a **planted
+defect**: a reversed read must flag every pair and one swap exactly one; the fold must change
+on one swap *and* one dropped record, or determinism over it is vacuous; reopen parity must
+fail on **one** missing element. Each prints its population.
+
+### ⚠⚠ Three of three append instruments were wrong before they were right
+
+1. `iter_batched` rebuilt the engine per batch → setup dominated, 8.3 ms/append. Caught by
+   its **own control failing**: a 10x payload came out *faster*, CIs overlapping.
+2. `iter_custom` fixed it; 267/s looked implausible until the engine's own docs confirmed
+   `fsync-per-append, posture A` at "~4 ms". **The number was right.**
+3. Group commit read **flat** (192 → 184/s over a 10x batch) because I left posture
+   `EveryAppend` on. **The instrument was wrong, not the engine** — I nearly published
+   "EHDB's batching does not amortise".
+
+A timing measure written as a `cargo test` was **removed**, not relaxed: debug builds put a
+~100 µs floor under it, so a 10x step cost 1.4x and it failed its own control. The reason is
+recorded in the file.
+
+### Named as NOT measured
+
+**p99** (criterion gives mean/median, not tails) · **memory** · **seal/merge/reclaim cost**
+(the merge path grew a prod manifest quadratically on 2026-09-01) · **multi-shard and
+concurrent writers** — every figure is single-shard, single-threaded · **`ehdb-feed`**, 36
+files, still 0 benches.
 
 ## ✅ The catalog is now DEPLOYABLE, and the business catalog can be WRITTEN
 
