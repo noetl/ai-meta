@@ -1,8 +1,81 @@
 # STATUS — present tense
 
-Last refreshed: **2026-10-07** (negation pass)
+Last refreshed: **2026-10-08** (deployability + business write path)
 
 ---
+
+## ✅ The catalog is now DEPLOYABLE, and the business catalog can be WRITTEN
+
+### 1. `catalog-server` deployability — it ran nowhere
+
+157 tests, an HTTP acceptance suite, and **no Dockerfile and no release workflow**.
+
+| | |
+| :-- | :-- |
+| Dockerfile | `rust:1.99.0-alpine`, the *same* version `rust-toolchain.toml` pins; `git` in the builder for the `noetl/ehdb@v0.4.5` git deps — ✅ **verified public and resolvable UNAUTHENTICATED**, the way a runner sees it, so no credentials |
+| cache safety | dependency layer, then `find -exec touch` before the real build, so a stale mtime cannot ship **the dummy binary**; `test -s` asserts the artifact at build time |
+| runtime | carries **`curl`** (four `build_info lines=0` readings in August were a missing HTTP client, not a missing metric) and **`git`** (for `ingest` from a `git:<repo>@<ref>` source). **No HEALTHCHECK** — k8s probes live in the Deployment |
+| ⚠ volume | the store is on disk and declared a `VOLUME`; without a mount the catalog **resets on restart**, which looks like an empty catalog |
+| CI gate | image built on **every PR** and then **RUN** — binary >1 MB, carries the route strings, a real token-guarded write read back through the reverse index, unauthenticated write refused. *A build-only check passes for an image that cannot start.* |
+| release | tag-triggered, **native per-arch** runners, manifest list, and it **asserts ≥2 architectures** — amd64-only is how server#303 was found late |
+| version | `verify-version` takes the **tag**, never asserts `tag == Cargo.toml` (that assertion *is* the 2026-08-03 regression); `ci/stamp-version.sh` re-stamps, rewrites exactly one line, RED-proven to fail on a `v` prefix and on a no-op |
+
+**Proof:** image builds (**29.8 MB** arm64 local, amd64 in CI), binary **6,609,520 B**
+local / **6,668,896 B** in CI, container serves `/health`, `/types` and **10 `catalog_`
+series**, **14 HTTP checks through the image** (custom type, register, attribute, relation,
+list-all, both reverse indexes, DELETE, tick) 0 failed, survives `podman restart`, and a
+**fresh volume reads 0** — the negative control proving persistence was the volume.
+catalog#27.
+
+⚠ **No image is published yet** and nothing is rolled: that needs a release tag, which
+needs catalog#28 (below).
+
+### 2. The business catalog WRITE path, proven against the LIVE project
+
+`travel/playbooks/catalog/items/upsert` writes items, localized content, images, units and
+the category hierarchy in **one `batch_write`**. travel#140.
+
+The load-bearing part is the **ancestor closure**: Firestore has no recursive query, so
+"every item under Beach" is one `array-contains` only if the whole path is materialised at
+**write** time. An item on a leaf not findable from the root is the failure, and it is
+silent.
+
+**⚠⚠ A live write found a defect no fixture could.** The first run rejected **all 24
+documents**: Firestore paths **alternate** collection/document, so a document path needs an
+**even** segment count. `catalog/items/itm_x` is 3 — a *collection* reference.
+`catalog/items` is 2 — a *document*. **The read playbook had the same defect and had never
+been caught, because it had never been EXECUTED against Firestore**; the design doc
+specified it too. Root is now `catalog/v1` (4 / 3 segments). The guard asserts path arity.
+
+**Live proof** — pre-state verified (`catalog` absent):
+
+- write: `expected 24 / written 24 / counts_agree true / provider_error null`
+- what landed: **set-equality EXACT**, 24 of 24, against an expectation computed from the
+  fixture *independently of the playbook*
+- read back, **42 checks 0 failed**: `cat_root` → all **3** published items *none of which
+  sit directly on root*; `cat_beach` 2; `cat_city` 1; leaf+`de` → "Strandhotel Malaga";
+  `ka` → "მალაგას სანაპირო" with items lacking `ka` falling back to `en` and
+  **`lang_is_fallback: true`**; nonexistent category → empty; the `draft` item written and
+  excluded everywhere
+- ⚠ three of those checks first read FAIL — **my harness**, not the playbook: a deep search
+  for `items` found an intermediate list with no `name`
+- **prod restored**: all 24 deleted children-first, collections back to
+  `['chat_threads','users']`, **0** under `catalog/`
+
+### 🔴 Flags
+
+| item | state |
+| :-- | :-- |
+| **catalog#28** (`semantic-release` must not push to `main`) | ⚠ **BLOCKED — no CI run has ever been dispatched for it.** The branch is pushed and matches the PR head; Actions works elsewhere (travel fired at 00:24:35Z), so this is catalog-repo-specific. The required check cannot pass, so the fix for GH006 cannot merge, so **no release can be cut**. Needs an admin look at that repo's Actions. |
+| first catalog release | failed **GH006** — `@semantic-release/git` pushing a `[skip ci]` commit to a protected branch can never be accepted. Fixed in #28, which is blocked. ⚠ noetl/server's own `release.yml` carries this exact warning and I reproduced it anyway. |
+| ⚠ a bot-pushed tag does **not** trigger workflows | would have tagged a version and built **no image**, all green. Dispatch step added in #28. |
+| **server v3.123.3 prod roll** | released, prod runs **3.123.2** — the 53 adiona playbooks stay unrunnable until it lands. **Owner's call.** |
+| `attribute_schema` | still fully inert. **Wire-or-delete is the owner's call.** |
+
+⚠ **I reported an "org-wide Actions outage" and was wrong** — travel had simply had no
+pushes. Corrected by checking a repo that *had* just been pushed.
+
+catalog#27 · travel#140 · catalog#28 (blocked)
 
 ## 🔴 NEGATION PASS — what "done" was not, and what now closes it
 
