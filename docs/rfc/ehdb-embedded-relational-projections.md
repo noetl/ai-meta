@@ -104,7 +104,7 @@ entire reason to take the dependency — so the recommendation no longer holds.*
 | **(a) Build on the existing EHDB tier primitives** ⭐ | **Recommended.** `ehdb-l0` already describes itself as a *"replicated object-store layer: immutable parts + ClickHouse-style meta-catalog + hot-local/durable-async tiering… **noetl-internal only (fixed datasets)**"*. That is this RFC's philosophy, already written down and shipped. `StoreTier` is already a code-defined enum (`Eventlog`, `Projection`) — **adding a relation is adding a variant, which is literally "a new version of EHDB"**. There is also an existing KV tier (`ehdb/kv.rs`) with `mirror_put` / `serve_primary_cycle`. **Zero new dependencies.** |
 | (b) Embedded KV crate — `redb` / `sled` / `fjall` | Sound, and `redb` in particular is a good fit (pure Rust, single file, typed tables, secondary indexes by convention). But none is in the dependency tree today, and it duplicates tiering, replication and the fold/comparator machinery that `ehdb-l0` already provides. Take this only if (a) proves structurally unable to carry keyed reads. |
 | (c) SQLite / DuckDB | **Withdrawn.** Justified only by a query engine that is no longer required. |
-| (d) Spanner Omni | Still not embedded; still a database you operate. Conceptual reference only. |
+| (d) A self-hostable distributed SQL engine | Still not embedded; still a database you operate. Conceptual reference only. |
 
 **Recommendation: (a).** `StoreTier` becomes the code-defined relation registry; each
 relation gets a typed accessor module; the existing tier service, mirror, and
@@ -119,9 +119,9 @@ into a per-node local projection**. Reads are local. No consensus.
 
 This works here specifically because ordering is *already solved*: the event-log
 tier is `primary` and serving, `global_sequence` is a total order, and the
-cross-store comparator reports 8,476 events compared with 0 divergence. Spanner
-spends per-transaction Paxos establishing what the event log has already
-established — so the expensive part is simply absent.
+cross-store comparator reports 8,476 events compared with 0 divergence. A
+consensus-per-transaction design spends Paxos rounds establishing exactly what the
+event log has already established — so here the expensive part is simply absent.
 
 The correctness proof also already exists: `canonical_state_digest` and the
 6-verdict `ReFoldVerdict` vocabulary were built to assert that two independent folds
