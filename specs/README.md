@@ -11,6 +11,21 @@ before the code.
 - `archive/<slug>/spec.md` — specs that shipped (or were abandoned, noted as
   such) with every Acceptance Criteria bullet resolved.
 
+## Where a spec lives
+
+**File = truth. Issue = tracking. Wiki = reading room.**
+
+- **File** (canonical) — repo-specific specs live in the owning repo's
+  `specs/`; cross-repo and general specs live here in ai-meta's `specs/`.
+- **Issue** — one coordination issue per spec in `noetl/ai-meta`, opened from
+  the *Spec coordination* template. It links to the file and carries status,
+  task breakdown, and PR links. It is not the spec.
+- **Wiki** — [`docs/wiki/Specs-Index.md`](../docs/wiki/Specs-Index.md),
+  published as the ai-meta wiki's **Specs Index**, is the browsable map. It
+  indexes; it does not copy.
+
+See [`agents/rules/spec-locations.md`](../agents/rules/spec-locations.md).
+
 ## Rules
 
 See [`agents/rules/spec-driven-development.md`](../agents/rules/spec-driven-development.md).
