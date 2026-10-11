@@ -1,0 +1,57 @@
+# C2 shard-election RBAC — noetl/ai-meta#460.  NOT APPLIED.
+#
+# Three objects, namespace-scoped.  Reviewed before apply per
+# agents/rules/apply-safety.md; `kubectl diff -f` first.
+#
+# ⚠⚠ The `delete` verb is ABSENT ON PURPOSE.  Deleting a Lease discards
+# `leaseTransitions`, so the next acquisition re-mints epoch 1 — and a REUSED
+# epoch is worse than no epoch, because the store then accepts a superseded
+# writer as current.  There is no operational need for it: a lease lapses on its
+# own via `leaseDurationSeconds`.
+#
+# ⚠ Bound to a DEDICATED ServiceAccount, not to `default`.  The writer is
+# currently the only workload in `noetl` running as `default`, so binding there
+# would grant lease create/update to every pod in the namespace that defaults its
+# SA — for a Role whose entire purpose is mutual exclusion of writers, the wrong
+# shape of mistake.
+#
+# ⚠ No `iam.gke.io/gcp-service-account` annotation.  `default` has none either,
+# and the writer reads no GCP credentials (0 GCP env vars of 36, three PVC mounts
+# and nothing else), so this is GCP-identity equivalent to today.  Reusing an
+# existing named SA (`noetl-worker` → noetl-worker-mcp@, `noetl-server-rust` →
+# noetl-result-tier@) would instead hand the writer a cloud identity it does not
+# need.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: noetl-cmdbus-writer
+  namespace: noetl
+  labels:
+    app.kubernetes.io/name: noetl-cmdbus-writer
+    app.kubernetes.io/component: ehdb-writer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ehdb-shard-election
+  namespace: noetl
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    # create: first holder ever.  update: the compare-and-swap that IS the mutual
+    # exclusion.  get/list/watch: read the current holder and its epoch.
+    verbs: ["get", "list", "watch", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ehdb-shard-election
+  namespace: noetl
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ehdb-shard-election
+subjects:
+  - kind: ServiceAccount
+    name: noetl-cmdbus-writer
+    namespace: noetl
