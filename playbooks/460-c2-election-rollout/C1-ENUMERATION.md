@@ -147,3 +147,93 @@ Worth its own issue against noetl/ehdb regardless of the C2/C3 arc.
 - ❌ "Every mutation passes the fence" is **not achievable**: two traits mutate
   durable state and the fence decorates one.
 - ⛔ **C3 is blocked on §3**, before any availability trade is even considered.
+
+---
+
+# ⛔ 2026-10-12 — C1 COMPLETED, AND IT FAILS THE C3 GATE
+
+The enumeration above asked which mutators of the fenced trait are guarded. That
+was the wrong question to stop at. The right one — **which paths the prod writer
+actually uses** — has a worse answer.
+
+## The fence is not on the live write path at all
+
+`FencedSharedBackend` exists only inside `build_durable_stack`, which is reached
+only from `EventLogStorageBackend::DurableSegment`:
+
+```rust
+EventLogStorageBackend::DurableSegment => { … let stack = build_durable_stack(env, contract)?; … }
+```
+
+That requires `NOETL_EHDB_EVENTLOG_BACKEND=durable_segment`. On the prod writer
+that variable is **ABSENT** (so is `NOETL_EHDB_ENABLED`). And the live bus paths
+never mention the trait:
+
+| file | `SharedSegmentBackend` | `build_durable_stack` | `L0Engine`/`FeedWriter` |
+| :-- | --: | --: | --: |
+| `command_bus.rs` | **0** | **0** | 7 |
+| `event_bus.rs` | **0** | **0** | 8 |
+
+The command bus and event bus write through `L0Engine` + `FeedWriter` over
+`LocalFsSubstrate` — i.e. through `DurableSubstrate`, which
+[`fencing.rs` mentions zero times](#2-durable-state-mutated-outside-the-fence--substantial-and-excluded-by-other-means).
+
+## ⭐ Measured on prod, with a denominator, and without a roll
+
+`metrics_server.rs:171` renders the fencing block when
+`fencing != Off || checked > 0`. Prod has `fencing == Off` **and the block is
+absent**, so the second disjunct is false too — therefore `writes_checked == 0`.
+Against that, the same writer's own counters:
+
+| | |
+| :-- | --: |
+| `ehdb_l0_appends` (cmdbus engine) | **624** |
+| `ehdb_feed_shard_committed{shard="0"}` | **290,440** |
+| `ehdb_fencing_writes_checked_total` | **0** |
+
+**624 real appends and 290,440 commits have passed through this writer, and not
+one of them was checked by the fence.** That is coverage, not idleness — the
+distinction my kind attempt could not make, because the kind writer showed
+`ehdb_l0_appends 0` and a flat counter there would have proved nothing.
+
+## Full path list for the prod writer
+
+| durable-state mutation | reaches the fence? |
+| :-- | :-- |
+| `L0Engine::append_record*` / `append_writer_assigned*` via `FeedWriter` — the command- and event-bus hot path | ❌ |
+| seal, on append and via `seal_aged_parts` (armed: `NOETL_EHDB_SEAL_MAX_AGE_MS=5000`) | ❌ |
+| manifest `LATEST` (`put_overwrite`) + versioned snapshot (`put_if_absent`) | ❌ |
+| shard cursor commit (`cursor.rs`, `put_overwrite`) | ❌ |
+| `reclaim_orphans` / `apply_retention*` / substrate `delete` | ❌ |
+| tier-service store writes (`:9110`, `NOETL_EHDB_TIER_SERVICE_DIR` set) | ❌ |
+| `run_pending_merges`, `flush_and_wait_uploads` | ❌ |
+| `SharedSegmentBackend::{put_segment, append_segment, put_reclaim_watermark, delete_segment}` | ✅ — **but unreachable on this deployment** |
+
+> **0 of the live durable-mutation paths pass the fence.**
+
+## What arming enforce would actually do
+
+Nothing. The decorator is never constructed, so `guard()` is never called:
+`writes_checked` stays 0, `epoch_advances` stays 0, `stale_observed` and
+`stale_refused` stay 0, and `ehdb_fencing_active` reads **1**.
+
+⚠⚠ A completely inert fence that reports as a healthy one. This is the M5 lesson
+generalised one level up: M5 was *"the guard is on `append_segment` and the
+publish path skips it"*; this is **"the guard is on a backend this deployment
+does not use"**.
+
+⭐ The acceptance table in [`C3-BOUND.md`](C3-BOUND.md) catches it — it requires
+`writes_checked` **climbing** and `epoch_advances ≥ 1`, and neither can happen.
+That gate was written before this was known and it fires correctly.
+
+## What C3 would need
+
+Not an env flip. The epoch check has to sit on the path the writer uses — inside
+`FeedWriter::append` / `L0Engine`'s mutators, or on `DurableSubstrate` — which is
+a design change in ehdb, with its own kind validation. Alternatively the writer
+would have to be moved onto the `durable_segment` backend, which is a far larger
+change than arming a flag.
+
+**C2 is unaffected and remains live**: epoch 1, 3,424 renewals, 0 losses, 0
+errors. The election mints a correct token. There is simply nothing on the write
+path consuming it yet.
