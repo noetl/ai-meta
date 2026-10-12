@@ -89,6 +89,60 @@ kubectl --context "$PROD" auth can-i create leases.coordination.k8s.io \
   -n noetl --as=system:serviceaccount:noetl:default    # must be: no
 ```
 
+## P1.5 — ⚠ kind validation FIRST (this was missing from my first draft)
+
+`agents/rules/deployment-validation.md`: any change that ships in a container
+image is validated on the local kind cluster **before** GKE. My first version of
+this playbook went straight from RBAC to the prod roll, which skips the rule.
+
+⚠ Validate **the image CI built**, not a locally-built equivalent. The gate is
+about the artefact that will be deployed; a different build is a different
+artefact, and the whole point of the A/B digest discipline is that those are not
+interchangeable.
+
+kind already has the full topology — `sts/noetl-cmdbus-writer` (container
+`noetl-worker`, `imagePullPolicy: Never`, no `serviceAccountName`, no Leases), so
+it is the same shape as prod.
+
+```bash
+K="--context kind-noetl"
+TAG=ghcr.io/noetl/worker:6.4.0            # ⚠ GHCR tags carry NO v-prefix
+crane pull "$TAG" /tmp/worker-640.tar --platform linux/arm64   # kind here is arm64
+kind load image-archive /tmp/worker-640.tar --name noetl
+
+kubectl $K -n noetl apply -f playbooks/460-c2-election-rollout/rbac.yaml
+kubectl $K -n noetl patch sts noetl-cmdbus-writer -p '{"spec":{"template":{"spec":{"serviceAccountName":"noetl-cmdbus-writer","containers":[{"name":"noetl-worker","image":"<loaded-ref>"}]}}}}'
+kubectl $K -n noetl rollout status sts/noetl-cmdbus-writer --timeout=300s
+```
+
+**The positive control, in three readings** — this is the rehearsal's real value,
+because it is the only place the full absent→zero→non-zero transition can be
+observed without risking prod:
+
+| stage | `ehdb_election_*` |
+| :-- | :-- |
+| before the roll (old image) | the new series are **ABSENT** entirely |
+| after the roll, flag off | **present at 0** — proves the new build is running |
+| after `NOETL_EHDB_ELECTION=true` | `epoch ≥ 1`, `token_valid 1`, `errors{forbidden} 0` |
+
+⚠ A single "epoch ≥ 1" reading proves acquisition, not stability. Re-read after
+≥ 10 renew intervals: `outcomes_total{outcome="renewed"}` must climb while
+`epoch` stays **constant**.
+
+Also assert the API-server side, which the scrape cannot fake:
+
+```bash
+kubectl $K -n noetl get lease -o custom-columns=\
+'NAME:.metadata.name,HOLDER:.spec.holderIdentity,TRANS:.spec.leaseTransitions'
+```
+
+⭐ And the one test only kind can safely run: **delete the writer pod** and watch
+a new holder appear with `leaseTransitions` incremented by exactly 1 — the
+restart/identity behaviour that the per-process uuid exists for, proven on a real
+API server rather than in a unit test.
+
+Proceed to P2 only when all three readings and the Lease cross-check hold.
+
 ## P2 — the single combined roll (SA + image together) ⚠ owner-gated
 
 One patch, so one roll. `IMG` is the **digest** of the release that contains
