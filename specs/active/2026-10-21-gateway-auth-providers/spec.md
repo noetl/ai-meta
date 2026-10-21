@@ -126,18 +126,27 @@ Example for the ranch:
      verified email address for email codes).
    - `{status: "denied", message}`.
 4. On `authenticated` the gateway calls the server
-   (`POST /api/auth/session`, new, internal, authenticated with the
-   gateway's service credential). The server upserts `auth.users` keyed by
-   `"<provider>|<subject>"` (stored in the existing `auth0_id` column, so
-   identity binding (`uid` / `user_uid`) keeps working as `provider|sub`),
-   records `app`, creates `auth.sessions` (token, expiry from
-   `session_hours`), and returns `{session_token, expires_at, user}`.
+   `POST /api/auth/provider-session` (new), sending its own key in
+   `X-NoETL-Auth-Mint` (`NOETL_AUTH_MINT_KEY`, ≥ 32 bytes, held by the
+   gateway and the server only; not `NOETL_INTERNAL_API_TOKEN`, which the
+   workers hold and workers run tenant playbooks; key unset = 404). The
+   server upserts `auth.users` keyed `ap:<provider>|<subject>` in the
+   existing `auth0_id` column (Auth0 subjects are `strategy|id` with no
+   `:`, so no collision; identity binding keeps working), creates
+   `auth.sessions` with a 64-hex-char random token and expiry from
+   `session_hours` (1–2160), and returns `{session_token, expires_at,
+   user}`. `auth.users.email` is UNIQUE: an email already used by another
+   identity is refused (`email_in_use`), never merged, so verifying a
+   mailbox can't take over an existing (e.g. admin) account. The provider
+   must report `email_verified: true`. Provider users start with no roles.
+   No schema migration.
 5. The gateway caches the session (as login does) and responds
    `{status: "authenticated", session_token, expires_at, user}`. Only this
    HTTP response carries the token.
-6. Validation (`auth_middleware`, cache → server validate) is unchanged,
-   except that the validated session now includes `app`, and `Policy` uses
-   the app's playbook list.
+6. Validation (`auth_middleware`, cache → server validate) is unchanged.
+   The gateway derives the session's `app` from its user key: `ap:<p>|…`
+   with `p` a configured provider → that provider's `app`; anything else
+   (Auth0 users) → no app. `Policy` uses the app's playbook list.
 7. `POST /api/auth/logout` (new, generic): deletes the session (server)
    and evicts it from the cache.
 
@@ -179,8 +188,11 @@ Example for the ranch:
       session token that works on `/graphql` and `/events`, and the
       playbook's own result in execution history contains no session
       token.
-- [ ] The user row is keyed `provider|subject`; a second sign-in with the
-      same subject reuses it; `uid`/`user_uid` binding uses that key.
+- [ ] The user row is keyed `ap:provider|subject`; a second sign-in with
+      the same subject reuses it; `uid`/`user_uid` binding uses that key; an
+      email already used by another identity is refused (`email_in_use`).
+- [ ] `/api/auth/provider-session` is 404 with `NOETL_AUTH_MINT_KEY` unset
+      and 403 without the right `X-NoETL-Auth-Mint`.
 - [ ] A session of app A can execute A's `GATEWAY_APP_USER_PLAYBOOKS` and
       gets 403 for a playbook only on `GATEWAY_USER_PLAYBOOKS` or app B's
       list; an Auth0 session without an app is unaffected.
@@ -199,10 +211,9 @@ Example for the ranch:
 
 1. noetl-tools: rhai crypto/random functions; keep `auth:` on pipeline
    tasks. Release; bump the worker pin.
-2. Server: `POST /api/auth/session` (internal; upsert user by
-   `provider|subject`, app, session with expiry), `POST /api/auth/logout`,
-   `app` in validate output. Migration: `auth.users.app` (nullable),
-   `auth.sessions.app` (nullable).
+2. Server: `POST /api/auth/provider-session` (mint key; upsert user by
+   `ap:provider|subject`; session with expiry), `POST /api/auth/logout`. No
+   migration (the app is derived in the gateway).
 3. Gateway: config parsing + validation; provider route; system-identity
    execution with internal callback; result contract check; session mint
    via server; cache; `app` on `UserContext`; `Policy` per-app allowlist;
