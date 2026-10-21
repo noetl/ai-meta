@@ -1,6 +1,6 @@
 ---
 spec: 2026-10-21-gateway-auth-providers
-status: draft
+status: approved
 created: 2026-10-21T05:30:00Z
 owner: claude (for kadyapam)
 ---
@@ -56,8 +56,8 @@ done in playbooks.
 
 ## Non-Goals
 
-- No account linking UI. Same-email identities from different providers
-  are separate users unless an Open Question below decides otherwise.
+- No account linking. Same-email identities from different providers are
+  separate users.
 - No passwords. No SMS in this change (cost, 10DLC registration, SMS
   pumping); a provider playbook could add it later.
 - No MFA, no device management.
@@ -215,16 +215,18 @@ Example for the ranch:
 
 ## Open Questions
 
-- [ ] Same email from two providers (Google and email code): separate
-      users (proposed), or one user keyed by verified email?
-- [ ] Session lifetime for ranch guests: 30 days (proposed) or shorter?
-- [ ] Where the email-code state lives: the site's Firestore (proposed,
-      tenant data stays in the tenant's store) or a platform table?
-- [ ] Should the existing Auth0 login become an `auth0` provider in this
-      change, or later (proposed: later; keep `/api/auth/login` as is)?
-- [ ] Admins: should a provider-created user ever get the `admin` role, or
-      only Auth0 users (proposed: roles stay manual in `auth.user_roles`,
-      for any user)?
+All resolved with the user on 2026-10-21:
+
+- [x] Same email from two providers: **separate users**, keyed
+      `provider|subject`. Merging can be added later.
+- [x] Session lifetime for ranch guests: **30 days** (`session_hours: 720`).
+- [x] Email-code state: **the site's Firestore** (tenant data stays in the
+      tenant's store); the platform stores nothing for it.
+- [x] Existing Auth0 login: **unchanged in this change**; re-expressing it
+      as an `auth0` provider is a follow-up once this path is proven.
+- [x] Admins: roles stay manual in `auth.user_roles` for any user;
+      provider-created users start with no roles (default, not changed by
+      the user).
 
 ## Verification Plan
 
