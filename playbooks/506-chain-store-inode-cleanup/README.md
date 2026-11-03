@@ -1,6 +1,22 @@
 # Chain-store inode exhaustion on the prod server's `/data` (noetl/ai-meta#506)
 
-**Status: PREPARED, NOT EXECUTED.** Every step that changes prod is marked ⛔ and needs the owner's go.
+**Status: EXECUTED 2026-11-03** (owner-authorized), Steps B–D. Step A, the PVC expansion, was not needed and was not done.
+
+## Result (2026-11-03, 03:41–03:59Z)
+
+| | before | after |
+|---|---|---|
+| `/data` inodes used | 601,621 (92%) | **123,473 (19%)** |
+| `/data` bytes | 3.2G (33%) | 1.3G (14%) |
+| chain partitions | 3,587 | 714 |
+
+- **Selection:** `select_candidates.py 7` found 2,874 partitions last written 7 or more days ago. The status API confirmed every one finished, with 0 skipped. Expected reclaim was 478,148.
+- **Deletion:** `delete_batches.py candidates.txt 7 10 200` ran 16 batches, a canary of 10 then 200 each. Every batch freed **exactly** its predicted `2·events+6`, and no id dropped out on re-check.
+- **After:** `/health` ok, 0 restarts, no ERROR lines. Of the `noetl_chain_populate_total` counters, only `extended` moved (415 → 426, normal traffic).
+- **Untouched:** `noetl.event` and Postgres.
+- **The driver was rehearsed first** on a throwaway kind pod with dummy partitions. The rehearsal covered exact accounting, the young, no-`cov` and absent-id skips, and both stop paths (inode shortfall, failure counter moved).
+
+**Runway after the cleanup:** at about 17.5k inodes/day, 19% reaches the 80% alert in about 3 weeks. Re-run Steps B–D weekly until server ≥ v3.148.0 runs with `NOETL_CHAIN_RETENTION_HOURS` set (noetl/server#549, default OFF, not yet deployed on prod).
 
 ## The problem in one paragraph
 
@@ -114,6 +130,14 @@ Pass condition:
 The id guard accepts digits only, and `cd … || exit 1` means a bad path can't fall through to a delete somewhere else.
 
 ### ⛔ Step D, the rest, in batches of 200 with a pause
+
+`delete_batches.py` runs Steps C and D with every check built in, and is what ran on 2026-11-03:
+
+```bash
+python3 playbooks/506-chain-store-inode-cleanup/delete_batches.py candidates.txt 7 10 200
+```
+
+The manual loop below is the same logic, kept for reading.
 
 ```bash
 tail -n +11 candidates.txt | split -l 200 - batch.
