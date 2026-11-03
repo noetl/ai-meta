@@ -352,3 +352,63 @@ anything below the 24 h step.
 - [#335](https://github.com/noetl/ai-meta/issues/335), [#366](https://github.com/noetl/ai-meta/issues/366), [#367](https://github.com/noetl/ai-meta/issues/367), [#472](https://github.com/noetl/ai-meta/issues/472), [#315](https://github.com/noetl/ai-meta/issues/315), [#235](https://github.com/noetl/ai-meta/issues/235)
 - Code at `noetl/server` v3.147.0: `src/services/event_archive.rs`, `src/handlers/chain_populate.rs`, `src/handlers/ehdb_embedded.rs`, `orchestrate-core/src/state.rs`
 - Callback pattern: `docs/architecture/ephemeral_blueprints.md` in `noetl/docs`
+
+---
+
+## Addendum, 2026-11-03: P0a/P1 done, P0b findings, P2/P3 prep
+
+Append-only. The sections above are unchanged.
+
+### P0a and P1: done
+
+| Item | State |
+|---|---|
+| Inode alerts | Live ([ops#359](https://github.com/noetl/ops/pull/359)): 80% of inodes, and 7-day runway |
+| Chain-store cleanup | Done. 2,874 finished partitions, last written ≥7 days ago, deleted in checked batches. `/data` inodes went from 92% to 19% ([#510](https://github.com/noetl/ai-meta/pull/510)) |
+| Chain-store sweeper | [server#549](https://github.com/noetl/server/pull/549), v3.148.0, `NOETL_CHAIN_RETENTION_HOURS`, default off. Kind-validated. The prod roll belongs to the #504 session (`NOETL_CHAIN_RETENTION_HOURS=168`) |
+| Section 4.4's "must be proven in phase 1" | **Proven.** A chain read of a deleted partition answers "cannot answer" and repopulates from the log to the identical chain. Tested on kind, and against the real `ehdb-l0` store in a unit test |
+
+### P0b finding 1: late events are not observed on prod
+
+`playbooks/506-state-archival-p0b/measure_late_events.py` is read-only and works through the API.
+
+- **Sample:** 594 terminal executions with terminal events between 2026-10-31 03:06Z and 2026-11-03 04:07Z, 37,388 events in all. The window includes a server pod start (2026-11-02 03:30Z).
+- **Result:** **0 executions had any event created after their first terminal event.**
+
+So in normal operation the settle window guards against a rare case, not a common one. That case is #504's (a result held across a server outage), and worker v6.11.2 bounds it at a 120s outage budget. **This supports section 4.2's path to a short window**, with two cautions:
+- **No #504 failure in the sample:** the window had no server restart that produced one, and nothing was rolled during it. Repeat the measurement after the combined roll.
+- **Postgres only:** it reads `noetl.event` through the API, so a late event that never reaches Postgres is invisible to it by construction.
+
+### P0b finding 2: the stuck floor is a bloom false positive (now explained)
+
+`playbooks/506-state-archival-p0b/floor_bloom_check.py` ports `ehdb-l0`'s `Bloom::maybe_contains` and passes a positive control.
+
+- **Where the floor sits:** `373576626014556160` is the `min_sequence` of the oldest part.
+- **What that part holds:** only one cold execution, `373576622495768576` (a `system/scheduled_cleanup` run, COMPLETED 2026-10-27).
+- **Why it pins:** `hot_footprint` places a hot execution in every part whose bloom says *maybe*. Hot `375165889651154944` (completed 2026-11-01 06:15Z) matches that part's 128-bit bloom by chance.
+- **Reproduction:** with the prod manifest (402 parts) and the 495 hot ids, the check reproduces the prod floor exactly.
+- **The next floor is a false positive too:** part `…374120205363716096`, real member `374120205212721152`, false match hot `375500537438674944`. The floor only advances from one false positive to the next, each holding it for about 48h after its holder completes.
+- **Bloom quality is fine:** measured false-positive rate with random ids is 0.0037% (designed for 1%). The floor is a minimum over about 200k tests, so one rare hit on an old part is enough to pin it.
+
+**Falsifiable prediction:** shortly after **2026-11-03 06:15Z** (plus the next 5-minute pass), `noetl_ehdb_retention_floor_sequence` should leave `373576626014556160`. It should land at `374120205363716096` unless the hot set changes in a way that adds a new false match.
+
+**Fix:** [server#550](https://github.com/noetl/server/pull/550), `NOETL_EHDB_FLOOR_EXACT`, default off. Each pass confirms the floor holder by exact read and repeats until the lowest holder is exact. Blooms have no false negatives, so this can only move the floor to where hot data really starts. ⚠ With prune enabled, arming it reclaims the backlog below the corrected floor on the next pass. That is an operator decision.
+
+**Unrelated gauge drift:** `noetl_ehdb_retention_floor_blocked_by_execution` reads 0 on prod while the floor is pinned. The live `prune_pass` sets `noetl_ehdb_retention_floor_sequence` itself and never writes `blocked_by`, which only `export_floor` does. Read the verdict log line `prune pass verdict changed … constrained by N execution(s)` instead.
+
+### P2 prep: replacing the 48h clock
+
+- **The step is config, not code:** `NOETL_EHDB_RETENTION_HOURS` (default 48). Changing it needs a server roll, so it rides the #504 session's rollout train or a later one. It is not done here.
+- **Order:** 48 → 24 is safe now. Finding 1 shows no late events in normal operation, and section 7.2's re-touch is not yet handled, which P3 must fix first.
+- **Going below 24h:** needs P3 merged and finding 1 repeated after a server roll.
+- **Interaction with the floor fix:** a shorter window shrinks the hot set, which shrinks the number of bloom tests. That makes false-positive pins rarer, but only #550 removes them.
+
+### P3 prep: re-touch after archival
+
+**Measured in code (`archive_pass`, v3.148.0):** an execution in the in-process `known_archived` set is never re-examined. On a restart it is re-confirmed by manifest existence only. A late event after archival is therefore present in `noetl.event` and absent from the GCS copy, and the prune floor counts the execution as satisfied. **No authoritative data is lost** (`noetl.event` is append-only). The cold copy is incomplete, and nothing reports it.
+
+**Proposed change** (code, default off, kind-validated like P1):
+1. Record the archived record count (or max `global_sequence`) in the manifest. It already carries digests.
+2. On each pass, for archived executions whose engine extent exceeds the recorded one, re-archive under a new manifest generation, and count `re_touched`.
+3. Until re-archived, the execution is **not** satisfied for the floor.
+4. Add a `re_touched` counter alert, so a playbook that resumes after terminal shows up and can join section 5's hold list.
