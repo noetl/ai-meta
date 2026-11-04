@@ -98,3 +98,9 @@
 [submodule "repos/catalog"]
 	path = repos/catalog
 	url = git@github.com:noetl/catalog.git
+[submodule "repos/ehgraph"]
+	path = repos/ehgraph
+	url = git@github.com:noetl/ehgraph.git
+[submodule "repos/ehgraph-wiki"]
+	path = repos/ehgraph-wiki
+	url = git@github.com:noetl/ehgraph.wiki.git
