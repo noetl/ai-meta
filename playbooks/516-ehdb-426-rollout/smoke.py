@@ -138,11 +138,14 @@ def ranch(label, out):
     if v.get("errors"):
         return False, f"executePlaybook error: {v['errors'][0].get('message')}"
     eid = str(v["data"]["executePlaybook"]["executionId"])
-    reply, d = None, {}
+    reply, d, polls, last_err = None, {}, 0, None
     while time.time() - t0 < 120:
+        polls += 1
         try:
             d = jget(f"{GATEWAY}/noetl/executions/{eid}?page_size=100", auth, timeout=15)
-        except urllib.error.HTTPError:
+        except (urllib.error.URLError, TimeoutError, ValueError) as e:
+            # Record it: a poll error swallowed in silence reads as "no reply".
+            last_err = f"{type(e).__name__}: {getattr(e, 'code', '')} {e}"[:160]
             time.sleep(1.5)
             continue
         reply = find_reply(d)
@@ -154,7 +157,8 @@ def ranch(label, out):
     json.dump({"execution_id": eid, "thread_id": thread, "reply": reply, "status": d.get("status")},
               open(os.path.join(out, f"ranch-{eid}.json"), "w"))
     text = json.dumps(reply)[:160] if reply else ""
-    return reply is not None, f"{eid} thread={thread} status={d.get('status')} wall {wall:.1f}s reply={text}"
+    err = f" polls={polls} last_poll_error={last_err}" if reply is None else ""
+    return reply is not None, f"{eid} thread={thread} status={d.get('status')} wall {wall:.1f}s{err} reply={text}"
 
 
 def main():

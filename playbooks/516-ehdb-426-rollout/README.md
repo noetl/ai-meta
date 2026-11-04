@@ -99,3 +99,32 @@ Embedded mode on a PVC, prod EHDB flags minus GCS. e2e `core`: v3.147.0 baseline
 30/66 green (×2, same set) vs v0.14.10 **30/66, identical set**; restart recovered
 202 active-part records, `seal_failed` 0. ⚠ `tests/storage_tiers_test` OOM-kills
 the 768 MiB kind worker on either image and stalls the queue behind it.
+
+## ✅ Executed 2026-11-04 — complete
+
+The first plan (server v3.151.1, worker v6.11.6) was **stopped by the pre-flight**.
+Prod's embedded `d1_event_log` had an empty live active part beside a stale non-empty
+one below the sealed range, and v0.14.10/11 would have resumed the stale one. The fix
+was ehdb#437 → v0.14.12. What rolled:
+
+| step | image | rollback | smoke after (e2e / travel / ranch) |
+| :-- | :-- | :-- | :-- |
+| server `sts/noetl-server-rust-embedded` 06:08Z | v3.151.2 `server-rust@sha256:166a8536cf235d2fb28becebd95486b98c1a0273707257dfdc2dde92eaa3e216` | `cd6ee866…` (v3.151.0) | 7/7 · PASS · PASS |
+| user `deploy/noetl-worker-rust` 06:53Z | v6.11.7 `noetl-worker-rust@sha256:3f81edaf90c70cc961eaa666e0c1bbe9fae4a080d044976a86236deaba64f629` | `c78ae5725e589406e232aaca97e93c3290e4c3801d7d2dd4c1778992d35f4926` (v6.11.4) | 7/7 · PASS · PASS |
+| `deploy/noetl-worker-system-pool` 07:01Z | v6.11.7 | `8d6b2c69981aeec12b9160639b5b121cf8b3fc87ae3c6385c2d86628c0506635` (v6.11.3) | 7/7 · PASS · PASS |
+| `deploy/noetl-worker-system-pool-shard1` 07:15Z | v6.11.7 | `8d6b2c69…` (v6.11.3) | 7/7 · PASS · PASS |
+| `sts/noetl-cmdbus-writer` 07:27Z | v6.11.7 | `3395fe0c065b66b91044ad0cd6b781515704d26fd70389895497446fc64cb19a` (v6.11.1) | 7/7 · PASS · 1 FAIL, then 5/5 PASS |
+
+Lessons for the next run:
+- **Patch named containers only.** `set image "*=…"` also replaces init containers, and
+  the system pools' `wait-for-api` needs `curl`, which the worker image does not ship
+  (this hit kind).
+- `smoke.py` used to swallow poll errors; it now reports `last_poll_error`. The one
+  writer-era ranch FAIL had COMPLETED on the server, so the read-back failed, not the turn.
+- The writer's restart cost on prod is the election (lease 15 s, failover window 21 s),
+  not recovery. Ready took 23 s.
+- The e2e validator's DB-row checks read 0 on prod (it queries `noetl.event`; the event
+  store is EHDB), so gate on 7/7 COMPLETED.
+
+Test data left by the smoke: e2e catalog prefixes `prod-e2e-516-*`, and ranch threads
+`_smoke-516-*` (delete from the ranch `/admin/` or with `shastaranch/chats/delete`).
