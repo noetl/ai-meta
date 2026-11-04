@@ -111,6 +111,24 @@ Only **one** umbrella remains open:
   them.
 - Tracked at noetl/ai-meta#349 (closed).
 
+### Graph database track — ehgraph
+
+- `repos/ehgraph` (<https://github.com/noetl/ehgraph>, public) is **Event
+  Horizon Graph**: a purpose-built property-graph database planned as a
+  NoETL ecosystem component. It has a durable change log, versioned snapshots,
+  session-scoped shared-memory graphs, and MCP + HTTP access. Its first
+  consumer is qnetmon (network topology). It was created 2026-11-03; the repo
+  holds only an initial `.gitignore` commit (`0b5c95b`).
+- It is a *consumer* of EHDB crates (L0 substrate / immutable parts /
+  manifest) as **libraries**, git-pinned by tag like `repos/catalog` and
+  `repos/signal-mesh`. It does **not** store graph data in EHDB: the ehdb-l0
+  program invariant keeps business/domain data out of EHDB.
+- ⚠ **Spec only.** Nothing is implemented, deployed or enabled. Open point
+  against `agents/rules/self-sufficiency.md`: a session-lived graph-memory
+  service versus an embedded library. This is recorded in the ehgraph spec.
+- Wiki: <https://github.com/noetl/ehgraph/wiki> (`repos/ehgraph-wiki`,
+  `master`; Home page only at `2b932f2`).
+
 ### EHDB platform storage track
 
 - EHDB (`repos/ehdb`) is now the NoETL Event Horizon Database project:
