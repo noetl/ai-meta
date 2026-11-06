@@ -140,3 +140,25 @@ Kind v0.15.0 results: in noetl/server#555.
 - B: scheme-2 parts sized by distinct key (1,024 records → 640 bits).
 - Reads spanning both formats: 3/3 and 60/60 agreed, and again after a restart.
 - False positives: scheme 2 measured 3 / 1,168 (0.26%) with no false negatives. A full filter runs at about 1% by design.
+
+## ehdb v0.15.0 Release A: executed 2026-11-06
+
+Readers on v0.15.0 everywhere; **nothing writes scheme 2** (`EHDB_BLOOM_SCHEME` unset). Each roll was a by-digest patch of the named container only, after a server-side dry-run that showed exactly one hunk (the image).
+
+| order | workload | image | rollback | smoke before → after (e2e / travel / ranch) |
+| :-- | :-- | :-- | :-- | :-- |
+| 1, 04:28Z | `sts/noetl-server-rust-embedded` | v3.151.3 AR `1a4ce455` | v3.151.2 `166a8536` | 7/7 · 18.2 → 19.3 s · 6.6 → 6.9 s |
+| 2, 06:34Z | `noetl-worker-rust` | v6.11.8 `70c36c12` | v6.11.7 `3f81edaf` | 7/7 · 18.7 → 19.9 s · 6.4 → 6.1 s |
+| 3, 06:50Z | `noetl-worker-system-pool` | same | same | 7/7 · 23.0 → 24.5 s · 6.2 → 6.8 s |
+| 4, 07:08Z | `noetl-worker-system-pool-shard1` | same | same | 7/7 · 19.3 → 23.8 s · 6.3 → 8.1 s, back to 6.2–6.7 s by 07:24Z |
+| 5, 07:34Z | `sts/noetl-cmdbus-writer` | same | same | 7/7 · 22.3 → 22.2 s · 7.0 → **FAIL**, then 4.4 / 5.9 / 5.9 s |
+
+- **The system-pool catch-up** was light this time: 2–3 INFO `WAL chain incomplete` no-ops per pool and no stall. ⚠ That line is INFO, not WARN, and a 60 s window misses it.
+- **The step-4 ranch blip** was spread across many step transitions, including in-worker execution on the user pool, and it cleared on its own. The system pools ran only 11 `__orchestrate__` commands in 30 min, so they are not on the ranch path.
+- **The step-5 ranch FAIL is a writer-restart artefact (#523).** The gateway keeps execution ownership in the writer's KV (`:9107`). Its first write after the restart got `early eof`, so that one turn could never be polled. The turn COMPLETED on the server. The same thing happened on the #516 writer roll.
+- **The writer took the lease** at 07:35:00Z (transitions 29 → 30). Every cursor resumed from persisted state.
+- **Every writer still writes legacy blooms:** server `d1_event_log` (12 new parts), cmdbus and eventbus all show 0 `scheme`.
+
+⚠ **Kind's writer `/data` is an `emptyDir`.** A writer roll on kind wipes the bus store and proves nothing about reopening one. Validate a writer image on a PVC: v0.14.12 → v0.15.0 → v0.14.12 → v0.15.0 on one persisted store resumed every cursor from persisted state each time (noetl/worker#395).
+
+**Release B** can start once every reader has soaked on v0.15.0 for 24 h (from 07:34:52Z on 2026-11-06), and only after noetl/ehdb#439 is fixed. B2 also needs the owner's decision.
