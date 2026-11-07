@@ -119,7 +119,9 @@ filter (design 1%).
 - `unreadable` counts one per pass while the flag is OFF. After the roll, which restarts the pod and resets the counter, any `unreadable` is a real failed read, so the check is `== 0`.
 - fake-gcs crash-loops when its Service injects `FAKE_GCS_PORT=tcp://…`. Set `enableServiceLinks: false`.
 
-## ehdb v0.15.0 (bloom scheme 2): rollout plan, staged, not run
+## ehdb v0.15.0 (bloom scheme 2): rollout plan
+
+> **Executed.** Release A on 2026-11-06 and Release B on 2026-11-07; see the two *executed* sections below. The plan is kept as written.
 
 Consumers: `noetl/server` (embedded `d1_event_log`) and `noetl/worker`, which runs the user and system pools and `sts/noetl-cmdbus-writer` (both buses). Both pin ehdb v0.14.12 today.
 
@@ -162,3 +164,102 @@ Readers on v0.15.0 everywhere; **nothing writes scheme 2** (`EHDB_BLOOM_SCHEME` 
 ⚠ **Kind's writer `/data` is an `emptyDir`.** A writer roll on kind wipes the bus store and proves nothing about reopening one. Validate a writer image on a PVC: v0.14.12 → v0.15.0 → v0.14.12 → v0.15.0 on one persisted store resumed every cursor from persisted state each time (noetl/worker#395).
 
 **Release B** can start once every reader has soaked on v0.15.0 for 24 h (from 07:34:52Z on 2026-11-06), and only after noetl/ehdb#439 is fixed. B2 also needs the owner's decision.
+
+## Release B (`EHDB_BLOOM_SCHEME=2`): executed 2026-11-07
+
+**Scheme 2 is live on prod.** The server's embedded stores and both buses now seal scheme-2 blooms.
+
+### Gates, as found at 12:40Z
+
+| gate | result |
+| :-- | :-- |
+| 24 h soak on v0.15.0 | ✅ about 29 h. The server and writer pods were recreated at 19:20Z on 2026-11-06 by a GKE Autopilot node drain, on the same image. |
+| ehdb#439 fix in every running reader | ❌ noetl/ehdb#440 was open and unmerged, and in no build |
+| rollback target safe for scheme 2 | ❌ the pinned v3.151.2 / v6.11.7 run v0.14.12, which silently mis-opens a scheme-2 manifest |
+
+The first run stopped there. The unblock path, with authorisation:
+
+1. **Review and merge ehdb#440 → ehdb v0.15.1** (`42374796`). `load_durable_manifest` is the only manifest decode site. The 4 new tests all FAIL with `refuse_if_newer_format` stubbed to `Ok(())`.
+2. **Pre-flight against the stricter open.** Copy every prod `LATEST` and decode it with v0.15.1; all must decode, or the new reader would refuse today's store. A planted `scheme: 3` copy must FAIL, as the negative control.
+
+   | store | version | parts |
+   | :-- | :-- | :-- |
+   | cmdbus `d1_event_log` | v202604 | 101,300 |
+   | eventbus `d1_event_log` | v81740 | 40,868 |
+   | eventkv `d4_kv` | v58 | 29 |
+   | server `d1_event_log` | v4369 | 58 |
+   | server `d8_runtime` | v568 | 284 |
+
+   All five decoded; the planted copy failed.
+3. **Bump and release.** worker#396 → **v6.11.9**: 954 tests. server#558 → **v3.151.4**: 1,821 tests, clippy clean. The server was rebased onto the concurrent ehgraph pin bump #557, and its lock still holds a single `ehdb-l0`. ⚠ v3.151.4 also ships the #556/#557 ehgraph embed, which is OFF.
+4. **Kind**, with the CI images and the writer on a **temporary PVC**: the v0.15.1 stack, then a full B rehearsal, every step e2e 7/7.
+   - Arm the server, then restart it.
+   - Arm the writer, then (a) restart it, (b) un-arm it, (c) roll the image back to v0.15.0 over the scheme-2 store. In (c) the manifest advanced v124 → v142 and kept all 19 scheme-2 parts, so there was no fallback.
+5. **Roll every reader to v0.15.1**, one at a time (below).
+6. **Re-pin the rollback** to server v3.151.4 `6cbf2fb2` and worker v6.11.9 `f866f614`.
+7. **Arm** the server, then the writer.
+
+**Scope.** `EHDB_BLOOM_SCHEME` matters only in a process that seals parts. The worker pools have no `/data` and no PVC, so they are **not armed**.
+
+### Rolls and arms
+
+Each change went through `roll2.sh`: a server-side dry-run, a whole-object diff against live, and a refusal unless the diff is exactly the intended hunk (`image`, or `env: len N -> N+1`). Smoke columns are before → after.
+
+| # | time (Z) | workload | change | e2e | travel | ranch |
+| :-- | :-- | :-- | :-- | :-- | :-- | :-- |
+| 1 | 15:11 | `noetl-worker-rust` | v6.11.9 `f866f614` | 7/7 | 21.5 → 21.2 s | 6.2 → 6.1 s |
+| 2 | 15:20 | `noetl-worker-system-pool` | same | 7/7 | 21.2 → 20.1 s | 6.1 → 6.2 s |
+| 3 | 15:31 | `noetl-worker-system-pool-shard1` | same | 7/7 | 20.1 → 20.4 s | 6.2 → 6.1 s |
+| 4 | 15:43 | `sts/noetl-server-rust-embedded` | v3.151.4 `6cbf2fb2` | 7/7 | 20.4 → 21.0 s | 6.1 → 6.2 s |
+| 5 | 15:51 | `sts/noetl-cmdbus-writer` | v6.11.9 | 7/7 | 21.0 → 21.8 s | **FAIL (#523)**, resamples 7.8 / 5.9 / 5.9 s |
+| B1 | 16:09 | server | `EHDB_BLOOM_SCHEME=2` | 7/7 | 21.1 → 22.3 s | 6.5 → 6.0 s |
+| B2 | 16:34 | writer | `EHDB_BLOOM_SCHEME=2` | 7/7 | 20.2 → 21.7 s | **FAIL (#523)**, resamples 7.7 / 7.6 / 7.5, then 8.0 / 6.2 / 6.0 / 5.7 s |
+
+Rollback targets during the image rolls (1–5) were v6.11.8 `70c36c12` and v3.151.3 `1a4ce455`. During the arms (B1–B2) the rollback is to remove the env var on the same image.
+
+- **System-pool catch-up was heavier than on 2026-11-06.** Pool A logged 27 `WAL chain incomplete` INFO lines over 15:21–15:28, and pool B 22 over 15:32–15:39. Both then went quiet, with 0 ERROR lines, and the e2e that straddled them completed. Pool B started only after pool A was quiet.
+- **Both ranch FAILs are #523.** The gateway logged `failed to record execution owner … early eof`, and both executions are COMPLETED server-side.
+- **Writer restarts:**
+
+  | | lease transitions | fence refusals during takeover | cursors resumed (`origin=persisted`) |
+  | :-- | :-- | :-- | :-- |
+  | image roll (step 5) | 31 → 32 | 10 | cmdbus 409835 |
+  | arm (B2) | 32 → 33 | 12 | cmdbus 410390; feed groups 588914 |
+
+  Neither restart logged a #439 refusal.
+- An audit-log scan showed two `statefulsets.patch` calls on the server at 13:41Z. They were this session's own `--dry-run=server` calls, and the revision was unchanged.
+
+### Scheme 2 confirmed on new parts
+
+`scheme_census.sh` reads `LATEST` off each PVC:
+
+| store | LATEST | parts | scheme 2 | newest 5 |
+| :-- | :-- | :-- | :-- | :-- |
+| server `d1_event_log` | v4402 (16:25Z) | 61 | 1 | newest is scheme 2 |
+| cmdbus `d1_event_log` | v203338 (16:44Z) | 101,667 | 24 | all scheme 2 |
+| eventbus `d1_event_log` | v82458 (16:44Z) | 41,227 | 28 | all scheme 2 |
+| server `d8_runtime`, eventkv `d4_kv` | n/a | n/a | 0 | not sealed since the arm |
+
+The server uses `SEAL_MAX_AGE_SECS=900`, so its first scheme-2 part arrives up to 15 minutes after the arm.
+
+`bloom_fp_check.py` compares part bytes against the bloom; the bus variant reads `/data/<bus>` and checks the scheme-2 parts plus the newest 200 legacy parts:
+
+| store | scheme | parts | false negatives | false positives |
+| :-- | :-- | :-- | :-- | :-- |
+| server d1 | all | 61 | 0 | 0 |
+| cmdbus | 2 | 29 | 0 | 0 / 2,460 |
+| cmdbus | legacy | 200 | 0 | 63 / 16,973 = **0.37%** |
+| eventbus | 2 | 33 | 0 | 0 / 2,798 |
+| eventbus | legacy | 200 | 0 | 34 / 16,971 = **0.20%** |
+
+### State after B
+
+- server v3.151.4, armed;
+- writer v6.11.9, armed;
+- all worker pools v6.11.9, not armed;
+- floor-exact still armed;
+- every pod at 0 restarts and 0 ERROR lines; writer 132m CPU / 719Mi.
+
+⚠⚠ **Rollback = unset `EHDB_BLOOM_SCHEME`.** Never take a reader of these stores below v0.15.0. The pinned images are v0.15.1 builds, which refuse a newer format loudly. Legacy parts age out by retention; nothing rewrites them.
+
+The rule this rollout followed is recorded as ehdb `docs/spec/manifest-format-compat.md` (noetl/ehdb#441).
