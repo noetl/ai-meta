@@ -1,6 +1,6 @@
 # RFC: Mode interop over a live topology, and first-class bidirectional AI/MCP playbooks
 
-- **Status:** Draft. Phase 1 is in review, flag-gated, and OFF by default. Nothing is armed in prod.
+- **Status:** Draft. Phase 1 (noetl/server#560) is in review, flag-gated, and OFF by default. Nothing is armed in prod.
 - **Date:** 2026-11-07
 - **Decision record:** [`docs/decisions/2026-11-07-agent-mcp-tool-kinds-flag-gated.md`](../decisions/2026-11-07-agent-mcp-tool-kinds-flag-gated.md)
 - **Related:** noetl/ai-meta#256 (registration rejects unknown tool kinds), #447 (resource type ≠ tool kind),
@@ -545,7 +545,7 @@ Each phase is independently shippable and flag-gated OFF, and none arms prod.
 
 | Phase | Slice | Repo(s) | Flag(s) | Tests |
 |---|---|---|---|---|
-| **1** *(this PR)* | Server `ToolKind` gains `Mcp` and `Agent`. They are **gated at deserialization**, so registration *and* execute behave exactly as today when off. | server | `NOETL_TOOL_KIND_MCP`, `NOETL_TOOL_KIND_AGENT` (both off) | Off: rejected at registration with the #256 message, and execute-parse fails. On: accepted, round-trips, list form plus nested. `valid_set` hides gated kinds. Flags are independent. |
+| **1** *(noetl/server#560)* | Server `ToolKind` gains `Mcp` and `Agent`. They are **gated at deserialization**, so registration *and* execute behave exactly as today when off. | server | `NOETL_TOOL_KIND_MCP`, `NOETL_TOOL_KIND_AGENT` (both off) | Off: rejected at registration with the #256 message, and execute-parse fails. On: accepted, round-trips, list form plus nested. `valid_set` hides gated kinds. Flags are independent. |
 | 2 | `kind: mcp` end to end in kind: a playbook calls embedded ehgraph `graph.query` through `kind: mcp` (dogfood). McpTool `Authorization` from `auth.credential`; `server: mcp/<path>` resolution; per-step `on_provider_error`. | tools, worker, server, e2e | plus a worker flag for resolution | kind e2e; isError fail/continue both ways |
 | 3 | Topology: `cli`/`daemon` `RuntimeKind`; register `capabilities`; server → ehgraph projection writer plus a TTL sweep; `GET /api/runtime/discover`; `noetl subscribe --register <server>` heartbeat. | ehdb, server, cli | `NOETL_EHGRAPH_TOPOLOGY_WRITER`, CLI `--register` | projection idempotency (same upsert, no version bump), lapse → deactivated, discover join |
 | 4 | `RemoteTask` plus `/api/callbacks` (generalising container-callback) plus an inbox feed subject plus the `noetl-inbox` source; `kind: playbook` `runtime:` target; enrollment JWT. | server, cli, tools | `NOETL_REMOTE_TASKS` | stale/duplicate callback → 202; a token completes one step once; inbox claim/ack/redelivery |

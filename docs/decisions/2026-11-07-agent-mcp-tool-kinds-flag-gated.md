@@ -1,7 +1,7 @@
 # Decision: `mcp` and `agent` become server tool kinds, gated per kind and OFF by default
 
 - **Date:** 2026-11-07
-- **Status:** Proposed (Phase 1 of the RFC; the flags are not armed anywhere)
+- **Status:** Proposed (Phase 1 of the RFC, noetl/server#560; the flags are not armed anywhere)
 - **RFC:** [`docs/rfc/interop-topology-and-ai-mcp-playbooks.md`](../rfc/interop-topology-and-ai-mcp-playbooks.md)
 - **Supersedes in part:** the #256 rule that `agent` and `mcp` are *unknown* tool kinds. The
   rule that **registration must not accept a kind that cannot execute** still stands. This
