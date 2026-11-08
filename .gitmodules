@@ -104,3 +104,6 @@
 [submodule "repos/ehgraph-wiki"]
 	path = repos/ehgraph-wiki
 	url = git@github.com:noetl/ehgraph.wiki.git
+[submodule "repos/noetl.ai"]
+	path = repos/noetl.ai
+	url = git@github.com:noetl/noetl.ai.git
