@@ -1,7 +1,19 @@
 # RFC: A generated, version-aware DSL knowledge base for humans and AIs
 
-- **Status:** Draft. Phase 1 is in review as a server PR. It is flag-gated and OFF by default.
-  Nothing is armed in prod and nothing deploys.
+- **Status:** In progress, as of 2026-11-07. Every flag below is OFF by default, and none is
+  armed in prod.
+  - **Phase 1 merged** (noetl/server#562): the schema, the tool-kind manifest and
+    `/api/dsl/{version,schema,tools}` behind `NOETL_DSL_KB`.
+  - **Phase 2 merged** (noetl/server#563): `POST /api/dsl/validate`, plus
+    `NOETL_CATALOG_PARSE_ON_REGISTER=shadow`. Enforce is not implemented.
+  - **Phase 4 live** (noetl/docs#197): the generated reference at noetl.dev
+    `/docs/reference/dsl/generated/`.
+  - **Phase 5 live on noetl.ai** (noetl/noetl.ai#1, #2): the artifacts and MCP
+    `describe`/`schema`/`validate`. The live upstream is **gated**; see
+    [`2026-11-07-dsl-kb-live-upstream-gated.md`](../decisions/2026-11-07-dsl-kb-live-upstream-gated.md).
+  - **Waitlist** moved to noetl.io (noetl/noetl.io#8).
+  - **Not started:** phase 3 (worker capabilities), phase 6 (the gui generation console) and
+    phase 7.
 - **Date:** 2026-11-07
 - **Decision record:** [`docs/decisions/2026-11-07-dsl-kb-generated-from-orchestrate-core.md`](../decisions/2026-11-07-dsl-kb-generated-from-orchestrate-core.md)
 - **Coordinates with:** [`interop-topology-and-ai-mcp-playbooks.md`](interop-topology-and-ai-mcp-playbooks.md)
