@@ -56,12 +56,12 @@ hand-written docs. noetl.dev should show the same answer to people.
 **Surfaces.**
 
 - **noetl.dev** is docs only. It is generated from releases.
-- **noetl.ai** carries the AI/programmatic face (static artifacts, proxied `/api/dsl/*`, MCP)
-  and the human face (prompt/spec → validated playbook in the console chat). Both are clients of
-  the same server KB and validator.
-- Today noetl.ai is served from **noetl/gui**. Pages project `noetl-ai` holds the simulated
-  landing page; `noetl-console` holds the authenticated console with a live chat to the GCP
-  deployment.
+- **noetl.ai** is served by the new repo **noetl/noetl.ai**. It carries the AI/programmatic face
+  (static artifacts, a pass-through `/api/dsl/*`, MCP) and the human face (prompt/spec →
+  validated playbook). Both are clients of the same server KB and validator.
+  - Its first slice is live on the preview `noetl-ai-kb.pages.dev`.
+  - The live domain still serves the noetl/gui landing and waitlist until a gated cutover.
+- **noetl/gui** remains the control-plane GUI (`console.noetl.ai`).
 
 **Phase 1** is the server-only slice: emit the schema and tool-kind manifest from
 orchestrate-core, add a golden-file guard so it cannot drift, and serve it read-only behind
@@ -445,38 +445,70 @@ write through `mcp/firestore` on the worker service account, into `chat_threads/
 and `users/**`. Browser access is denied by `firestore.rules`. Neither noetl.ai project talks to
 Firestore directly.
 
-**The design, given that.** The backing repo for noetl.ai is noetl/gui, which is already an
-ai-meta submodule (`repos/gui`). The user decides whether the KB surface extends it or gets its
-own repo. Either way, the design keeps the landing page's load-bearing property: an anonymous
-page carries no client that can execute anything.
+**Decision (2026-11-07): the home is a new repo, noetl/noetl.ai** (ai-meta submodule
+`repos/noetl.ai`).
 
-1. **The AI and programmatic face.**
-   - **Static and anonymous-safe.** The machine-readable artifacts are served from noetl.ai:
-     `noetl.ai/schema/v2/playbook.schema.json`, `/schema/v2/<server-version>/…`,
-     `/dsl/manifest.json` and `/llms.txt`. Each release publishes them (§2.7), stamped with the
-     same digest as the API.
-   - **Live.** `noetl.ai/api/dsl/*` (schema, tools, validate) and the KB's MCP tools are Pages
-     Functions. They are thin, read-only proxies to the gateway's `/noetl/dsl/*`, so the answer
-     comes from the deployed server and not from a copy.
-   - **Limits.** `validate` is rate-limited at the edge. It never registers and never executes.
-2. **The human generation face.** The person enters a prompt or a spec and gets a valid
-   playbook.
-   - **Where it runs.** It **extends the existing console chat** (`NoetlPrompt`, Monaco editor,
-     `WidgetRenderer`) at console.noetl.ai, behind its existing auth. It is not a new app.
-   - **How a turn works.** The chat runs a NoETL playbook (`automation/agents/dsl/generate`,
-     dogfooding `kind: agent`/`http`):
-     1. fetch `/api/dsl/schema` + `/api/dsl/tools`;
-     2. generate;
-     3. `POST /api/dsl/validate`;
-     4. repair until valid.
-   - **What the person sees.** The UI shows the `schema_digest` and the tool kinds the answer was
-     grounded on. The YAML opens in the Monaco editor, and every edit is re-validated through the
-     same endpoint. Registration is a separate, explicit step.
-   - **Conversation history.** It persists the same way the travel chat does: a playbook writes
-     to Firestore through `mcp/firestore`, keyed by user. No new browser-side store.
-   - **The landing forge stays simulated.** It is the anonymous teaser. It gains an
-     "open in console" hand-off, and can show the *real* published schema digest from the static
-     artifact.
+- **noetl/gui** stays the deployable GUI of the **control plane** (`console.noetl.ai`, the
+  dashboard on the GCP gateway). It is not part of this plan.
+- **The landing page.** The gui `landing/` coming-soon and waitlist page is the **placeholder**
+  that noetl/noetl.ai eventually replaces, through a gated cutover (below).
+- **"NoETL cloud"** (the productized customer cloud) is a separate future product on its own
+  domain, and is out of scope here.
+
+noetl/noetl.ai keeps the landing page's load-bearing property: an anonymous page carries no
+client that can execute anything. It deploys in the same way (no bundler, `public/` +
+`functions/`, wrangler direct upload) and to an **isolated preview project, `noetl-ai-kb`**
+(`noetl-ai-kb.pages.dev`), until cutover.
+
+1. **The AI and programmatic face** (first slice is live on the preview).
+   - **Static and anonymous-safe.** `public/schema/v2/playbook.schema.json`,
+     `public/dsl/manifest.json`, `public/dsl/source.json` (the server commit and digests) and
+     `public/llms.txt`.
+     - `scripts/sync-artifacts.sh <server-ref>` copies them from a pinned noetl/server commit.
+       They are never hand-edited.
+     - The digest is computed exactly as `dsl::digest` computes it. This is verified: the Python
+       and Rust digests are byte-identical, `sha256:de6519f1…`.
+   - **Live.** Pages Functions pass `/api/dsl/{version,schema,tools,validate}` through, read-only
+     (`functions/_upstream.js`), to `NOETL_DSL_UPSTREAM`, the gateway base exposing the
+     server's `/api/dsl/*`.
+     - When unset, they answer `503 upstream_not_configured`. They never fall back to the copy.
+     - They forward no cookies or credentials.
+     - `validate` has a 256 KB body cap. An edge rate limit comes in Phase 5.
+   - **MCP.** `POST /mcp` serves `initialize` / `tools/list` / `tools/call` for
+     `noetl.dsl.describe` and `noetl.dsl.schema`, backed by the live server. `noetl.dsl.validate`
+     is added with Phase 2. When the interop RFC's server `/api/mcp` lands, these tools move
+     there and `/mcp` becomes a proxy to it.
+2. **The human generation face** is built **in noetl/noetl.ai**, not in the console. Its first
+   slice is a KB explorer page: the version stamp, the tool kinds, and live-vs-static digest
+   agreement. The generation box is present but disabled until the validator exists.
+   - **How a turn works:** prompt or spec, then grounding on `/api/dsl/schema` + `/tools`, then
+     generation, then `POST /api/dsl/validate`, then repair until valid.
+     - Generation runs server-side as a NoETL playbook (`automation/agents/dsl/generate`,
+       dogfooding `kind: agent`/`http`), reached through the same upstream.
+     - The browser never holds a model key.
+   - **What the person sees.**
+     - The UI shows the `schema_digest` and the tool kinds the answer drew from.
+     - The person edits in place, and every edit re-validates through the same endpoint.
+     - A playbook is never shown as valid without a validate pass at the current digest.
+     - Registering is a separate, explicit, authenticated action.
+   - **History.** If kept, history persists through a playbook, the way the travel chat writes
+     Firestore through `mcp/firestore`. There is no browser-side store.
+   - **Access.** Anonymous visitors get grounding and validation; generation is rate-limited.
+     Both are decided in Phase 6.
+
+**Domain cutover (gated, not done).** `noetl.ai` / `www.noetl.ai` stay on the `noetl-ai` project
+(the gui landing page) until the user approves the cutover. That project is live and collects
+signups into the `WAITLIST` KV namespace. The procedure is
+`noetl.ai/docs/cutover.md`:
+
+1. Port the waitlist and feedback Functions, and bind the same KV, or keep the landing on a
+   subdomain.
+2. Deploy into `noetl-ai` (no DNS change, one-click rollback), or move the custom domains to
+   `noetl-ai-kb`.
+3. Set `NOETL_DSL_UPSTREAM`, which needs `NOETL_DSL_KB=true` on a server, a separate approval.
+4. Verify that the digests agree and that a waitlist signup round-trips.
+
+`scripts/deploy.sh` refuses the `noetl-ai` project unless `NOETL_AI_CUTOVER=approved`.
 
 **Version sync.** Both faces read the stamp from the server they proxy, and the static
 artifacts come from the release that produced that server. A mismatch between the static digest
@@ -554,8 +586,9 @@ Each phase is independently shippable and flag-gated OFF, and none arms prod.
 | 2 | `POST /api/dsl/validate` (dry-run register + `parse_playbook`, rule-tagged errors). `NOETL_CATALOG_PARSE_ON_REGISTER=off\|shadow\|enforce` with a would-reject metric. CLI `noetl validate --server`. | server, cli | `NOETL_DSL_KB`, `NOETL_CATALOG_PARSE_ON_REGISTER` (off) | validate ≡ register verdict on a corpus; no DB write; shadow never rejects; one test per rule id |
 | 3 | Worker `capabilities` (rides interop Phase 3): tool kinds, versions, features, schema digests. noetl-tools `json-schema` feature on `*Config` + examples. Server intersection → `executable`; `GET /api/dsl/tools/{kind}`; build-time dependency pins (ehgraph/ehdb). | tools, worker, server | worker `NOETL_WORKER_REPORT_CAPABILITIES`, server `NOETL_DSL_KB` | an expired lease drops a kind to `accepted_not_executable`; per-pool intersection; digest mismatch flagged |
 | 4 | Publishing: release assets; **noetl.dev** (docs only) generator + dispatch/nightly PR job; `?format=llm`; CLI `noetl schema` converges on core + a superset cross-check. | server, tools, docs, cli | none (docs) | the generator is deterministic; the docs build passes; CLI ⊇ core on the corpus |
-| 5 | **noetl.ai, AI face:** static artifacts (`/schema/v2/…`, `/dsl/manifest.json`, `/llms.txt`) published per release; `noetl.ai/api/dsl/*` Pages Functions that proxy read-only to gateway `/noetl/dsl/*`; edge rate limit on validate. Plus MCP: `noetl.dsl.{describe,schema,validate}` + `noetl://dsl/*` on the interop Phase 5 endpoint. | noetl.ai repo (today noetl/gui `landing/`; the user decides), gateway, server | `NOETL_MCP_SERVER` (interop's); the proxy is deployed only once Phase 2 is on in the target env | the static digest equals the live digest after a release; the proxy never forwards a non-`dsl` path; an MCP session can list, fetch, validate and register; validate never executes |
-| 6 | **noetl.ai, human face:** prompt/spec → playbook in the console chat (`NoetlPrompt` + Monaco). A `automation/agents/dsl/generate` playbook runs grounding → generation → validate-repair; the UI shows the digest and kinds used; editing re-validates; register is explicit; history goes to Firestore via `mcp/firestore`. The landing forge stays simulated and links into it. | gui (console), ops/playbooks, server | console feature flag `VITE_DSL_GENERATE` (off) | a generated playbook is never shown as valid without a validate pass at the current digest; an edit invalidates the badge until re-validated; no anonymous path reaches generation |
+| 5 | **noetl.ai, AI face:** static artifacts (`/schema/v2/…`, `/dsl/manifest.json`, `/llms.txt`) published per release; `noetl.ai/api/dsl/*` Pages Functions that proxy read-only to gateway `/noetl/dsl/*`; edge rate limit on validate. Plus MCP: `noetl.dsl.{describe,schema,validate}` + `noetl://dsl/*` on the interop Phase 5 endpoint. | **noetl/noetl.ai** (first slice live on preview `noetl-ai-kb`), gateway, server | `NOETL_MCP_SERVER` (interop's); the proxy is deployed only once Phase 2 is on in the target env | the static digest equals the live digest after a release; the proxy never forwards a non-`dsl` path; an MCP session can list, fetch, validate and register; validate never executes |
+| 6 | **noetl.ai, human face:** prompt/spec → playbook UI in noetl/noetl.ai. A `automation/agents/dsl/generate` playbook (server-side, through the same upstream) runs grounding → generation → validate-repair; the UI shows the digest and kinds used; editing re-validates; register is explicit and authenticated. | noetl.ai, ops/playbooks, server | the generation box ships disabled; enabled only after Phase 2 is on upstream | a generated playbook is never shown as valid without a validate pass at the current digest; an edit invalidates the badge until re-validated; the browser holds no model key |
+| 6b | **noetl.ai domain cutover** (gated, user-approved): waitlist/feedback + `WAITLIST` KV carried over, or the landing moved to a subdomain; deploy into `noetl-ai` or move the domains. | noetl.ai, Cloudflare | `NOETL_AI_CUTOVER=approved` on the deploy script | digest agreement live vs static; a waitlist round-trip; rollback to landing deploy `80b7f11` |
 | 7 | Plug-in manifests: `noetl.plugin.json` at module registration; `wasm:<path>@<ver>` in the KB; `input` validated against the plug-in schema. `tool-kind-request` template. | server, worker, tools | `NOETL_PLUGIN_MANIFESTS` | a plug-in without a manifest stays opaque (back-compat); a malformed input is rejected at validate |
 
 **Why Phase 1 is the smallest safe slice.**

@@ -39,6 +39,12 @@
 7. **Served over the API, behind a flag.** `/api/dsl/*` is read-only and mounted only when
    `NOETL_DSL_KB=true`. The MCP exposure rides the interop RFC's endpoint as fixed helper tools.
 
+8. **Surfaces by domain.** noetl.dev is docs only. noetl.ai is the service: the AI/programmatic
+   face and the human generation face, both clients of the same KB and validator. It lives in
+   the new repo **noetl/noetl.ai** (preview `noetl-ai-kb.pages.dev`). noetl/gui stays the
+   control-plane GUI. Moving the live noetl.ai domain off the gui landing/waitlist page is a
+   separate, user-approved cutover.
+
 ## Consequences
 
 - No prod change. The flag is absent from every manifest. With it off, no route is mounted and
