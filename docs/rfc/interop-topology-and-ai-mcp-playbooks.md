@@ -372,15 +372,21 @@ Generalise the container path (§1.4) into `POST /api/callbacks/{task_id}`:
    flatten catch-all (`playbook.rs`, `extra: HashMap`) already carries `endpoint`, `server`,
    `method`, `tool` and `arguments` through to the worker unchanged. The worker's registry
    dispatches by kind string.
-2. **`server: mcp/<path>` resolves against the catalog `kind: Mcp` resource** at command-build
-   time on the server (`spec.url`, `protocol`). This removes the env-var-per-server convention,
-   and makes the ehgraph resource `mcp/ehgraph/noetl-cluster` callable by path.
-3. **Authentication.** `auth: { credential: <alias> }` resolves through the worker's existing
-   credential path into an `Authorization` header. That needs McpTool header support, a
-   noetl-tools change.
-4. **Per-step error policy.** `on_provider_error: fail | continue` per step, replacing the
-   global `NOETL_PROVIDER_ERROR_TERMINATES` for MCP steps, so `isError` handling is a decision
-   the author makes.
+2. **`server: mcp/<path>` resolves against the catalog `kind: Mcp` resource** (`spec.url`).
+   This removes the env-var-per-server convention, and makes the embedded graph callable by
+   path. *(Phase 2, noetl/worker#397: resolved **on the worker at dispatch**, not at
+   command-build time on the server. Commands are also built by the off-server orchestrate
+   drive, and the worker is the one place every `mcp` command passes. Unregistered or
+   non-`Mcp` resources fail the step terminally; a catalog outage retries.)*
+3. **Authentication.** `auth:` resolves through the worker's existing credential path into an
+   `Authorization` header, and `headers:` may carry `{{ keychain.<alias>.<field> }}` templates.
+   *(Phase 2: done in the worker, not noetl-tools, because the worker is exact-pinned to
+   tools `=4.0.1` (#330). A worker `mcp` tool sends the headers, and delegates unchanged to
+   tools' `McpTool` when a step sets neither. The result names the headers sent
+   (`sent_headers`), never their values.)*
+4. **Per-step error policy.** `on_provider_error: fail | continue` per step overrides the
+   global `NOETL_PROVIDER_ERROR_TERMINATES`, so `isError` handling is a decision the author
+   makes. *(Phase 2: with `fail`, an `mcp` transport failure counts too.)*
 5. **Long-running MCP calls.** If the server answers a `tools/call` with a task handle or
    progress token, McpTool returns `pending_callback` and the completion arrives through
    `/api/callbacks` (§2.4).
@@ -546,7 +552,7 @@ Each phase is independently shippable and flag-gated OFF, and none arms prod.
 | Phase | Slice | Repo(s) | Flag(s) | Tests |
 |---|---|---|---|---|
 | **1** *(noetl/server#560)* | Server `ToolKind` gains `Mcp` and `Agent`. They are **gated at deserialization**, so registration *and* execute behave exactly as today when off. | server | `NOETL_TOOL_KIND_MCP`, `NOETL_TOOL_KIND_AGENT` (both off) | Off: rejected at registration with the #256 message, and execute-parse fails. On: accepted, round-trips, list form plus nested. `valid_set` hides gated kinds. Flags are independent. |
-| 2 | `kind: mcp` end to end in kind: a playbook calls embedded ehgraph `graph.query` through `kind: mcp` (dogfood). McpTool `Authorization` from `auth.credential`; `server: mcp/<path>` resolution; per-step `on_provider_error`. | tools, worker, server, e2e | plus a worker flag for resolution | kind e2e; isError fail/continue both ways |
+| **2** *(noetl/worker#397, noetl/server#561, noetl/ops#364)* | `kind: mcp` end to end in kind: a playbook upserts into and reads back from the embedded ehgraph through `kind: mcp` (dogfood). `Authorization` from a keychain alias or header template; `server: mcp/<path>` resolution; per-step `on_provider_error`. | worker, server, ops | none new: inert unless a step uses it; `NOETL_TOOL_KIND_MCP` armed in kind only | kind e2e 23/23: authenticated roundtrip COMPLETED with results on the event log; unauthenticated + `fail` → FAILED |
 | 3 | Topology: `cli`/`daemon` `RuntimeKind`; register `capabilities`; server → ehgraph projection writer plus a TTL sweep; `GET /api/runtime/discover`; `noetl subscribe --register <server>` heartbeat. | ehdb, server, cli | `NOETL_EHGRAPH_TOPOLOGY_WRITER`, CLI `--register` | projection idempotency (same upsert, no version bump), lapse → deactivated, discover join |
 | 4 | `RemoteTask` plus `/api/callbacks` (generalising container-callback) plus an inbox feed subject plus the `noetl-inbox` source; `kind: playbook` `runtime:` target; enrollment JWT. | server, cli, tools | `NOETL_REMOTE_TASKS` | stale/duplicate callback → 202; a token completes one step once; inbox claim/ack/redelivery |
 | 5 | Server MCP endpoint `/api/mcp` plus gateway proxy; `metadata.expose`; `kind: Mcp` `serve: true`; status/result/cancel helpers. | server, gateway | `NOETL_MCP_SERVER` | `tools/list` filtered by `may_execute`; sync/async; SSE completion |
@@ -561,6 +567,17 @@ Each phase is independently shippable and flag-gated OFF, and none arms prod.
   executable**.
 - It unblocks Phase 2's kind e2e, because only `NOETL_TOOL_KIND_MCP` is needed: the worker
   already has `McpTool`.
+
+**Phase 2 result (2026-11-08).** The kind e2e passes 23/23 (`ops ci/kind/e2e_mcp_ehgraph.sh`).
+- The server and worker run `kind: mcp` against the embedded ehgraph `noetl-cluster` MCP endpoint:
+  - the endpoint is found through the catalog;
+  - the call authenticates with a keychain bearer;
+  - the token never reaches the event log.
+- It surfaced a Phase 1 gap, fixed in noetl/server#561. The off-server wasm drive has no environment, so
+  its tool-kind gates read closed, and it refused the `mcp` steps the server had admitted. Admission stays
+  gated where a playbook enters: registration and the server's execute-time parse.
+- One open observation: in 1 of 6 runs, the first execution after a rollout looped on its `noop` `start`
+  step. See the ops BUILD_LOG.
 
 **Do not turn on `NOETL_TOOL_KIND_AGENT` until Phase 6 Stage A ships a worker that registers
 `AgentTool`.** Turning it on earlier reintroduces exactly the #256 failure, a kind that
