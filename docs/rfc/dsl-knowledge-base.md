@@ -187,7 +187,27 @@ of the following registers successfully and fails only when someone runs it:
 The machinery for a validate-before-register loop already exists. It is just not wired into
 registration.
 
-### 1.7 Versions and the plug-in path
+### 1.7 The server's grammar rejects real playbooks that the CLI model accepts
+
+The corpus was every `kind: Playbook` document in fresh clones of e2e and ops, plus the
+server's own `tests/fixtures`: 281 documents, measured on 2026-11-07.
+
+- **Result.** orchestrate-core's `Playbook` deserializes **261** of them and rejects **20**.
+- **The rejections:**
+  - 8 × `ToolDefinition` untagged mismatch;
+  - 7 × missing `tool` (steps that only route);
+  - 2 × `NextSpec` mismatch;
+  - 3 × templated numeric or boolean fields (`lease_seconds: '{{ … }}'`,
+    `max_in_flight: '{{ … | int }}'`).
+- **Prior art.** ai-meta#201 found and fixed the templated-number class in the *CLI* model
+  (`TemplatableI64`/`TemplatableF64`). It was never carried to the server's model.
+
+The generated schema mirrors the server exactly. Validated offline with `jsonschema`
+(draft 2020-12), it accepts all 261 documents the core accepts and rejects all 20 it rejects. So
+the KB reports the real gap instead of hiding it. Whether the server grammar should widen to
+match is a separate decision (§5).
+
+### 1.8 Versions and the plug-in path
 
 - **Versions.** The server reports its own version as `noetl_server_build_info{version}`
   (`metrics.rs:862`). The release workflow stamps `CARGO_PKG_VERSION` from the tag.
@@ -461,7 +481,7 @@ Each phase is independently shippable and flag-gated OFF, and none arms prod.
 
 | Phase | Slice | Repo(s) | Flag | Tests |
 |---|---|---|---|---|
-| **1** | orchestrate-core `json-schema` feature + `dsl` module: the gated schema and the tool-kind manifest. Committed artifacts + a golden freshness test. Server `GET /api/dsl/{version,schema,tools}`, read-only, stamped, ETag. | server | `NOETL_DSL_KB` (off: routes not mounted → 404) | golden schema/manifest byte-equality; schema `ToolKind` enum == `ToolKind::ALL` under ALL_ON and hides gated kinds under OFF; digest changes iff gates change; every real fixture playbook that `parse_playbook` accepts validates against the schema; routes 404 when off, 200 when on |
+| **1** | orchestrate-core `json-schema` feature + `dsl` module: the gated schema and the tool-kind manifest. Committed artifacts + a golden freshness test. Server `GET /api/dsl/{version,schema,tools}`, read-only, stamped, ETag. | server | `NOETL_DSL_KB` (off: routes not mounted → 404) | golden schema/manifest byte-equality; schema `ToolKind` enum == `ToolKind::ALL` under ALL_ON and hides gated kinds under OFF; digest changes iff gates change; manifest ≡ `ToolKind::parse_with` oracle; ETag/304; flag strict; route in `PUBLIC_BY_DESIGN`. Corpus agreement (§1.7) measured offline in the PR, and becomes a CI test with the Phase 2 validator |
 | 2 | `POST /api/dsl/validate` (dry-run register + `parse_playbook`, rule-tagged errors). `NOETL_CATALOG_PARSE_ON_REGISTER=off\|shadow\|enforce` with a would-reject metric. CLI `noetl validate --server`. | server, cli | `NOETL_DSL_KB`, `NOETL_CATALOG_PARSE_ON_REGISTER` (off) | validate ≡ register verdict on a corpus; no DB write; shadow never rejects; one test per rule id |
 | 3 | Worker `capabilities` (rides interop Phase 3): tool kinds, versions, features, schema digests. noetl-tools `json-schema` feature on `*Config` + examples. Server intersection → `executable`; `GET /api/dsl/tools/{kind}`; build-time dependency pins (ehgraph/ehdb). | tools, worker, server | worker `NOETL_WORKER_REPORT_CAPABILITIES`, server `NOETL_DSL_KB` | an expired lease drops a kind to `accepted_not_executable`; per-pool intersection; digest mismatch flagged |
 | 4 | Publishing: release assets; noetl/docs generator + dispatch/nightly PR job; static `/schema/v2/…`; `?format=llm`; CLI `noetl schema` converges on core + a superset cross-check. | server, tools, docs, cli | none (docs) | the generator is deterministic; the docs build passes; CLI ⊇ core on the corpus |
@@ -488,5 +508,8 @@ Each phase is independently shippable and flag-gated OFF, and none arms prod.
    a strict "generation profile" schema for AIs, so they generate a subset of what parses.
 3. **Lagging artifacts.** If `cli/schema/playbook.schema.json` is kept during convergence,
    should its `$id` move now, to stop two artifacts claiming one URL?
-4. **The executable layer for CLI-only runs.** Local `noetl run` has no worker. Should the CLI
+4. **The 20 rejected playbooks (§1.7).** Should orchestrate-core adopt the CLI model's
+   templatable numerics and tool-less routing steps? That would be a grammar widening, with its
+   own PR and its own regenerated artifact. Or are those fixtures stale?
+5. **The executable layer for CLI-only runs.** Local `noetl run` has no worker. Should the CLI
    report its own registry as a runtime?
