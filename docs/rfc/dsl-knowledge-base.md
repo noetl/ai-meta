@@ -415,7 +415,7 @@ set. The guardrail applies to internal and external generators alike.
   generated reference. The generated pages carry a "generated from server vX / tools vY — do not
   edit" banner.
 - **The canonical schema URL.** The schema is also served statically at
-  `https://noetl.dev/schema/v2/playbook.schema.json` (plus `…/<server-version>/…`). The `$id`
+  `https://noetl.ai/schema/v2/playbook.schema.json` (noetl.ai is the machine-readable home, §2.8; noetl.dev only renders the human view) (plus `…/<server-version>/…`). The `$id`
   becomes that URL. The CLI's `noetl schema` converges on the same artifact (Phase 4): it depends
   on `noetl-orchestrate-core` with `json-schema` instead of emitting from its own model. A
   cross-check test asserts the CLI document model accepts a superset of what the core accepts.
