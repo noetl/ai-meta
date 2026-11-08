@@ -39,11 +39,10 @@
 7. **Served over the API, behind a flag.** `/api/dsl/*` is read-only and mounted only when
    `NOETL_DSL_KB=true`. The MCP exposure rides the interop RFC's endpoint as fixed helper tools.
 
-8. **Surfaces by domain.** noetl.dev is docs only. noetl.ai is the service: the AI/programmatic
-   face and the human generation face, both clients of the same KB and validator. It lives in
-   the new repo **noetl/noetl.ai** (preview `noetl-ai-kb.pages.dev`). noetl/gui stays the
-   control-plane GUI. Moving the live noetl.ai domain off the gui landing/waitlist page is a
-   separate, user-approved cutover.
+8. **Surfaces by domain.** noetl.dev is docs only. noetl.ai (noetl/noetl.ai) is the AI/service
+   surface and the shared KB. The human generation console lives in noetl/gui
+   (`console.noetl.ai`) as a client of that KB. The waitlist moved to noetl.io on the same KV
+   store.
 
 ## Consequences
 
