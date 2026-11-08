@@ -1,0 +1,1 @@
+- 2026-11-07 DSL-KB: RFC + 3 ADRs (#542); P1 server#562, P2 server#563 merged (chore, no release); P4 docs#197 live on noetl.dev; noetl.ai = noetl/noetl.ai flipped (rollback noetl-ai deploy b5fd2f3a), P5 MCP validate live; waitlist -> noetl.io#8 (KV intact). Live /api/dsl upstream GATED (ADR 2026-11-07-dsl-kb-live-upstream-gated).
