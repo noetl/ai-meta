@@ -60,4 +60,6 @@ Items 1–3 are CLI-only and cleanly independent of 4. Item 4 can run in paralle
 | # | Branch / PR | State |
 |---|---|---|
 | 1 | cli `feat/local-playbook-result`, noetl/cli#103 | PR open, tests green, unmerged |
-| 2–9 | — | not started |
+| 5 | server `feat/mcp-server-playbooks` (noetl/server#564), gateway `feat/mcp-proxy-may-execute` (noetl/gateway#65) | PRs open, unit/integration green, kind e2e pending; flags `NOETL_MCP_SERVER` / `GATEWAY_MCP_PROXY` off |
+| 2, 4 | — | held for an owner decision (2) / blocked on #330 (4) |
+| 3, 6–9 | — | not started |
