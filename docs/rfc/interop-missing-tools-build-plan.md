@@ -65,4 +65,27 @@ Items 1–3 are CLI-only and cleanly independent of 4. Item 4 can run in paralle
 | 2 | cli `feat/local-reject-unsupported-kinds` (noetl/cli#104) | approved by the owner (no opt-out); PR open, tests green; `feat!` → semantic-release cuts noetl 6.0.0 on merge |
 | 4 | — | blocked on #330 |
 | 7 | server `feat/agent-endpoint-callbacks` (noetl/server#565, stacked on #564) | PR open, tests green, kind e2e pending; flag `NOETL_AGENT_ENDPOINT` off, callbacks need `NOETL_AGENT_CALLBACK_ORIGINS`. Durable `/api/callbacks` (Phase 4) and a gateway `/noetl/agents` route are follow-ups |
-| 3, 6, 8, 9 | — | not started |
+| 9 | server `feat/instance-registry-discovery` (noetl/server#566, stacked on #565), cli `feat/instance-register-discover` (noetl/cli#105) | PRs open, tests green incl. a cross-binary CLI↔server e2e; kind e2e pending; flags `NOETL_INSTANCE_REGISTRY`, `NOETL_EHGRAPH_TOPOLOGY_WRITER` off. See "Item 9 as built" |
+| 3, 6, 8 | — | not started |
+
+## Item 9 as built (2026-11-09)
+
+Prioritised by the owner as the central goal: NoETL instances, from a single box up to separate
+clusters, register, discover each other and hand off work, using outbound calls only on the
+instance side.
+
+| Sub-piece | State | Notes |
+|---|---|---|
+| Instance identity | **REAL** | ML-DSA-87 (RustCrypto `ml-dsa =0.1.2`, not independently audited); id = `ni-` + hex(SHA-256(pk))[..16]; FIPS 204 context `noetl-instance/v1`; CLI and server share a test vector |
+| Signed requests | **REAL** | purpose + audience + ts + nonce; replay cache fails closed; trust allowlist, default nobody |
+| Register + heartbeat (outbound) | **REAL**, soft state | `POST /api/instances/register` is idempotent; lease from `NOETL_RUNTIME_TTL_SECS` (D8's rule); `noetl instance register` / `serve` |
+| Discover API | **REAL** | signed `POST /api/instances/discover`; gated `GET /api/runtime/instances`; filters: tool kind, pool, site, label, playbook glob, runtime kind, accepts_tasks, liveness |
+| Instance graph | **REAL** behind `NOETL_EHGRAPH_TOPOLOGY_WRITER` | ehgraph `noetl-cluster` through `graph.upsert` / `graph.deactivate`: `registered_with`, `in_pool`, `can_run`, `knows`, `delegated_to`; tested against a real embedded graph |
+| Pull-based handoff | **REAL**, soft state | submit → target long-polls inbox → local run → signed result → submitter polls or gets item 7's callback; leased claims, redelivery, stale results ignored |
+| D8 mirror (`cli` / `daemon` kinds) | TARGET | ehdb `RuntimeKind` change; moves the three ehdb pins |
+| Durable inbox (EHDB feed subject) | TARGET | in-memory board today |
+| Enrollment JWT (RFC §4) | TARGET | self-certifying ids + allowlist instead, for now |
+| Gateway `/noetl/instances` route; push delivery; `kind: playbook` `runtime:` target | TARGET | |
+
+Decisions recorded on noetl/server#566: identity scheme, allowlist vs enrollment, separate registry
+vs D8, route shape.
