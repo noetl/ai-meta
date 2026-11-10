@@ -58,17 +58,22 @@ Items 1–3 are CLI-only and cleanly independent of 4. Item 4 can run in paralle
 
 ## Status
 
-| # | Branch / PR | State |
-|---|---|---|
-| 1 | cli `feat/local-playbook-result`, noetl/cli#103 | PR open, tests green, unmerged |
-| 5 | server `feat/mcp-server-playbooks` (noetl/server#564), gateway `feat/mcp-proxy-may-execute` (noetl/gateway#65) | PRs open, unit/integration green, kind e2e pending; flags `NOETL_MCP_SERVER` / `GATEWAY_MCP_PROXY` off |
-| 2 | cli `feat/local-reject-unsupported-kinds` (noetl/cli#104) | approved by the owner (no opt-out); PR open, tests green; `feat!` → semantic-release cuts noetl 6.0.0 on merge |
-| 4 | — | blocked on #330 |
-| 7 | server `feat/agent-endpoint-callbacks` (noetl/server#565, stacked on #564) | PR open, tests green, kind e2e pending; flag `NOETL_AGENT_ENDPOINT` off, callbacks need `NOETL_AGENT_CALLBACK_ORIGINS`. Durable `/api/callbacks` (Phase 4) and a gateway `/noetl/agents` route are follow-ups |
-| 9 | server `feat/instance-registry-discovery` (noetl/server#566, stacked on #565), cli `feat/instance-register-discover` (noetl/cli#105) | PRs open, tests green incl. a cross-binary CLI↔server e2e; kind e2e pending; flags `NOETL_INSTANCE_REGISTRY`, `NOETL_EHGRAPH_TOPOLOGY_WRITER` off. See "Item 9 as built" |
-| 3, 6, 8 | — | not started |
+Updated 2026-11-10 to merged and rolled state. Releases: noetl-server **v3.156.2**, gateway
+**v3.21.0**, noetl CLI **6.0.0**. Every server surface is off by default in code; the prod values
+below are the owner's rollout of 2026-11-10 (v3.156.1, then v3.156.2).
 
-## Item 9 as built (2026-11-09)
+| # | PRs | State |
+|---|---|---|
+| 1 | noetl/cli#103 | **Merged** → cli 5.6.0 (noetl-executor 0.14.0). Opt-in field, no flag |
+| 2 | noetl/cli#104 | **Merged** → cli **6.0.0** (breaking: unsupported kinds refused at load, no opt-out) |
+| 5 | noetl/server#564, noetl/gateway#65 | **Merged** → server 3.154.0, gateway 3.21.0. **Rolled to prod** in server v3.156.2; `NOETL_MCP_SERVER` **enabled on prod** |
+| 7 | noetl/server#565 | **Merged** → server 3.155.0. **Rolled to prod**; `NOETL_AGENT_ENDPOINT` **enabled on prod**. `NOETL_AGENT_CALLBACK_ORIGINS` is **empty**, so every callback is refused; polling `GET /api/agents/tasks/{id}` works. Durable `/api/callbacks` (Phase 4) and a gateway `/noetl/agents` route are still follow-ups |
+| 9 | noetl/server#566, #570, noetl/cli#105 | **Merged** → server 3.156.0 (+ 3.156.1 sweep fix), cli 5.7.0. **Rolled to prod**; `NOETL_INSTANCE_REGISTRY` **enabled on prod**; `NOETL_EHGRAPH_TOPOLOGY_WRITER` **live on prod** (the writer was enabled 2026-11-10; #570 quiets the empty-namespace sweep warning it exposed). `NOETL_INSTANCE_TRUSTED_IDS` is **empty**, so no instance can register yet |
+| — | noetl/server#571 | **Merged** → server 3.156.2: embedded ehgraph pinned to `f200516` (Cypher, transactions, subgraph fix). Store format unchanged |
+| 4 | — | **In progress.** Blocked on [#330](https://github.com/noetl/ai-meta/issues/330) (worker unpin from `noetl-tools =4.0.1`), which is being completed now; no worker PR merged yet |
+| 3, 6, 8 | — | **In progress:** the all-runtimes MCP/agents completion (`kind: mcp` locally, `framework: remote` / `mcp_servers:`, agents on KEDA pools). Nothing merged yet |
+
+## Item 9 as built (2026-11-09; rolled to prod 2026-11-10)
 
 Prioritised by the owner as the central goal: NoETL instances, from a single box up to separate
 clusters, register, discover each other and hand off work, using outbound calls only on the
@@ -80,7 +85,7 @@ instance side.
 | Signed requests | **REAL** | purpose + audience + ts + nonce; replay cache fails closed; trust allowlist, default nobody |
 | Register + heartbeat (outbound) | **REAL**, soft state | `POST /api/instances/register` is idempotent; lease from `NOETL_RUNTIME_TTL_SECS` (D8's rule); `noetl instance register` / `serve` |
 | Discover API | **REAL** | signed `POST /api/instances/discover`; gated `GET /api/runtime/instances`; filters: tool kind, pool, site, label, playbook glob, runtime kind, accepts_tasks, liveness |
-| Instance graph | **REAL** behind `NOETL_EHGRAPH_TOPOLOGY_WRITER` | ehgraph `noetl-cluster` through `graph.upsert` / `graph.deactivate`: `registered_with`, `in_pool`, `can_run`, `knows`, `delegated_to`; tested against a real embedded graph |
+| Instance graph | **REAL**, live on prod (`NOETL_EHGRAPH_TOPOLOGY_WRITER`) | ehgraph `noetl-cluster` through `graph.upsert` / `graph.deactivate`: `registered_with`, `in_pool`, `can_run`, `knows`, `delegated_to`; tested against a real embedded graph |
 | Pull-based handoff | **REAL**, soft state | submit → target long-polls inbox → local run → signed result → submitter polls or gets item 7's callback; leased claims, redelivery, stale results ignored |
 | D8 mirror (`cli` / `daemon` kinds) | TARGET | ehdb `RuntimeKind` change; moves the three ehdb pins |
 | Durable inbox (EHDB feed subject) | TARGET | in-memory board today |
