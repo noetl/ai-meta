@@ -60,12 +60,12 @@ Items 1–3 are CLI-only and cleanly independent of 4. Item 4 can run in paralle
 
 | # | Branch / PR | State |
 |---|---|---|
-| 1 | cli `feat/local-playbook-result`, noetl/cli#103 | PR open, tests green, unmerged |
-| 5 | server `feat/mcp-server-playbooks` (noetl/server#564), gateway `feat/mcp-proxy-may-execute` (noetl/gateway#65) | PRs open, unit/integration green, kind e2e pending; flags `NOETL_MCP_SERVER` / `GATEWAY_MCP_PROXY` off |
-| 2 | cli `feat/local-reject-unsupported-kinds` (noetl/cli#104) | approved by the owner (no opt-out); PR open, tests green; `feat!` → semantic-release cuts noetl 6.0.0 on merge |
+| 1 | noetl/cli#103 | merged 2026-11-10 (cli 5.6.0) |
+| 5 | noetl/server#564, noetl/gateway#65 | merged 2026-11-10 (server 3.154.0, gateway 3.21.0); kind e2e green (noetl/ops#365); prod: `NOETL_MCP_SERVER` ON since 2026-11-10 (inert until a playbook opts in), `GATEWAY_MCP_PROXY` off |
+| 2 | noetl/cli#104 | merged 2026-11-10 → **noetl 6.0.0** (crate, tarballs, deb/apt, brew all published) |
 | 4 | — | blocked on #330 |
-| 7 | server `feat/agent-endpoint-callbacks` (noetl/server#565, stacked on #564) | PR open, tests green, kind e2e pending; flag `NOETL_AGENT_ENDPOINT` off, callbacks need `NOETL_AGENT_CALLBACK_ORIGINS`. Durable `/api/callbacks` (Phase 4) and a gateway `/noetl/agents` route are follow-ups |
-| 9 | server `feat/instance-registry-discovery` (noetl/server#566, stacked on #565), cli `feat/instance-register-discover` (noetl/cli#105) | PRs open, tests green incl. a cross-binary CLI↔server e2e; kind e2e pending; flags `NOETL_INSTANCE_REGISTRY`, `NOETL_EHGRAPH_TOPOLOGY_WRITER` off. See "Item 9 as built" |
+| 7 | noetl/server#565 | merged 2026-11-10 (server 3.155.0); kind e2e green; prod: `NOETL_AGENT_ENDPOINT` ON (no callback origins → every callback refused). Durable `/api/callbacks` and a gateway `/noetl/agents` route are follow-ups |
+| 9 | noetl/server#566, noetl/cli#105 merged 2026-11-10 (server 3.156.0, cli 5.7.0); next slices open: server #567 → #568 → #569 (stacked), cli#106, gateway#66 | kind e2e green; prod: `NOETL_INSTANCE_REGISTRY` ON (empty allowlist → nobody admitted). Topology-writer standup staged, not applied (noetl/ops#367). See "Item 9 as built" |
 | 3, 6, 8 | — | not started |
 
 ## Item 9 as built (2026-11-09)
@@ -83,9 +83,12 @@ instance side.
 | Instance graph | **REAL** behind `NOETL_EHGRAPH_TOPOLOGY_WRITER` | ehgraph `noetl-cluster` through `graph.upsert` / `graph.deactivate`: `registered_with`, `in_pool`, `can_run`, `knows`, `delegated_to`; tested against a real embedded graph |
 | Pull-based handoff | **REAL**, soft state | submit → target long-polls inbox → local run → signed result → submitter polls or gets item 7's callback; leased claims, redelivery, stale results ignored |
 | D8 mirror (`cli` / `daemon` kinds) | TARGET | ehdb `RuntimeKind` change; moves the three ehdb pins |
-| Durable inbox (EHDB feed subject) | TARGET | in-memory board today |
-| Enrollment JWT (RFC §4) | TARGET | self-certifying ids + allowlist instead, for now |
-| Gateway `/noetl/instances` route; push delivery; `kind: playbook` `runtime:` target | TARGET | |
+| Durable inbox | **REAL** in PR (server#567) behind `NOETL_INSTANCE_STORE=postgres` | write-through to `noetl.instance_tasks` (rev-guarded upsert), board rebuilt before routes serve; Postgres, not an EHDB feed subject, for this slice |
+| Enrollment tokens (replace the pure allowlist) | **REAL** in PR (server#568, cli#106) behind `NOETL_INSTANCE_TRUST=enroll` | operator-minted one-time/n-use tokens (hash stored), redeemed with a signed `enroll` envelope; revoke; persisted with the store flag. Opaque tokens, not JWTs |
+| Push delivery | **REAL** in PR (server#569, cli#106) behind `NOETL_INSTANCE_PUSH=true` + origin allowlist | per-registration push bearer; failed push → back to the pull inbox |
+| Gateway route for instances | **REAL** in PR (gateway#66) behind `GATEWAY_INSTANCE_PROXY=on` | 8 signed routes passed through, operator routes never exposed, rate-limited |
+| Topology writer in prod | **STAGED** (ops#367), not applied | embedded ehgraph + GSM token; kind 11/11 on the same scripts |
+| `kind: playbook` `runtime:` target | TARGET | |
 
 Decisions recorded on noetl/server#566: identity scheme, allowlist vs enrollment, separate registry
 vs D8, route shape.
