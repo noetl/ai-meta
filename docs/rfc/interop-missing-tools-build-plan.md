@@ -63,10 +63,28 @@ Items 1–3 are CLI-only and cleanly independent of 4. Item 4 can run in paralle
 | 1 | noetl/cli#103 | merged 2026-11-10 (cli 5.6.0) |
 | 5 | noetl/server#564, noetl/gateway#65 | merged 2026-11-10 (server 3.154.0, gateway 3.21.0); kind e2e green (noetl/ops#365); prod: `NOETL_MCP_SERVER` ON since 2026-11-10 (inert until a playbook opts in), `GATEWAY_MCP_PROXY` off |
 | 2 | noetl/cli#104 | merged 2026-11-10 → **noetl 6.0.0** (crate, tarballs, deb/apt, brew all published) |
-| 4 | — | blocked on #330 |
+| 3 | noetl/cli#107 (+ noetl/tools#118) | **in PR**: `kind: mcp` on the local runtime and daemon through noetl-tools `McpTool` (auth alias from the local store, `on_provider_error`); catalog `server: mcp/<path>` still refused locally. Unit + local e2e 25/25 |
+| 4 | noetl/worker#398 (+ noetl/tools#118) | **in PR**: #330's worker hold lifted (`noetl-tools =4.5.0`, async-nats 0.47, executor 0.14; no worker code change needed); `AgentTool::for_shared_pool()` behind `NOETL_WORKER_AGENT_TOOL` (claude-code refused); `WorkerMcpTool` delegates to noetl-tools. 1074 tests; kind 32/32 (noetl/ops#369). Prod: flags off |
+| 6 | noetl/tools#118, noetl/cli#107, noetl/worker#398 | **in PR**: `framework: remote` (NoETL agent endpoint, A2A subset) and `mcp_servers:` / `agents:` tool sources answered by the noetl-tools session on every runtime. Playbook-bound agent tools on the cluster remain item 8 |
+| 5, 7 on local / daemon | noetl/cli#108 | **in PR**: `noetl serve` and `noetl subscribe --serve` serve the item 5/7 surface (`POST /mcp`, `/api/agents/*` with callbacks) on the local runtime and the daemon |
 | 7 | noetl/server#565 | merged 2026-11-10 (server 3.155.0); kind e2e green; prod: `NOETL_AGENT_ENDPOINT` ON (no callback origins → every callback refused). Durable `/api/callbacks` and a gateway `/noetl/agents` route are follow-ups |
 | 9 | noetl/server#566, noetl/cli#105 merged 2026-11-10 (server 3.156.0, cli 5.7.0); next slices open: server #567 → #568 → #569 (stacked), cli#106, gateway#66 | kind e2e green; prod: `NOETL_INSTANCE_REGISTRY` ON (empty allowlist → nobody admitted). Topology-writer standup staged, not applied (noetl/ops#367). See "Item 9 as built" |
-| 3, 6, 8 | — | not started |
+| 8 | — | not started |
+
+## MCP + agents across runtimes (2026-11-10)
+
+All PRs open, none merged; no prod change. Release order: noetl/tools#118 (publishes noetl-tools 4.5.0) → lock refresh + merge noetl/cli#107 → #108, noetl/worker#398 → noetl/ops#369.
+
+| Direction | Local (`noetl run`) | Daemon (`noetl subscribe`) | Distributed |
+|---|---|---|---|
+| 1. call an external MCP server | REAL in PR (cli#107), local e2e | REAL in PR, daemon e2e | REAL in PR (worker#398), kind 32/32; prod gate `NOETL_TOOL_KIND_MCP` off |
+| 2. call an external agent / MCP as agent tool | REAL in PR | REAL in PR | REAL in PR, kind; prod gates off. Playbook-bound tools: TARGET (item 8) |
+| 3. playbook as MCP server | REAL in PR (cli#108 `noetl serve`) | REAL in PR (`subscribe --serve`) | REAL (item 5, prod flag on) |
+| 4. playbook as agent with callback | REAL in PR | REAL in PR | REAL (item 7, prod flag on, no callback origins) |
+
+Proof: tools 557 tests (16 new against stubs); cli 330 tests + `tests/e2e/mcp_agents/run.sh` 25/25 (real processes, each direction crossing local ↔ daemon); worker 1074 tests; kind `ci/kind/e2e_agents_mcp_runtimes.sh` 32/32 incl. local → cluster. The kind run found two cluster-only shapes (the server delivers `input:` as `args`, and adds `args: {}` to every tool), fixed in tools#118.
+
+Still TARGET: playbook-bound agent tools on the cluster (item 8); durable tasks for `noetl serve`; gateway route for agents; A2A streaming / push; cluster → local calls (edge pull only). #330's general goal (the release pipeline telling a compatible addition from a breaking one) is unchanged.
 
 ## Item 9 as built (2026-11-09)
 
