@@ -69,7 +69,9 @@ Items 1–3 are CLI-only and cleanly independent of 4. Item 4 can run in paralle
 | 5, 7 on local / daemon | noetl/cli#108 | **in PR**: `noetl serve` and `noetl subscribe --serve` serve the item 5/7 surface (`POST /mcp`, `/api/agents/*` with callbacks) on the local runtime and the daemon |
 | 7 | noetl/server#565 | merged 2026-11-10 (server 3.155.0); kind e2e green; prod: `NOETL_AGENT_ENDPOINT` ON (no callback origins → every callback refused). Durable `/api/callbacks` and a gateway `/noetl/agents` route are follow-ups |
 | 9 | noetl/server#566, noetl/cli#105 merged 2026-11-10 (server 3.156.0, cli 5.7.0); next slices open: server #567 → #568 → #569 (stacked), cli#106, gateway#66 | kind e2e green; prod: `NOETL_INSTANCE_REGISTRY` ON (empty allowlist → nobody admitted). Topology writer (`NOETL_EHGRAPH_TOPOLOGY_WRITER`) applied on prod 2026-11-10 (noetl/ops#367, PR still open). See "Item 9 as built" |
-| 8 | — | not started |
+| 8 | noetl/worker#400, noetl/ops#378 | merged 2026-11-11 (worker 6.14.0): playbook-bound agent tools run as child executions on the pools, with `agent.turn` / `agent.tool_call` / `agent.final` records (noetl.event + EHDB). Kind 27/27. The loop is still one command per step (a lost worker retries from turn 1); orchestrator-driven turns are TARGET. Prod: `NOETL_WORKER_AGENT_PLAYBOOK_TOOLS` off |
+| 7 gateway | noetl/gateway#67 (+ #68), noetl/ops#374, #376 | merged 2026-11-11 (gateway 3.22.0, 3.22.1): `/noetl/agents/*` with per-user card filtering, owner-only tasks, admin-only callbacks; guest sends and guest MCP `tools/call` count against the guest run limits (#68 closed a bypass in `/noetl/mcp`). Kind 27/27. Prod: `GATEWAY_AGENTS_PROXY` off |
+| 5, 7 durable | noetl/cli#109 | merged 2026-11-11 (cli 6.3.0): `noetl serve --task-db FILE` (SQLite): tasks survive a restart, working ones rerun (at-least-once, ≤ 3 starts), owed callbacks delivered. Real SIGKILL e2e 11/11 |
 
 ## MCP + agents across runtimes (2026-11-10)
 
@@ -84,7 +86,7 @@ All PRs open, none merged; no prod change. Release order: noetl/tools#118 (publi
 
 Proof: tools 557 tests (16 new against stubs); cli 330 tests + `tests/e2e/mcp_agents/run.sh` 25/25 (real processes, each direction crossing local ↔ daemon); worker 1074 tests; kind `ci/kind/e2e_agents_mcp_runtimes.sh` 32/32 incl. local → cluster. The kind run found two cluster-only shapes (the server delivers `input:` as `args`, and adds `args: {}` to every tool), fixed in tools#118.
 
-Still TARGET: playbook-bound agent tools on the cluster (item 8); durable tasks for `noetl serve`; gateway route for agents; A2A streaming / push; cluster → local calls (edge pull only). #330's general goal (the release pipeline telling a compatible addition from a breaking one) is unchanged.
+Since 2026-11-11, REAL and merged (flags off in prod): playbook-bound agent tools on the cluster (item 8, worker#400), durable tasks for `noetl serve` (cli#109), the gateway route for agents (gateway#67/#68). Still TARGET: orchestrator-driven agent turns (resume from the turn records), a durable server-side callback inbox, A2A streaming / push, cluster → local calls (edge pull only). #330's general goal (the release pipeline telling a compatible addition from a breaking one) is unchanged.
 
 ## Item 9 as built (2026-11-09; rolled to prod 2026-11-10)
 
