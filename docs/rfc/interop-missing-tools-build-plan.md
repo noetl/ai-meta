@@ -68,7 +68,7 @@ Items 1–3 are CLI-only and cleanly independent of 4. Item 4 can run in paralle
 | 6 | noetl/tools#118, noetl/cli#107, noetl/worker#398 | **in PR**: `framework: remote` (NoETL agent endpoint, A2A subset) and `mcp_servers:` / `agents:` tool sources answered by the noetl-tools session on every runtime. Playbook-bound agent tools on the cluster remain item 8 |
 | 5, 7 on local / daemon | noetl/cli#108 | **in PR**: `noetl serve` and `noetl subscribe --serve` serve the item 5/7 surface (`POST /mcp`, `/api/agents/*` with callbacks) on the local runtime and the daemon |
 | 7 | noetl/server#565 | merged 2026-11-10 (server 3.155.0); kind e2e green; prod: `NOETL_AGENT_ENDPOINT` ON (no callback origins → every callback refused). Durable `/api/callbacks` and a gateway `/noetl/agents` route are follow-ups |
-| 9 | noetl/server#566, noetl/cli#105 merged 2026-11-10 (server 3.156.0, cli 5.7.0); next slices open: server #567 → #568 → #569 (stacked), cli#106, gateway#66 | kind e2e green; prod: `NOETL_INSTANCE_REGISTRY` ON (empty allowlist → nobody admitted). Topology-writer standup staged, not applied (noetl/ops#367). See "Item 9 as built" |
+| 9 | noetl/server#566, noetl/cli#105 merged 2026-11-10 (server 3.156.0, cli 5.7.0); next slices open: server #567 → #568 → #569 (stacked), cli#106, gateway#66 | kind e2e green; prod: `NOETL_INSTANCE_REGISTRY` ON (empty allowlist → nobody admitted). Topology writer (`NOETL_EHGRAPH_TOPOLOGY_WRITER`) applied on prod 2026-11-10 (noetl/ops#367, PR still open). See "Item 9 as built" |
 | 8 | — | not started |
 
 ## MCP + agents across runtimes (2026-11-10)
@@ -86,7 +86,7 @@ Proof: tools 557 tests (16 new against stubs); cli 330 tests + `tests/e2e/mcp_ag
 
 Still TARGET: playbook-bound agent tools on the cluster (item 8); durable tasks for `noetl serve`; gateway route for agents; A2A streaming / push; cluster → local calls (edge pull only). #330's general goal (the release pipeline telling a compatible addition from a breaking one) is unchanged.
 
-## Item 9 as built (2026-11-09)
+## Item 9 as built (2026-11-09; rolled to prod 2026-11-10)
 
 Prioritised by the owner as the central goal: NoETL instances, from a single box up to separate
 clusters, register, discover each other and hand off work, using outbound calls only on the
@@ -98,14 +98,14 @@ instance side.
 | Signed requests | **REAL** | purpose + audience + ts + nonce; replay cache fails closed; trust allowlist, default nobody |
 | Register + heartbeat (outbound) | **REAL**, soft state | `POST /api/instances/register` is idempotent; lease from `NOETL_RUNTIME_TTL_SECS` (D8's rule); `noetl instance register` / `serve` |
 | Discover API | **REAL** | signed `POST /api/instances/discover`; gated `GET /api/runtime/instances`; filters: tool kind, pool, site, label, playbook glob, runtime kind, accepts_tasks, liveness |
-| Instance graph | **REAL** behind `NOETL_EHGRAPH_TOPOLOGY_WRITER` | ehgraph `noetl-cluster` through `graph.upsert` / `graph.deactivate`: `registered_with`, `in_pool`, `can_run`, `knows`, `delegated_to`; tested against a real embedded graph |
+| Instance graph | **REAL**, live on prod (`NOETL_EHGRAPH_TOPOLOGY_WRITER`) | ehgraph `noetl-cluster` through `graph.upsert` / `graph.deactivate`: `registered_with`, `in_pool`, `can_run`, `knows`, `delegated_to`; tested against a real embedded graph |
 | Pull-based handoff | **REAL**, soft state | submit → target long-polls inbox → local run → signed result → submitter polls or gets item 7's callback; leased claims, redelivery, stale results ignored |
 | D8 mirror (`cli` / `daemon` kinds) | TARGET | ehdb `RuntimeKind` change; moves the three ehdb pins |
 | Durable inbox | **REAL** in PR (server#567) behind `NOETL_INSTANCE_STORE=postgres` | write-through to `noetl.instance_tasks` (rev-guarded upsert), board rebuilt before routes serve; Postgres, not an EHDB feed subject, for this slice |
 | Enrollment tokens (replace the pure allowlist) | **REAL** in PR (server#568, cli#106) behind `NOETL_INSTANCE_TRUST=enroll` | operator-minted one-time/n-use tokens (hash stored), redeemed with a signed `enroll` envelope; revoke; persisted with the store flag. Opaque tokens, not JWTs |
 | Push delivery | **REAL** in PR (server#569, cli#106) behind `NOETL_INSTANCE_PUSH=true` + origin allowlist | per-registration push bearer; failed push → back to the pull inbox |
 | Gateway route for instances | **REAL** in PR (gateway#66) behind `GATEWAY_INSTANCE_PROXY=on` | 8 signed routes passed through, operator routes never exposed, rate-limited |
-| Topology writer in prod | **STAGED** (ops#367), not applied | embedded ehgraph + GSM token; kind 11/11 on the same scripts |
+| Topology writer in prod | **APPLIED** 2026-11-10 (ops#367, PR still open; the interop wiring in it is staged) | embedded ehgraph + GSM token; kind 11/11 on the same scripts |
 | `kind: playbook` `runtime:` target | TARGET | |
 
 Decisions recorded on noetl/server#566: identity scheme, allowlist vs enrollment, separate registry
