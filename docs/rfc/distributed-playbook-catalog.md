@@ -342,11 +342,67 @@ Divergences from the draft, decided while building:
 
 | # | Requirement | REAL (built, kind-validated) | TARGET |
 |---|---|---|---|
-| 1 | Distributed discovery | A finds a playbook only B registered, by name, version, digest or `noetl://<B>/…`, then imports it and **executes it on A**. An execute-by-path that misses locally does this automatically for roots. | Running on B instead (item-9 handoff to a server instance); transitive import of children; ehgraph `held_by` nodes |
+| 1 | Distributed discovery | A finds a playbook only B registered, by name, version, digest or `noetl://<B>/…`, then imports it and **executes it on A**. An execute-by-path that misses locally does this automatically for roots. **Since #579 (§12): running it on B (`remote: delegate`); children of an import resolve on its home instance; a remote reference is pinned per root in both modes (kind 50/50, two full runtimes).** | Push completion instead of polling; cancelling across instances; ehgraph `held_by` nodes |
 | 2 | Multiple backends | Local catalog; peer catalogs; `minio+http(s)://`, `s3://`, `gs://`, `az://` via `object_store`. Only the S3 API was exercised in kind (S3Mock); `gs://` and `az://` are built but not run against real buckets. `https://` too. All gated by an allowlist that fails closed. **`db://<alias>/<schema>.<table>?path=&version=`** (credential alias from the server's store; kind 22/22 against an external DB through a read-only role) and **`ehdb://catalog/<id>`** (the EHDB catalog tier record, `content_sha256`-checked) are REAL since #577. | Keychain-alias credentials per object-store source; a keyed `ehdb://` lookup (today a paged scan) |
 | 3 | Discovery mechanism | A per-cluster Mixed bloom (`p:` / `v:` / `d:`) rides the item-9 registration. A probe tests blooms locally and queries only the peers that answer "maybe" (a miss queried 0). The fetch is a signed envelope through the item-9 gate. Direct URI resolution works when a reference names its source. | Gossip of adverts; a central registry (rejected for now, §4.1) |
 | 4 | Dedup | One body per digest (`catalog_blob`); the same body re-registered at a path makes no version; an import is indexed by digest (a second locate by digest is local); every copy keeps its sources (`catalog_source`). | Dropping the per-row `noetl.catalog.content` copy (readers still use it) |
 | 5 | Versioning + pinning + hot reload | The root's `catalog_id` watermark is pinned before `playbook_started`, and every sub-playbook resolves inside it. In kind, a child registered mid-flight did not reach the running tree (and the control showed it did without the flag). `version`/`digest` are honoured. Hot reload works at call boundaries with three controls; in kind a loop moved v1 → v2 mid-run, and was refused without the policy. | Swapping the running playbook's own step graph mid-execution (deliberately not proposed) |
 | 6 | WASM | Prototype: purity check, compile-time refusal of impure playbooks, a module with zero imports that drives orchestrate-core to completion, digest export equal to the catalog digest, hot reload by digest in a fuel-limited host. It **ran on the real worker** via `kind: wasm` and hot-reloaded there (50 → 500). | Worker fuel / wall-clock / memory limits are REAL since worker#399 (default on; kind 16/16). Still TARGET: pure rhai and pipelines; template pre-parse and AOT codegen; auto-routing pure sub-graphs; a compile endpoint |
+
+None of the flags is set in any prod manifest.
+
+## 12. Cross-instance execution: "run it on B" + sub-playbook import (2026-11-11)
+
+A playbook on instance A calls a playbook that instance B holds, by catalog reference: `noetl://<B>/<path>[@v][#sha256:…]` or its import name `peer/<B>/<path>`. Two modes are chosen per step with `remote:` on `kind: playbook` (noetl-tools ≥ 4.6.0), or by `NOETL_CATALOG_REMOTE_MODE`.
+
+| mode | resolution | runs on | result path |
+|---|---|---|---|
+| `import` (default) | Phase 2 `locate`, verified, imported under `peer/<B>/<path>` | A's workers | the usual child execution on A |
+| `delegate` | A asks B (`catalog.resolve`), then sends a signed `catalog.execute` with the **exact digest** | B's workers | A answers `/api/execute` with a call id and `remote.detail_path`. The tool polls `/api/catalog/remote/calls/{id}[/status]`, which A proxies from B (`catalog.execution`). `return_result` / `result_step` are unchanged. |
+
+### 12.1 The pin across instances
+
+B's catalog ids mean nothing on A, and an import lands *after* the root started. So the Phase 1 watermark cannot hold a remote reference by itself:
+
+- **Caller.** `noetl.execution_remote_pin (root_execution_id, reference)` records what a remote reference first resolved to in a tree. Every later call in that tree gets that digest, in both modes and for every spelling (`noetl://`, `peer/`, home-relative). A conflicting explicit digest is refused, never swapped. The first writer wins a race. Direct sources (`gs://`, `db://`, …) in a pinned child are pinned the same way; before this, they were re-fetched on every call.
+- **Owner.** `noetl.catalog_remote_origin (origin_instance, origin_root)` gives every delegated run from one calling root **one** pin on B. So B's own sub-playbooks hold their version across all of A's calls, as if they were one tree on B. A new calling root, or the same root id from another instance, gets a fresh pin. A peer never widens B's policy: there is no hot reload.
+- **A cached import is not the authority.** In a pinned tree a `peer/<B>/…` name goes to the root's remote pin first, then to B. The local import is used, and pinned, only when B cannot answer. The kind run found the bug this rule fixes: a fresh tree ran a leaf an *earlier* tree had imported (v2) while B held v3.
+- **Home-instance resolution.** A bare `x/y` called from `peer/<B>/…` means `peer/<B>/x/y`, never a same-named local playbook.
+
+### 12.2 Flags (all off; all need `NOETL_CATALOG_CAS` + `NOETL_CATALOG_PINNING`)
+
+| flag | side | effect |
+|---|---|---|
+| `NOETL_CATALOG_REMOTE_CALLS` | caller | remote pins, home-instance resolution, `remote: delegate`, `/api/catalog/remote/calls/{id}`; delegation also needs `NOETL_CATALOG_DISCOVERY` |
+| `NOETL_CATALOG_REMOTE_MODE` | caller | `import` (default) or `delegate` when a step does not say |
+| `NOETL_CATALOG_REMOTE_SERVE` | owner | signed `POST /api/catalog/peer/execute` (`catalog.execute`) and `/api/catalog/peer/execution` (`catalog.execution`, answered only to the instance that started the run) |
+| `NOETL_CATALOG_REMOTE_SERVE_ALLOW` | owner | path globs; **fail closed**; `peer/…` is never served onward |
+
+With `NOETL_CATALOG_REMOTE_CALLS` off, `/api/execute` is unchanged, except that `remote: delegate` is refused by name with a 403.
+
+### 12.3 Runtimes
+
+| runtime | status |
+|---|---|
+| distributed (server + worker) | REAL: server 3.161.0 (#579), noetl-tools 4.6.0 (#119), worker 6.15.0 (#401) |
+| CLI local (`noetl run`) and `noetl serve` | They refuse a remote reference **by name** (cli 6.4.0, #110). They have no instance key, peer registry or catalog. Before #110 the path failed as a missing file. Calling another instance from them is TARGET. It would need a key on the CLI, or proxying through a server. |
+
+### 12.4 As built
+
+| PR | release | tests |
+|---|---|---|
+| noetl/server#579 | v3.161.0 | lib 1354; `catalog_remote_postgres` (both sides of the pin, races, refusals, the cache fallback); `catalog_cas_postgres`; auth wiring; orchestrate-core 228 + regenerated DSL manifest (`remote_execution` feature) |
+| noetl/tools#119 | v4.6.0 | 538 lib; `detail_path` honoured only as a same-server `/api/…` path; the #328 child-id guard still holds |
+| noetl/worker#401 | v6.15.0 (re-pin `=4.6.0`) | 1089 |
+| noetl/cli#110 | v6.4.0 | 106 lib incl. a real `PlaybookRunner::run` |
+| noetl/ops#379 | — | **kind 50/50, two full runtimes** (B has its own DB, cmdbus writer, shared and system workers, key and trust list). Delegate: target v1 and B's leaf v1 held across a mid-run v2, under one B pin, with none of B's events in A. Import: v2 held across a mid-run v3, the leaf home-resolved. Fresh roots see the new versions. Negatives: allowlist, bad mode, flag off. |
+
+### 12.5 TARGET
+
+- B pushing completion to A. Today A polls every 2 s per waiting step, through a signed call per poll.
+- Cancelling A's parent cancelling B's run.
+- B's pin uses B's watermark at the first delegated call, not A's start time. Aligning by clock across instances is not attempted.
+- A delegated call has no row in A's event log beyond the parent step's `call.done` (which carries the call id) and `noetl.catalog_remote_call`. An ehgraph edge A-call → B-execution is TARGET.
+- A delegated call is not batchable: `remote: delegate` on `/api/execute/batch` is refused (422).
 
 None of the flags is set in any prod manifest.
