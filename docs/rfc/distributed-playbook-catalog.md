@@ -320,13 +320,17 @@ for compiling rhai steps.
 5. **Bloom transport.** Inside the item-9 registration, not a separate gossip. *Resolved* (§4.3) — **owner review
    welcome**, since it extends `Capabilities` on both server and CLI.
 
-## 11. As built (2026-11-10)
+## 11. As built (2026-11-10; merged 2026-11-11)
 
 | Phase | PRs | Runtime | Tests |
 |---|---|---|---|
 | 1 | noetl/server#572, noetl/ops#371 | server (distributed); the core is pure and wasm32-clean | unit (core 15, service 3), Postgres-gated test against kind's DB, **kind 18/18** |
 | 2 | noetl/server#573 (stacked on #572), noetl/ops#372 | server ↔ server (two control planes) | unit (advert, peer config, FPR, URI builds, key file), **kind 30/30** with two control planes, each with its own DB, key and trust list, plus an S3-API server |
 | 3 | noetl/server#574 (stacked on #573), noetl/ops#373 | server + worker (`kind: wasm`); standalone wasmtime host | core purity tests, 4 native runner tests, `ci/hot_reload.sh` (compile ×2, impure refused, fuel-limited host), **kind 12/12** |
+| follow-up | noetl/worker#399, noetl/ops#375 | worker WASM host: fuel, wall-clock and memory limits, on by default | 10 new tests, worker 1084 pass; **kind 16/16** (spinner and balloon stopped, real drive peak 1.65M fuel of 10e9) |
+| follow-up | noetl/server#577, noetl/ops#377 | `db://` and `ehdb://` resolvers; imports dedup by digest at any version | server 1729 pass, Postgres test; **kind 22/22** against an external library DB and the EHDB catalog tier |
+
+Merged to main 2026-11-11: server #572 → v3.157.0, #573 → v3.158.0, #574 → v3.159.0, #577 → v3.160.0; worker #399 → v6.13.0. Every flag stays off in prod.
 
 Divergences from the draft, decided while building:
 
@@ -339,10 +343,10 @@ Divergences from the draft, decided while building:
 | # | Requirement | REAL (built, kind-validated) | TARGET |
 |---|---|---|---|
 | 1 | Distributed discovery | A finds a playbook only B registered, by name, version, digest or `noetl://<B>/…`, then imports it and **executes it on A**. An execute-by-path that misses locally does this automatically for roots. | Running on B instead (item-9 handoff to a server instance); transitive import of children; ehgraph `held_by` nodes |
-| 2 | Multiple backends | Local catalog; peer catalogs; `minio+http(s)://`, `s3://`, `gs://`, `az://` via `object_store`. Only the S3 API was exercised in kind (S3Mock); `gs://` and `az://` are built but not run against real buckets. `https://` too. All gated by an allowlist that fails closed. | `db://` and `ehdb://` resolvers (parsed, refused by name); keychain-alias credentials per source |
+| 2 | Multiple backends | Local catalog; peer catalogs; `minio+http(s)://`, `s3://`, `gs://`, `az://` via `object_store`. Only the S3 API was exercised in kind (S3Mock); `gs://` and `az://` are built but not run against real buckets. `https://` too. All gated by an allowlist that fails closed. **`db://<alias>/<schema>.<table>?path=&version=`** (credential alias from the server's store; kind 22/22 against an external DB through a read-only role) and **`ehdb://catalog/<id>`** (the EHDB catalog tier record, `content_sha256`-checked) are REAL since #577. | Keychain-alias credentials per object-store source; a keyed `ehdb://` lookup (today a paged scan) |
 | 3 | Discovery mechanism | A per-cluster Mixed bloom (`p:` / `v:` / `d:`) rides the item-9 registration. A probe tests blooms locally and queries only the peers that answer "maybe" (a miss queried 0). The fetch is a signed envelope through the item-9 gate. Direct URI resolution works when a reference names its source. | Gossip of adverts; a central registry (rejected for now, §4.1) |
 | 4 | Dedup | One body per digest (`catalog_blob`); the same body re-registered at a path makes no version; an import is indexed by digest (a second locate by digest is local); every copy keeps its sources (`catalog_source`). | Dropping the per-row `noetl.catalog.content` copy (readers still use it) |
 | 5 | Versioning + pinning + hot reload | The root's `catalog_id` watermark is pinned before `playbook_started`, and every sub-playbook resolves inside it. In kind, a child registered mid-flight did not reach the running tree (and the control showed it did without the flag). `version`/`digest` are honoured. Hot reload works at call boundaries with three controls; in kind a loop moved v1 → v2 mid-run, and was refused without the policy. | Swapping the running playbook's own step graph mid-execution (deliberately not proposed) |
-| 6 | WASM | Prototype: purity check, compile-time refusal of impure playbooks, a module with zero imports that drives orchestrate-core to completion, digest export equal to the catalog digest, hot reload by digest in a fuel-limited host. It **ran on the real worker** via `kind: wasm` and hot-reloaded there (50 → 500). | Worker fuel/epoch limits (the worker host has none, so this blocks real use); pure rhai and pipelines; template pre-parse and AOT codegen; auto-routing pure sub-graphs; a compile endpoint |
+| 6 | WASM | Prototype: purity check, compile-time refusal of impure playbooks, a module with zero imports that drives orchestrate-core to completion, digest export equal to the catalog digest, hot reload by digest in a fuel-limited host. It **ran on the real worker** via `kind: wasm` and hot-reloaded there (50 → 500). | Worker fuel / wall-clock / memory limits are REAL since worker#399 (default on; kind 16/16). Still TARGET: pure rhai and pipelines; template pre-parse and AOT codegen; auto-routing pure sub-graphs; a compile endpoint |
 
 None of the flags is set in any prod manifest.
