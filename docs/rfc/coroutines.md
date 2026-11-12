@@ -1,6 +1,6 @@
 # RFC: coroutines — concurrent units of work inside one execution, on every runtime
 
-Status: **draft for review. Nothing is built; no code PR is open.** Every section labels claims **REAL** (in the code today,
+Status: **accepted 2026-11-12 (leaf units, §11.1). Nothing is built; stage 1 code PRs stay draft.** Every section labels claims **REAL** (in the code today,
 cited) or **TARGET** (proposed here).
 Written 2026-11-12 against `main` of server `62137e65` (v3.161.0), cli `72e8122` (v6.4.0), worker `d1c9584` (v6.15.0),
 tools `c2e75ee` (v4.6.0), noetl `f562374`.
@@ -73,7 +73,7 @@ inherits, §5, and cross-instance delegate, §12), [`interop-missing-tools-build
   - a **playbook unit**: one child execution (`kind: playbook` semantics, `parent_execution_id` set).
 
   A unit does not contain the parent's graph control flow. Branching, back-edges and routing stay in the step graph.
-  Anything that needs its own graph is a playbook unit. (This is the main open decision, §11.)
+  Anything that needs its own graph is a playbook unit. (**Decided 2026-11-12: leaf units.** See §11.1.)
 - A **group** is the set of coroutines one step launches. The step that declares the group is its **owner step**. The
   owner step is complete when the group's **join policy** is satisfied; then its `next` arcs evaluate as today.
 - **Structured concurrency:** every coroutine has exactly one owner (group → owner step → execution). A coroutine cannot
@@ -349,15 +349,16 @@ reuses the original command, never a re-resolved playbook. On the CLI the playbo
 units resolve from local files at spawn time, which is **not** pinned today (the CLI has no catalog pin). Stage 4 caches
 each resolved child body by digest for the run so a unit spawned twice sees the same body.
 
-## 11. Open questions
+## 11. Open questions (1 resolved; 2–6 open)
 
-1. **Leaf units vs. sub-graph units (the main decision).** This RFC makes a coroutine a leaf: a tool or a child
-   playbook. Branch logic stays in the graph and loops-as-goto stays untouched. The cost: running a multi-step branch
-   concurrently means a playbook unit, which pays the measured ~9–15 s child-execution hop on prod (resource model,
-   `kind: playbook`). The alternative is to let a unit be a sub-graph of the same playbook ("run steps a → b → c as one
-   coroutine"). That avoids the hop, but needs branch-scoped variables, a join over graph regions and rules for
-   back-edges that leave the region. Recommendation: leaf now; revisit sub-graph units if the hop cost blocks a real
-   workload.
+1. **Leaf units vs. sub-graph units — RESOLVED 2026-11-12: leaf units.** A coroutine is a single leaf unit: one tool
+   (or one ordered tool list) or one child playbook. It is never a sub-graph of the parent playbook. Branch logic stays
+   in the step graph and loops-as-goto stays untouched.
+   Accepted cost: running a multi-step branch concurrently means a playbook unit, which pays the measured ~9–15 s
+   child-execution hop on prod (resource model, `kind: playbook`).
+   Rejected for now: sub-graph units ("run steps a → b → c as one coroutine"). They would avoid the hop but need
+   branch-scoped variables, a join over graph regions, and rules for back-edges that leave the region. Revisit only if
+   the hop cost blocks a real workload, with measurements.
 2. Should `next` inclusive fan-out + reduce barrier become sugar for a `spawn:` group (one join implementation), or
    stay as is? Today it waits for siblings on failure; `all` is fail-fast.
 3. Should the CLI also make existing `next` fan-out concurrent (matching the cluster), or keep it sequential and only run
