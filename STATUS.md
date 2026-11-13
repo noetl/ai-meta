@@ -5,7 +5,26 @@ History lives in the [ai-meta wiki's Sessions Log](https://github.com/noetl/ai-m
 open work lives in the [`ai-task` issue queue](https://github.com/noetl/ai-meta/issues?q=is%3Aopen+label%3Aai-task).
 This file is the short answer to *"what is in flight right now."*
 
-**Last updated:** 2026-10-05 — **monitoring**
+**Last updated:** 2026-11-13 — **prod server v3.161.2**
+
+## ✅ 2026-11-13 — prod server v3.156.2 → v3.161.2 (cancel fixes)
+
+| | |
+| :-- | :-- |
+| running | **v3.161.2** `server-rust@sha256:e4e49e787baf3927cd7ff7cfa17721f135bd7efef2e985c4838c648faea39cfd`, since 02:50:48Z, 1/1, restarts 0 |
+| rollback pin | **v3.156.2** `server-rust@sha256:1433c32191277c66eae87ccf88b9e708d6c98cf38420f0f14f2b3b620efcec44` |
+| fixes | [server#581](https://github.com/noetl/server/pull/581): the claim is refused once the execution is cancelled. [#583](https://github.com/noetl/server/pull/583): the status lookup and orphan sweep read every cancel spelling. All three read one shared `CANCELLED_EVENT_TYPES` list. |
+| also carried | v3.157–v3.161 catalog features (CAS/pinning, discovery, hot reload, `db://`/`ehdb://`, cross-instance). **All flags unset on prod; no schema change in the range.** |
+| smoke before → after | e2e 7/7 COMPLETED → 7/7 COMPLETED. **Cancel path in prod:** `409 Command already claimed by …` (not refused as cancelled) → `409 Execution has been cancelled`, with no probe claim written |
+| manifest | [ops#380](https://github.com/noetl/ops/pull/380) pins the live digest. It had named `7c0b999d`, so a re-apply would have rolled prod back. The ledger gains v3.156.2 + v3.161.2. |
+
+Rollback: `kubectl -n noetl set image sts/noetl-server-rust-embedded noetl-server=us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/server-rust@sha256:1433c32191277c66eae87ccf88b9e708d6c98cf38420f0f14f2b3b620efcec44`
+
+Open from this roll:
+- **Smoke test data is still on prod.** 16 catalog entries: `prod-e2e-583-{pre,post}-*` and two `prod-smoke-583-*/cancel_probe`. Archiving them needs the internal API token; the executions can't be removed without deleting event-log rows.
+- **Kind validation was skipped** (the kind rust worker was crash-looping; the cluster is shared). A prod before/after smoke was run instead.
+- **`slow statement` WARN every ~5 s:** a filtered execution-list query at ~3.9 s. The code is unchanged in the range; the pre-roll rate isn't confirmed.
+- **Coroutines:** the RFC is accepted (leaf units, [#554](https://github.com/noetl/ai-meta/pull/554)). Stage 1 is a **draft**, [server#582](https://github.com/noetl/server/pull/582), not to be merged before review.
 
 ## 🟢 MONITORING — no agent-actionable work remains
 
