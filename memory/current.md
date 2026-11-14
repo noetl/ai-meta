@@ -136,7 +136,7 @@ Only **one** umbrella remains open:
   way *The Rust Programming Language* documents Rust, with Brown CEL's
   interactive layer (mdbook-quiz quizzes, checkpoints, an event-log
   trace visualizer, runnable examples). Registered as submodule 35 on
-  2026-11-13, pinned at `1d3be03` (book `main` after #1 and #2 merged).
+  2026-11-13, pinned at `85c17ba` (book `main` after #1, #2 and #52 merged).
 - The outline is `src/SUMMARY.md` (9 Parts, 32 chapters, 8 appendices).
   The plan is `docs/BOOK-PLAN.md` (pedagogy, per-chapter goals,
   tooling, authoring order, source map). Both landed in noetl/book#1.
@@ -145,6 +145,11 @@ Only **one** umbrella remains open:
   is spec-driven with GitHub Spec Kit: the spec is in
   `specs/001-noetl-book/`, the constitution in
   `.specify/memory/constitution.md`, and the wiki Spec page is the front door.
+- Phase 0 is done (book#52). The constitution is v1.0.0 and the spec
+  covers 48 items. There is one issue per chapter or task: noetl/book#3–#50,
+  with owner decisions in #51. Labels are type / part / badge / phase /
+  needs-verification / owner-decision / agent-ok. Ready now = the
+  `agent-ok` issues in P0–P2.
 - Every page carries a REAL / PARTIAL / TARGET badge. When a feature
   changes status here, flip the matching chapter's badge
   (BOOK-PLAN §8).
