@@ -348,6 +348,8 @@ It is built from the measured breakdowns already in this org, not from reading c
 [#319](https://github.com/noetl/ai-meta/issues/319) records why that discipline matters: a diagnosis built from a
 10 s retry constant was refuted by the first counter that could say no.
 
+**The staged, PR-able build plan for these fixes is [`latency-reduction-plan.md`](latency-reduction-plan.md)**, tracked in #283 (Stage 0) and #557–#562 (Stages 0b–5).
+
 #### 7.0.1 Evidence base
 
 | Source | Date, environment, build | What it measured |
@@ -392,7 +394,7 @@ mechanisms is from the path above):
 | Segment | Time | What is in it | Dominant contributor |
 |---|---|---|---|
 | `command.completed` → `command.issued` | ~0.46 s | ingest of the completion events, dispatch #1 (orchestrate as a system-pool command), state serve, WASM drive, issue | **the drive is itself a dispatched worker command**: two handoffs per step (#155: 79 % of a probe turn) |
-| `command.issued` → `command.claimed` | ~0.33 s | bus delivery (µs, #205), claim round trip to the server, Postgres command lookup | the claim RTT; in kind before the index it was 559 ms, after it 60 ms (#155) |
+| `command.issued` → `command.claimed` | ~0.33 s | bus delivery (µs, #205), claim round trip to the server, Postgres command lookup | the claim RTT; in kind before the index it was 559 ms, after it 60 ms (#155); on prod the lookup itself was ~54 ms with a fully cached heap (#283), so most of the prod ~0.33 s is the round trip and ingest, to be split by the Stage 0b harness |
 | reporting (`started`, `call.done`, `completed`) | ~0.16 s | three ingest calls per step | Postgres INSERT + feed publish per emit |
 | tool work | 0.02–1.2 s per step | the actual step | — |
 
@@ -484,8 +486,9 @@ predicts **~3–5 s per hop** (GUIDANCE arithmetic; NOT_YET_MEASURED).
   from a global-sequence filter or a feed replay. This removes the 7–10 minute fresh-pod replay and the
   read-timeout → re-drive loop that the 8 s reconcile backstops (PR #355 §1.5, §6.2).
 - **The claim lookup moves off Postgres.** The command is resolved from the bus record it was delivered with.
-- **Estimated gain: ~0.1–0.4 s per step** of today's ~0.95 s: the INSERTs and Postgres claim lookup plus tail and
-  stall removal. The upper end applies only if #283 is still unapplied. TARGET estimate; it must be measured.
+- **Estimated gain: ~0.05–0.15 s per step** of today's ~0.95 s: mostly the per-emit INSERTs (~15–20 ms × ~3), plus the
+  scan and mutex tail. Its larger value is removing the 7–10 minute post-roll stall and the reconcile tail. TARGET
+  estimate; it must be measured.
 
 **What EHDB alone does not fix. Said plainly:**
 - **the two dispatches per step**: the drive is a separate worker command whatever store it reads;
@@ -502,11 +505,11 @@ steps, not the poll, are most of a hop, so step collapse ranks higher.
 
 | Rank | Change | What it removes | Expected impact | Label / dependency |
 |---|---|---|---|---|
-| 0 (do now) | Apply the `noetl.command (event_id)` index on prod (#283) | the claim's partition seq scan | kind: issue → claim 559 → 60 ms, turn 4.8× faster on the probe; prod: up to ~0.3 s per claim, growing with table size | REAL fix, merged (noetl#696), blocked only on an owner-run `GRANT` |
+| 0 (do now) | Apply the `noetl.command (event_id)` index on prod (#283) | the claim's partition seq scan | kind: issue → claim 559 → 60 ms, turn 4.8× faster on the probe; prod: the lookup measured ~54 ms with a cached heap (#283), so expect tens of ms per claim (~1–5 % of a turn) and no further growth with table size | REAL fix, merged (noetl#696), blocked only on an owner-run `GRANT` |
 | 1 | **Collapse deterministic step chains into one run**: compiled WASM in-worker (§7.2 items 1–2) or at the edge (kuksin.us) | every per-step dispatch, claim and lifecycle emit inside the segment; inlines pure children, which removes whole hops | for N fused steps: (N − 1) × ~0.95 s → ~0; a pure child hop → a function call. kuksin.us has zero cluster round trips per step. | REAL engine (`plugins/playbook-wasm`), REAL edge proof; in-worker fusion TARGET |
 | 2 | **Worker-local continuation + in-process tool-list batching.** The worker that finishes a step runs the WASM drive for that execution and claims its own next command when it targets the same pool. An ordered tool list already runs in one command (`task_sequence`). | dispatch #1 (orchestrate as a separate command) and the re-claim | ~0.46 + ~0.33 s → an estimated ~0.1–0.2 s per step | TARGET; needs a per-execution lease so two workers never drive one execution (the #155 single-drive guard generalised) |
 | 3 | **Push completion instead of polling**: a child's terminal event, and B's for delegation, wakes the parent through the event it already emits; the parent's slot is released while waiting (§7.3 item 3) | U(0, 2) s per awaited hop; one signed request per 2 s for delegate; slot-holding deadlock risk | −1 s mean / −2 s max per hop; plus slot capacity back | TARGET; the coroutines RFC (#554) and RFC §12 both list it |
-| 4 | **EHDB state substrate** (PR #355) | the Postgres INSERT per emit; O(global) chain reads; fresh-pod replay; the re-drive / 8 s reconcile tail | ~0.1–0.4 s per step; removes 7–10 minute post-roll stalls and the bistable tail | TARGET; multi-phase migration |
+| 4 | **EHDB state substrate** (PR #355) | the Postgres INSERT per emit; O(global) chain reads; fresh-pod replay; the re-drive / 8 s reconcile tail | ~0.05–0.15 s per step; removes 7–10 minute post-roll stalls and the bistable tail | TARGET; multi-phase migration |
 | 5 | **Warm floors on latency-sensitive pools, scale-to-zero only on cost pools** | node and pod cold start on the first step of a burst | avoids a 60–90 s node wait or a pod start; keeps the current ~138 ms unsaturated claim | DEPLOYED today (min 2); the TARGET is to make it a per-pool choice |
 | 6 | **Group commit on the EHDB append** (ehdb#322) | ~4 ms fsync per record | a few ms per append; mostly a throughput and capacity win (~250 appends/s single-writer ceiling, #319), not per-step latency | owner's durability decision |
 
@@ -518,8 +521,8 @@ All TARGET figures are arithmetic from the measured components above. Each must 
 | State | Orchestration per step | Per awaited hop | Basis |
 |---|---|---|---|
 | Today | **~0.95 s** (MEASURED, 2026-11-02) | ~3–5 s predicted (9–15 s MEASURED in 2026-08) | §7.0.2 |
-| + #283 index | ~0.7–0.9 s | −0.3 s per child step | kind delta, scaled down because prod's claim share is already ~0.33 s |
-| + EHDB state substrate | ~0.5–0.6 s | same, minus the post-roll stalls | §7.0.4 |
+| + #283 index | ~0.9 s | tens of ms per child step | prod lookup ~54 ms → ~1 ms (#283); kind's 559 → 60 ms does not transfer |
+| + EHDB state substrate | ~0.8 s alone; ~0.1–0.25 s on top of worker-local continuation | same, minus the post-roll stalls | §7.0.4 |
 | + worker-local continuation | **~0.15–0.3 s** | child steps × that, + ~0.15 s submit | one dispatch per step instead of two |
 | + push completion | unchanged | **no poll term**; slot released while waiting | §7.0.5 rank 3 |
 | Fused segment / inlined pure child | **< 10 ms per fused step** (in-process call), one boundary per segment | 0 for a pure child | WASM dispatch is in-process once compiled |
