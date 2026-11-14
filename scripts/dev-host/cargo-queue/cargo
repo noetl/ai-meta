@@ -1,0 +1,247 @@
+#!/usr/bin/python3
+"""cargo-queue: machine-wide build semaphore in front of the real `cargo`.
+
+Memory-heavy subcommands (build/test/check/clippy/run/bench/doc/install/...)
+must first take 1 of N global slots; everything else (fmt, metadata, tree,
+--version, ...) passes straight through. Slots are fcntl.flock() locks on
+files in $CARGO_QUEUE_DIR, so a holder that dies (even with SIGKILL) frees
+its slot immediately -- there are no stale locks to clean up.
+
+Env:
+  CARGO_QUEUE_SLOTS=N     concurrent builds allowed (overrides config file)
+  CARGO_QUEUE_DISABLE=1   bypass the queue entirely (emergencies)
+  CARGO_QUEUE_TIMEOUT=s   give up waiting after s seconds (exit 75)
+  CARGO_QUEUE_REAL=path   the real cargo (default: next `cargo` on PATH)
+  CARGO_QUEUE_DIR=path    lock dir (default ~/.cargo-queue/locks)
+Config: ~/.cargo-queue/slots  (one integer; read on every invocation)
+Status: `cargo-queue status`  (or `cargo queue-status`)
+Gate any other heavy command: `cargo-queue run podman build ...`
+"""
+import fcntl, json, os, signal, subprocess, sys, time
+
+HOME = os.path.expanduser("~")
+ROOT = os.path.join(HOME, ".cargo-queue")
+LOCK_DIR = os.environ.get("CARGO_QUEUE_DIR", os.path.join(ROOT, "locks"))
+DEFAULT_SLOTS = 2
+GATED = {"build", "b", "test", "t", "check", "c", "clippy", "run", "r", "bench",
+         "doc", "d", "install", "rustc", "rustdoc", "fix", "nextest", "llvm-cov",
+         "miri", "mutants", "zigbuild", "build-std"}
+# global cargo options that take a value (so the value is not the subcommand)
+VALUE_OPTS = {"--color", "--config", "-Z", "-C", "--explain"}
+SELF_DIR = os.path.dirname(os.path.realpath(__file__))
+
+
+def log(msg):
+    if sys.stderr.isatty():
+        msg = f"\033[2m[cargo-queue] {msg}\033[0m"
+    else:
+        msg = f"[cargo-queue] {msg}"
+    sys.stderr.write(msg + "\n")
+    sys.stderr.flush()
+
+
+def slots():
+    v = os.environ.get("CARGO_QUEUE_SLOTS")
+    if not v:
+        try:
+            v = open(os.path.join(ROOT, "slots")).read().strip()
+        except OSError:
+            v = ""
+    try:
+        return max(1, int(v))
+    except ValueError:
+        return DEFAULT_SLOTS
+
+
+def real_cargo():
+    r = os.environ.get("CARGO_QUEUE_REAL")
+    if r:
+        return r
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        c = os.path.join(d, "cargo")
+        if os.path.isfile(c) and os.access(c, os.X_OK) and \
+                os.path.dirname(os.path.realpath(c)) != SELF_DIR:
+            return c
+    for c in (os.path.join(os.environ.get("CARGO_HOME", ""), "bin", "cargo"),
+              os.path.join(HOME, ".cargo", "bin", "cargo")):
+        if os.path.isfile(c) and os.path.dirname(os.path.realpath(c)) != SELF_DIR:
+            return c
+    sys.exit("[cargo-queue] cannot find the real cargo (set CARGO_QUEUE_REAL)")
+
+
+def subcommand(args):
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("+"):
+            i += 1
+        elif a in VALUE_OPTS:
+            i += 2
+        elif a.startswith("-"):
+            i += 1
+        else:
+            return i, a
+    return None, None
+
+
+def open_lock(name):
+    os.makedirs(LOCK_DIR, exist_ok=True)
+    return os.open(os.path.join(LOCK_DIR, name), os.O_RDWR | os.O_CREAT, 0o644)
+
+
+def holder_info(path):
+    try:
+        return json.loads(open(path).read() or "{}")
+    except (OSError, ValueError):
+        return {}
+
+
+def is_locked(path):
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    except BlockingIOError:
+        return True
+    finally:
+        os.close(fd)
+
+
+def status():
+    n = slots()
+    print(f"slots={n}  lockdir={LOCK_DIR}")
+    for k in range(max(n, 8)):
+        p = os.path.join(LOCK_DIR, f"slot-{k}.lock")
+        if not os.path.exists(p):
+            continue
+        if is_locked(p):
+            h = holder_info(p)
+            age = int(time.time() - h.get("t", time.time()))
+            print(f"  slot {k}: BUSY pid={h.get('pid')} {age}s  {h.get('cwd')}  cargo {h.get('cmd')}")
+        elif k < n:
+            print(f"  slot {k}: free")
+    wdir = os.path.join(LOCK_DIR, "waiting")
+    for f in sorted(os.listdir(wdir)) if os.path.isdir(wdir) else []:
+        h = holder_info(os.path.join(wdir, f))
+        try:
+            os.kill(int(h.get("pid", 0)), 0)
+        except (OSError, ValueError):
+            os.unlink(os.path.join(wdir, f)); continue
+        print(f"  waiting: pid={h.get('pid')} {int(time.time()-h.get('t',0))}s  {h.get('cwd')}  cargo {h.get('cmd')}")
+
+
+def acquire(desc):
+    """Return an fd holding one slot. Waiters serialize on a turnstile lock so
+    only one of them polls the slots at a time (no thundering herd)."""
+    info = json.dumps({"pid": os.getpid(), "t": time.time(), "cwd": os.getcwd(), "cmd": desc})
+    timeout = float(os.environ.get("CARGO_QUEUE_TIMEOUT", "0") or 0)
+    start = time.time()
+    wfile = None
+    turn = open_lock("turnstile.lock")
+    announced = False
+    try:
+        while True:
+            try:
+                fcntl.flock(turn, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                pass
+            if not announced:
+                announced = True
+                wfile = _register_wait(info)
+                log(f"all {slots()} build slots busy, queued (see `cargo-queue status`)")
+            _check_timeout(start, timeout)
+            time.sleep(0.5)
+        while True:
+            n = slots()
+            for k in range(n):
+                fd = open_lock(f"slot-{k}.lock")
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    os.close(fd); continue
+                os.ftruncate(fd, 0); os.lseek(fd, 0, 0); os.write(fd, info.encode())
+                if announced:
+                    log(f"got slot {k}/{n} after {time.time()-start:.0f}s")
+                return fd
+            if not announced:
+                announced = True
+                wfile = _register_wait(info)
+                log(f"all {n} build slots busy, waiting (see `cargo-queue status`)")
+            _check_timeout(start, timeout)
+            time.sleep(1.0)
+    finally:
+        os.close(turn)  # releases turnstile
+        if wfile:
+            try: os.unlink(wfile)
+            except OSError: pass
+
+
+def _register_wait(info):
+    d = os.path.join(LOCK_DIR, "waiting"); os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, f"{os.getpid()}.json")
+    open(p, "w").write(info)
+    return p
+
+
+def _check_timeout(start, timeout):
+    if timeout and time.time() - start > timeout:
+        log(f"gave up after {timeout:.0f}s (CARGO_QUEUE_TIMEOUT)")
+        sys.exit(75)
+
+
+def run(cmd, env):
+    p = subprocess.Popen(cmd, env=env)
+    def fwd(sig, _f):
+        try: p.send_signal(sig)
+        except ProcessLookupError: pass
+    for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(s, fwd)
+    while True:
+        try:
+            rc = p.wait(); break
+        except InterruptedError:
+            continue
+    return rc if rc >= 0 else 128 - rc
+
+
+def main():
+    args = sys.argv[1:]
+    if os.path.basename(sys.argv[0]) == "cargo-queue" and args[:1] == ["run"] and len(args) > 1:
+        # gate any heavy command (e.g. `podman build` of a kind image)
+        if os.environ.get("CARGO_QUEUE_DISABLE") == "1" or os.environ.get("CARGO_QUEUE_HELD"):
+            os.execvp(args[1], args[1:])
+        fd = acquire(" ".join(args[1:])[:200])
+        try:
+            return run(args[1:], dict(os.environ, CARGO_QUEUE_HELD="1"))
+        finally:
+            os.close(fd)
+    if os.path.basename(sys.argv[0]) == "cargo-queue" or args[:1] == ["queue-status"]:
+        status(); return 0
+    cargo = real_cargo()
+    idx, sub = subcommand(args)
+    if (os.environ.get("CARGO_QUEUE_DISABLE") == "1" or os.environ.get("CARGO_QUEUE_HELD")
+            or sub not in GATED or "--help" in args or "-h" in args):
+        os.execv(cargo, [cargo] + args)
+    env = dict(os.environ, CARGO_QUEUE_HELD="1", CARGO_QUEUE_REAL=cargo)
+    desc = " ".join(args)[:200]
+    fd = acquire(desc)
+    try:
+        if sub in ("run", "r"):
+            # build under the slot, then run the program WITHOUT holding it
+            pre = args[:idx] + ["build"] + [a for a in (args[idx+1:args.index("--")]
+                  if "--" in args else args[idx+1:])]
+            rc = run([cargo] + pre, env)
+            os.close(fd); fd = None
+            if rc != 0:
+                return rc
+            os.execv(cargo, [cargo] + args)  # original env: program not gated
+        return run([cargo] + args, env)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
