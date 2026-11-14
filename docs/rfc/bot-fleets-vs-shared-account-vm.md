@@ -60,8 +60,10 @@ Related:
    - The competitor isolates *users* from each other with hardware virtualisation.
    - NoETL's worker pools serve *every* user's steps in the same pods.
    - Today NoETL does **not** give each bot a security boundary, and does not even match per-user VM isolation.
-2. **Single-task latency is worse.** Orchestration costs **~4.5 s per step** and **~9–15 s per sub-playbook hop**,
-   and was **~82 % of a planner turn** (MEASURED, prod, 2026-08). A bot doing one interactive, latency-sensitive
+2. **Single-task latency is worse.** Orchestration cost **~4.5 s per step** and **~9–15 s per sub-playbook hop**,
+   and was **~82 % of a planner turn** (MEASURED, prod, 2026-08). The latest measurement is **~0.95 s per step**
+   (prod, 2026-11-02). §7.0 attributes it: mostly two dispatches per step, the claim round trip and 2 s polling on
+   hops; raw Postgres is ~10–15 %. A bot doing one interactive, latency-sensitive
    thing on a warm VM will finish first.
 3. **No desktop, browser or persistent workspace.** There is no `kind: browser`, no screen, no sudo, and no persistent
    per-bot disk. For long-lived interactive dev or browser work, the competitor's model is simply the right shape.
@@ -315,7 +317,7 @@ change each other's files or sessions, and nothing records who did what.
 |---|---|---|---|
 | W1 | No per-bot or per-tenant isolation for in-process and subprocess step kinds; subprocesses inherit the worker env | `python.rs:637-646`, `shell.rs:93-103`; resource model `step_kinds` | §7.1 |
 | W2 | Named credentials resolve for any caller; the auth gate is shadow on prod; sealing is per worker | `credential.rs` `get`; wiki Home; `credentials.rs:226` | §7.1 |
-| W3 | ~4.5 s/step, ~9–15 s/hop, ~82 % of a planner turn is orchestration | resource model, `orchestration_overhead` (prod, 2026-08) | §7.2 |
+| W3 | ~4.5 s/step, ~9–15 s/hop, ~82 % of a planner turn is orchestration (2026-08); ~0.95 s/step on the latest measurement (2026-11-02) | resource model, `orchestration_overhead`; §7.0 | §7.0, §7.2 |
 | W4 | Not scale-to-zero: user pool min 2; system pool fixed, no autoscaler | resource model, `concurrency.autoscaling` (DEPLOYED) | §7.3 |
 | W5 | No backpressure: `max_in_flight` has no reader; awaiting parents hold slots; agent loops hold a slot for up to ~96 min | resource model, heuristics; `coroutines.md` §2 | §7.3 |
 | W6 | WASM steps serialise per worker process | `command.rs:163` | §7.2 |
@@ -336,6 +338,200 @@ Each bot gets:
 - an **isolation tier** chosen per step by what the step needs, not by where it happens to land.
 
 ## 7. Architecture changes to make it a true win (TARGET)
+
+### 7.0 Where the per-step and per-hop overhead actually comes from — and what cuts it
+
+This section answers four questions directly. Where do the ~4.5 s per step and ~9–15 s per sub-playbook hop come from?
+Is it Postgres? Can EHDB fix it? Which design changes actually cut it?
+
+It is built from the measured breakdowns already in this org, not from reading constants in the source.
+[#319](https://github.com/noetl/ai-meta/issues/319) records why that discipline matters: a diagnosis built from a
+10 s retry constant was refuted by the first counter that could say no.
+
+#### 7.0.1 Evidence base
+
+| Source | Date, environment, build | What it measured |
+|---|---|---|
+| [#156](https://github.com/noetl/ai-meta/issues/156) per-hop attribution | 2026-06-28/29, prod, server v3.47.0 | hops bimodal: ~0.3 s when the off-server state builder's WAL drain is caught up, ~8 s+ when it misses its 1 s budget and falls to the 8 s reconcile tick; the drive does **not** read `noetl.event` SQL on the hot path |
+| [#156](https://github.com/noetl/ai-meta/issues/156) "Trip to Paris" analysis | 2026-06-29, prod | reconcile stalls 8–18 s per turn; fixed per-hop tax ~12 s per turn; provider children mostly orchestration |
+| [#155](https://github.com/noetl/ai-meta/issues/155) 10-hop probe | 2026-08-18, kind, trivial python steps | 79 % of a turn was **two command-dispatch gaps per hop**; root cause a missing `noetl.command (event_id)` index |
+| [#155](https://github.com/noetl/ai-meta/issues/155) mirror fix | 2026-08-18/20, prod, "trip to Lisbon" | `emit_mirror` 1141.9 ms per call (EHDB reference runtime replaying its whole log per operation) → 0.1 ms; turn ~89 s → ~13 s median warm |
+| [#155](https://github.com/noetl/ai-meta/issues/155) planner profile | 2026-08-20, prod, planner v81 | 63 events at a near-uniform 0.8–1.2 s spacing, ~4.5 s per step, 82 % orchestration. Inlining a child removed ~14 s of work and moved wall clock by nothing measurable. |
+| [#319](https://github.com/noetl/ai-meta/issues/319) / [Umbrella-Request-Latency](https://github.com/noetl/ai-meta/wiki/Umbrella-Request-Latency) | 2026-09-03, prod, server v3.100.x | raw EHDB append ~4 ms (fsync per record); Postgres round trip 13–20 ms from the server pod; `/api/execute` = 10 sequential Postgres calls ≈ 97 % of an uncontended request |
+| PR [#355](https://github.com/noetl/ai-meta/pull/355) RFC `ehdb-execution-partitioned-event-store.md` | 2026-09-24, open | per-execution chain reads are O(total records): a global sequence, linear subject filter, one mutex per store |
+| "Ranch concierge latency breakdown" session (shastaranch PR #13) | 2026-11-02, prod, server v3.147.0, n=4 | `concierge/turn` p50 8.69 s with 1.84 s of tool time over 7 steps: **~0.95 s dispatch overhead per step**, split ~0.46 s before `command.issued`, ~0.33 s to claim, the rest reporting |
+| Resource model | as_of 2026-11-11 | issue → claim p50 138.5 ms unsaturated vs 2123 ms with 90 commands against 8 slots (prod, 2026-07-30); server ingest ~336 ms / ~1021 ms per emit on prod vs ~40 ms on kind (metric doc comment, written during #155) |
+
+⚠ **The ~4.5 s per step is an August figure and is stale as a current number.** Several fixes landed after it:
+- the mirror off the request path, 2026-08-19;
+- re-trigger on clear for the lost-wakeup 8 s stall, server v3.82.0;
+- the #503 ~6 s server stall, server v3.146.1.
+
+The latest measured per-step overhead is **~0.95 s** (ranch concierge, 2026-11-02). Prod planner turns fell from
+76–107 s (2026-08) to **17.0–21.2 s** (2026-11-04). The ~9–15 s per hop is also from August and has not been
+re-measured since (NOT_YET_MEASURED). The resource model's caveat already says this; this section makes it explicit.
+
+#### 7.0.2 Anatomy of one step (REAL path; current prod shape)
+
+```
+worker A finishes tool
+  ├─ POST /api/events  command.completed, call.done      ← server ingest per emit: catalog lookup, normalize,
+  │                                                         Postgres INSERT, EHDB feed publish, async mirror enqueue
+  ├─ server trigger_orchestrator → issues __orchestrate__ as a COMMAND to the system pool   (dispatch #1)
+  │     system worker claims → state builder serves this execution's state from its in-memory WAL index
+  │     (fed by the EHDB events feed) → WASM orchestrate run → next commands returned to server
+  ├─ server: command.issued  → Postgres command row + EHDB command-bus append (~4 ms fsync)  (dispatch #2)
+  ├─ worker B (user pool) parked in claim_next → bus delivery (µs) → POST /api/commands/{event_id}/claim
+  │     → server resolves the command row in Postgres → command.claimed
+  └─ worker B: command.started → tool runs → call.done → command.completed   (and the cycle repeats)
+```
+
+**Attribution of the ~0.95 s per step** (MEASURED prod, 2026-11-02, n=4; the split is the session's, the mapping to
+mechanisms is from the path above):
+
+| Segment | Time | What is in it | Dominant contributor |
+|---|---|---|---|
+| `command.completed` → `command.issued` | ~0.46 s | ingest of the completion events, dispatch #1 (orchestrate as a system-pool command), state serve, WASM drive, issue | **the drive is itself a dispatched worker command**: two handoffs per step (#155: 79 % of a probe turn) |
+| `command.issued` → `command.claimed` | ~0.33 s | bus delivery (µs, #205), claim round trip to the server, Postgres command lookup | the claim RTT; in kind before the index it was 559 ms, after it 60 ms (#155) |
+| reporting (`started`, `call.done`, `completed`) | ~0.16 s | three ingest calls per step | Postgres INSERT + feed publish per emit |
+| tool work | 0.02–1.2 s per step | the actual step | — |
+
+**Why a hop costs far more than a step.** A `kind: playbook` child is a whole execution:
+- `POST /api/execute`: about 10 sequential Postgres calls, ~150 ms uncontended (#319).
+- The child's own `start`, the real step(s) and `end`, each paying the per-step cost.
+- The playbook lifecycle events.
+- The parent step's own lifecycle.
+- The parent's **await poll**, which ticks every 2 s (`poll_interval` default 2, minimum 1;
+  `tools/src/tools/playbook.rs:463`). Completion is noticed 0–2 s late, ~1 s on average.
+
+That puts a hop at roughly `(child steps + 1) × per-step + ~0.15 s submit + U(0, 2) s poll`. With August's per-step
+cost (~3–4.5 s) and a three-step child, that is 9–15 s, which matches the measurement. With November's ~0.95 s it
+predicts **~3–5 s per hop** (GUIDANCE arithmetic; NOT_YET_MEASURED).
+
+**Polling and cadence inventory** (REAL):
+
+| Interval | Value | Where | Effect on latency |
+|---|---|---|---|
+| `kind: playbook` await poll | 2 s (configurable, ≥ 1 s) | `tools/src/tools/playbook.rs:463` | 0–2 s per awaited hop, and holds the parent's slot while it waits |
+| cross-instance delegate poll (A's worker → A → signed → B) | 2 s | `catalog_remote` + tools 4.6.0 (RFC §12) | 0–2 s per delegated call, plus one signed request to B per tick |
+| reconcile poller | 8 s | `server/src/handlers/events.rs` `RECONCILE_INTERVAL` | only on a missed trigger. The lost-wakeup cause is fixed: `NOETL_ORCH_RETRIGGER_ON_CLEAR`, v3.82.0; stalls 3/40 → 0/30 (#155). |
+| claim coordinator park | 250 ms cap | EHDB command source | a cap on the park, not a floor; the claim path is 16–33 µs (#205) |
+| KEDA polling / cooldown | 10 s / 30 s | ScaledObject (DEPLOYED) | scale-up reaction time, not per-step cost |
+
+**Cold starts** (MEASURED or DEPLOYED):
+- **User pool.** It does not scale from zero today (min 2), so a step never waits for a pod from zero. A burst that
+  needs a new GKE Autopilot node waits ~60–90 s.
+- **System pool.** A fresh pod after a roll stalls its first drives for **7–10 minutes** while the state builder
+  replays the feed (2026-11-03).
+- **WASM.** A first dispatch costs ~1.5 s of Cranelift compile, and the drive pool pre-compiles at boot.
+- **Implication.** Scale-to-zero (§7.3) would add a pod start (and possibly a node) to the first step of every burst
+  on that pool. It must not be applied to latency-sensitive pools without a warm floor.
+
+#### 7.0.3 Is Postgres the bottleneck?
+
+**Partly. The premise needs one correction.**
+
+1. **Raw Postgres latency is not the bottleneck, but it is not single-digit ms either.**
+   - One round trip from the server pod through pgbouncer → cloud-sql-proxy → Cloud SQL measured **13–20 ms**
+     (#319).
+   - A step makes roughly 5–10 such calls: an INSERT per lifecycle emit, catalog lookups, the command row and the
+     claim lookup. That is **~75–150 ms of a ~0.95 s step, about 10–15 %**.
+   - The other ~85 % is the orchestration pattern: two dispatches per step, an HTTP claim, per-emit ingest, polling
+     on hops, and cadence.
+2. **Postgres *access patterns* have twice been the dominant cost, and one fix is still not on prod.**
+   - **The claim lookup.** It resolved a command by `event_id` on a table hash-partitioned by `execution_id`, whose
+     every index leads with `execution_id`. Each claim was a parallel seq scan over 16 partitions: 88,199 buffers,
+     ~295 ms, twice per hop.
+   - Adding `idx_command_event_id` took the kind probe from **20.7 s → 4.3 s** (4.8×), issue → claim from
+     559 → 60 ms, and variance from ±40 % to ±1 % (#155, noetl#696).
+   - It is **still not applied on prod**: [#283](https://github.com/noetl/ai-meta/issues/283), blocked on a superuser
+     `GRANT`, is open. Prod's current state was not re-verified for this RFC.
+   - The table grows with every command, so this cost grows with time.
+   - **`/api/execute`.** Ten sequential round trips are ~97 % of an uncontended submit (#319). Four catalog reads were
+     reduced to one in server#394.
+3. **The state-rebuild read is not a Postgres read on the hot path.**
+   - The off-server drive serves state from the system worker's in-memory WAL index, fed by the EHDB events feed. It
+     does **not** read `noetl.event` per step; #156 corrected exactly this hypothesis on 2026-06-29.
+   - The rebuild costs that do exist are EHDB-side and O(log size):
+     - the reference runtime replayed its whole JSONL log per operation (1.14 s per mirror call; fixed by the
+       runtime cache);
+     - per-execution chain reads are a linear filter over every record behind one mutex per store (PR #355 §1.3,
+       still open);
+     - a fresh system-pool pod replays the feed for 7–10 minutes.
+   - Postgres `noetl.event` reads remain on side paths: keychain resolution reads the start event, plus the reconcile
+     and status APIs.
+
+**Verdict.**
+- The per-step cost is dominated by the orchestration pattern (two dispatches, the HTTP claim, per-emit ingest,
+  polling) and by O(size) access patterns, wherever they live.
+- Raw Postgres round trips are ~10–15 % of a step today.
+- The single cheapest per-step fix available is a Postgres index that is already written (#283).
+
+#### 7.0.4 Can EHDB fix it?
+
+**What EHDB already fixed (REAL, MEASURED).**
+- EHDB replaced NATS on the command bus (2026-07-27).
+- Delivery is 0–2 µs, the claim path 16–33 µs, publisher-mutex wait 0 µs (#205, #319).
+- The bus is no longer a meaningful part of a step. Its floor is the ~4 ms per-append `fsync` (`FlushPolicy::EveryAppend`).
+- Group commit already exists in the engine (`append_batch`), but adopting it is a durability decision parked behind
+  [ehdb#322](https://github.com/noetl/ehdb/issues/322).
+
+**What EHDB as the state substrate would add (TARGET; PR #355, ai-meta#455).**
+- **One durable write per event instead of three paths.** Today an emit is a Postgres INSERT, a feed publish and an
+  async mirror append. One append with execution-partitioned storage removes the INSERT (~15–20 ms per emit, about
+  three per step) and makes the mirror unnecessary.
+- **O(execution) chain reads.** The drive's state is served from the execution's own partition, locally, instead of
+  from a global-sequence filter or a feed replay. This removes the 7–10 minute fresh-pod replay and the
+  read-timeout → re-drive loop that the 8 s reconcile backstops (PR #355 §1.5, §6.2).
+- **The claim lookup moves off Postgres.** The command is resolved from the bus record it was delivered with.
+- **Estimated gain: ~0.1–0.4 s per step** of today's ~0.95 s: the INSERTs and Postgres claim lookup plus tail and
+  stall removal. The upper end applies only if #283 is still unapplied. TARGET estimate; it must be measured.
+
+**What EHDB alone does not fix. Said plainly:**
+- **the two dispatches per step**: the drive is a separate worker command whatever store it reads;
+- **the 2 s await poll** on `kind: playbook` and on cross-instance delegate;
+- **cold starts**: node provisioning, pod scheduling, WASM compile;
+- **the 4 ms fsync per append**, unless group commit is adopted;
+- **per-step lifecycle chatter**: three ingest calls per step, whatever the store.
+
+#### 7.0.5 Design changes that cut it, ranked by expected impact
+
+This ranks by expected wall-clock removed from a typical multi-step bot turn. It differs from the order in the
+request in one place: push completion is the biggest fix for *hop variance and slot holding*. But the child's own
+steps, not the poll, are most of a hop, so step collapse ranks higher.
+
+| Rank | Change | What it removes | Expected impact | Label / dependency |
+|---|---|---|---|---|
+| 0 (do now) | Apply the `noetl.command (event_id)` index on prod (#283) | the claim's partition seq scan | kind: issue → claim 559 → 60 ms, turn 4.8× faster on the probe; prod: up to ~0.3 s per claim, growing with table size | REAL fix, merged (noetl#696), blocked only on an owner-run `GRANT` |
+| 1 | **Collapse deterministic step chains into one run**: compiled WASM in-worker (§7.2 items 1–2) or at the edge (kuksin.us) | every per-step dispatch, claim and lifecycle emit inside the segment; inlines pure children, which removes whole hops | for N fused steps: (N − 1) × ~0.95 s → ~0; a pure child hop → a function call. kuksin.us has zero cluster round trips per step. | REAL engine (`plugins/playbook-wasm`), REAL edge proof; in-worker fusion TARGET |
+| 2 | **Worker-local continuation + in-process tool-list batching.** The worker that finishes a step runs the WASM drive for that execution and claims its own next command when it targets the same pool. An ordered tool list already runs in one command (`task_sequence`). | dispatch #1 (orchestrate as a separate command) and the re-claim | ~0.46 + ~0.33 s → an estimated ~0.1–0.2 s per step | TARGET; needs a per-execution lease so two workers never drive one execution (the #155 single-drive guard generalised) |
+| 3 | **Push completion instead of polling**: a child's terminal event, and B's for delegation, wakes the parent through the event it already emits; the parent's slot is released while waiting (§7.3 item 3) | U(0, 2) s per awaited hop; one signed request per 2 s for delegate; slot-holding deadlock risk | −1 s mean / −2 s max per hop; plus slot capacity back | TARGET; the coroutines RFC (#554) and RFC §12 both list it |
+| 4 | **EHDB state substrate** (PR #355) | the Postgres INSERT per emit; O(global) chain reads; fresh-pod replay; the re-drive / 8 s reconcile tail | ~0.1–0.4 s per step; removes 7–10 minute post-roll stalls and the bistable tail | TARGET; multi-phase migration |
+| 5 | **Warm floors on latency-sensitive pools, scale-to-zero only on cost pools** | node and pod cold start on the first step of a burst | avoids a 60–90 s node wait or a pod start; keeps the current ~138 ms unsaturated claim | DEPLOYED today (min 2); the TARGET is to make it a per-pool choice |
+| 6 | **Group commit on the EHDB append** (ehdb#322) | ~4 ms fsync per record | a few ms per append; mostly a throughput and capacity win (~250 appends/s single-writer ceiling, #319), not per-step latency | owner's durability decision |
+
+#### 7.0.6 Target per-step budget if these land
+
+All TARGET figures are arithmetic from the measured components above. Each must be re-measured on the 10-hop probe
+(`diag/latency-probe-10hop`) and on a real concierge and planner turn before it is quoted.
+
+| State | Orchestration per step | Per awaited hop | Basis |
+|---|---|---|---|
+| Today | **~0.95 s** (MEASURED, 2026-11-02) | ~3–5 s predicted (9–15 s MEASURED in 2026-08) | §7.0.2 |
+| + #283 index | ~0.7–0.9 s | −0.3 s per child step | kind delta, scaled down because prod's claim share is already ~0.33 s |
+| + EHDB state substrate | ~0.5–0.6 s | same, minus the post-roll stalls | §7.0.4 |
+| + worker-local continuation | **~0.15–0.3 s** | child steps × that, + ~0.15 s submit | one dispatch per step instead of two |
+| + push completion | unchanged | **no poll term**; slot released while waiting | §7.0.5 rank 3 |
+| Fused segment / inlined pure child | **< 10 ms per fused step** (in-process call), one boundary per segment | 0 for a pure child | WASM dispatch is in-process once compiled |
+| Edge WASM | **0 cluster overhead** | n/a | kuksin.us |
+
+**Worked example: `concierge/turn`** (7 steps, 1.84 s of tools, p50 8.69 s today).
+- At ~0.25 s per step it would be ~1.84 + 7 × 0.25 ≈ **3.6 s**.
+- If the three post-reply logging steps are also fused into one segment, it would be ~**3.1 s**.
+- The reply-ready point, today ~4.3 s, would fall to ~**2.1 s**, dominated by the 1.2 s model call.
+
+That is the honest end state: **the model call and the tool work dominate, not orchestration**. That is when NoETL's
+per-step overhead stops losing to a warm single VM on latency, while keeping the cost and fan-out advantages in §3.
 
 ### 7.1 Per-bot sandbox + credential capability model (fixes W1, W2)
 
