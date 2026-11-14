@@ -10,7 +10,9 @@ The session that produced #36–#48 was lost to a reboot. Resumed from git/PRs/S
 ## Actions
 
 - **#50 (merged `9e34be8`) CI:** GitHub Actions in the pinned Debian 13 base runs `tests/run_all_local.sh` (sha-pinned noetl 5.4.0 linux x86_64, pinned DuckDB `json` ext). Green.
-- Branches built and locally green, PRs following #50: discovery + `runtime_kind` (#51), enrollment tokens (#52), manifest conditional GET (#53), operator-assigned cohorts.
+- **Merged:** #54 discovery + `runtime_kind` (`4d8da9b`), #57 single-use enrollment tokens (`6dade74`), #58 manifest conditional GET (`f53d765`). All default-off, one-box control plane; cluster + hosted Worker TARGET.
+- **Open:** #59 operator-assigned cohorts; device assignment/failover over discovery (#56) next.
+- An independent review of the four branches found no auth bypass; four findings fixed before merge (see Sessions-Log).
 
 ## Lessons
 
