@@ -107,3 +107,6 @@
 [submodule "repos/noetl.ai"]
 	path = repos/noetl.ai
 	url = git@github.com:noetl/noetl.ai.git
+[submodule "repos/book"]
+	path = repos/book
+	url = git@github.com:noetl/book.git

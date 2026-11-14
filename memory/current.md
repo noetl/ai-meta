@@ -129,6 +129,29 @@ Only **one** umbrella remains open:
 - Wiki: <https://github.com/noetl/ehgraph/wiki> (`repos/ehgraph-wiki`,
   `master`; Home page only at `2b932f2`).
 
+### Documentation track — The NoETL Book
+
+- `repos/book` (<https://github.com/noetl/book>, public) is **The NoETL
+  Book**: an mdBook project meant to document the whole ecosystem the
+  way *The Rust Programming Language* documents Rust, with Brown CEL's
+  interactive layer (mdbook-quiz quizzes, checkpoints, an event-log
+  trace visualizer, runnable examples). Registered as submodule 35 on
+  2026-11-13, pinned at `1d3be03` (book `main` after #1 and #2 merged).
+- The outline is `src/SUMMARY.md` (9 Parts, 32 chapters, 8 appendices).
+  The plan is `docs/BOOK-PLAN.md` (pedagogy, per-chapter goals,
+  tooling, authoring order, source map). Both landed in noetl/book#1.
+  The per-chapter roadmap is `docs/ROADMAP.md`. The contributor and
+  AI-agent rules are `CONTRIBUTING.md` and `AGENTS.md` (book#2). The book
+  is spec-driven with GitHub Spec Kit: the spec is in
+  `specs/001-noetl-book/`, the constitution in
+  `.specify/memory/constitution.md`, and the wiki Spec page is the front door.
+- Every page carries a REAL / PARTIAL / TARGET badge. When a feature
+  changes status here, flip the matching chapter's badge
+  (BOOK-PLAN §8).
+- ⚠ The book is public. The Ch. 26 quantum-readiness case study draws
+  on a private repo and needs the owner's sign-off.
+- No wiki repo. Tracked at noetl/ai-meta#563.
+
 ### EHDB platform storage track
 
 - EHDB (`repos/ehdb`) is now the NoETL Event Horizon Database project:
