@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# writer-image-roll.sh <new-image-ref> : careful prod writer roll, IMAGE ONLY.
+#   ONE template change: the image. Env (PRUNE_MODE=enabled, 49h, TOKIO=8) untouched.
+#   NO safe-to-evict annotation (it forces extended-duration node affinity).
+#   Auto-rollback: new pod Pending > 60 s -> rollout undo + replace pod.
+set -uo pipefail
+NEW="$1"
+K="kubectl --context noetl-prod -n noetl"
+OLD_UID=$($K get pod noetl-cmdbus-writer-0 -o jsonpath='{.metadata.uid}')
+PATCH=$(python3 - "$NEW" <<'PY'
+import json,sys
+print(json.dumps({"spec":{"template":{"spec":{"containers":[{"name":"noetl-worker","image":sys.argv[1]}]}}}}))
+PY
+)
+T0=$(date +%s)
+$K patch sts noetl-cmdbus-writer --type=strategic -p "$PATCH" >/dev/null || { echo "PATCH FAILED"; exit 9; }
+echo "+0s patched sts (image only; no annotation)"
+pend=""; up=""
+for i in $(seq 1 100); do
+  now=$(( $(date +%s) - T0 ))
+  st=$($K get pod noetl-cmdbus-writer-0 -o jsonpath='{.metadata.uid} {.status.phase} node={.spec.nodeName} ready={.status.containerStatuses[0].ready} restarts={.status.containerStatuses[0].restartCount}' 2>/dev/null || echo "absent")
+  uid=${st%% *}; phase=$(echo "$st" | awk '{print $2}')
+  echo "+${now}s ${st/$OLD_UID/OLD}" | cut -c1-140
+  if [ "$uid" != "$OLD_UID" ] && [ "$phase" = "Pending" ]; then
+    [ -z "$pend" ] && pend=$now
+    if [ $((now-pend)) -gt 60 ]; then
+      echo "+${now}s ROLLBACK: new writer Pending >60s"
+      $K get events --field-selector involvedObject.name=noetl-cmdbus-writer-0 --sort-by=.lastTimestamp 2>/dev/null | tail -3 | cut -c1-220
+      $K rollout undo sts/noetl-cmdbus-writer >/dev/null; $K delete pod noetl-cmdbus-writer-0 --wait=false >/dev/null
+      exit 3
+    fi
+  else pend=""; fi
+  if [ "$uid" != "$OLD_UID" ] && echo "$st" | grep -q 'ready=true'; then up=$now; echo "+${now}s writer READY"; break; fi
+  sleep 3
+done
+[ -n "$up" ] || { echo "WRITER NOT READY IN WATCH WINDOW (not Pending) — caller decides"; exit 2; }
