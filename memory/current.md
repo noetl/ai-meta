@@ -136,7 +136,7 @@ Only **one** umbrella remains open:
   way *The Rust Programming Language* documents Rust, with Brown CEL's
   interactive layer (mdbook-quiz quizzes, checkpoints, an event-log
   trace visualizer, runnable examples). Registered as submodule 35 on
-  2026-11-13, pinned at `85c17ba` (book `main` after #1, #2 and #52 merged).
+  2026-11-13; pinned at `8c94347` (book `main` after P0–P2, #53–#74).
 - The outline is `src/SUMMARY.md` (9 Parts, 32 chapters, 8 appendices).
   The plan is `docs/BOOK-PLAN.md` (pedagogy, per-chapter goals,
   tooling, authoring order, source map). Both landed in noetl/book#1.
@@ -145,6 +145,13 @@ Only **one** umbrella remains open:
   is spec-driven with GitHub Spec Kit: the spec is in
   `specs/001-noetl-book/`, the constitution in
   `.specify/memory/constitution.md`, and the wiki Spec page is the front door.
+- **P0–P2 landed 2026-11-13/14 (book#53–#74), 45/134 pages.** CI gates (all
+  red-proven): mdbook build + linkcheck, example runner on the pinned CLI
+  v6.4.0, schema check of every example, Appendices A–D generated at
+  server v3.161.2 (`983e36e`), Appendix E ledger generated from page badges.
+  ⏳ **Ch. 3 (book#64) held for the owner**: the spec says the internal
+  catalog is EHDB-only, but server v3.161.2 serves `/api/catalog/*` from
+  Postgres by default (EHDB = shadow + staged read).
 - Phase 0 is done (book#52). The constitution is v1.0.0 and the spec
   covers 48 items. There is one issue per chapter or task: noetl/book#3–#50,
   with owner decisions in #51. Labels are type / part / badge / phase /
