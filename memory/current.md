@@ -136,10 +136,15 @@ Only **one** umbrella remains open:
   way *The Rust Programming Language* documents Rust, with Brown CEL's
   interactive layer (mdbook-quiz quizzes, checkpoints, an event-log
   trace visualizer, runnable examples). Registered as submodule 35 on
-  2026-11-13, pinned at the repo's initial commit `3086d2d`.
+  2026-11-13, pinned at `1d3be03` (book `main` after #1 and #2 merged).
 - The outline is `src/SUMMARY.md` (9 Parts, 32 chapters, 8 appendices).
   The plan is `docs/BOOK-PLAN.md` (pedagogy, per-chapter goals,
   tooling, authoring order, source map). Both landed in noetl/book#1.
+  The per-chapter roadmap is `docs/ROADMAP.md`. The contributor and
+  AI-agent rules are `CONTRIBUTING.md` and `AGENTS.md` (book#2). The book
+  is spec-driven with GitHub Spec Kit: the spec is in
+  `specs/001-noetl-book/`, the constitution in
+  `.specify/memory/constitution.md`, and the wiki Spec page is the front door.
 - Every page carries a REAL / PARTIAL / TARGET badge. When a feature
   changes status here, flip the matching chapter's badge
   (BOOK-PLAN §8).
