@@ -6,7 +6,7 @@ agent sessions ran `cargo build`/`cargo test` at once with default parallelism
 
 | What you are building | Where it runs | How |
 |---|---|---|
-| **Any release / container image** (server, worker, gateway) whether for prod, AR, or "just check that the image builds" | **Google Cloud Build** (`shastaratech-noetl-prod`, us-central1, E2_HIGHCPU_8) → Artifact Registry `us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/<image>` | release tags: automatic in each repo's `release.yml` (`publish-ar`); on demand: `gcb-build` |
+| **Any release / container image** (server, worker, gateway) whether for prod, AR, or "just check that the image builds" | **Off the Mac**: Google Cloud Build (`shastaratech-noetl-prod`, E2_HIGHCPU_8); worker *releases* on GitHub Actions + gcrane copy → Artifact Registry `us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/<image>` | release tags: automatic in each repo's `release.yml` (`publish-ar`); on demand: `gcb-build` |
 | **On-box compiles**: `cargo check/test/clippy` while iterating, and arm64 images for the local **kind** cluster (GCB is amd64-only, so kind images must be built here) | this Mac, through the **capped local queue** | plain `cargo ...` (auto-queued); `cargo-queue run podman build ...` for kind images |
 
 Cloud Build only builds and publishes. Rolling an image to GKE prod stays
@@ -20,8 +20,8 @@ State verified 2026-11-14:
 
 | repo | GCB path | AR image | state |
 |---|---|---|---|
-| server | `cloudbuild.yaml` (cargo-chef + buildx, registry cache `:buildcache`), triggered by `release.yml` `publish-ar` via WIF SA `gh-actions-cloudbuild@` | `noetl/server-rust` | **REAL**. 23/23 recent release builds SUCCESS, 16–29 min |
-| worker | releases: GHA builds GHCR `ghcr.io/noetl/worker`, then `cloudbuild-copy.yaml` `gcrane` copies it to AR (about 10 s, digest checked) | `noetl/noetl-worker-rust` | **REAL (copy)**. A native GCB compile timed out at 2400 s on E2_HIGHCPU_8 (6.11.3, 6.11.4); `gcb-build` raises it to 3600 s, see below |
+| server | `cloudbuild.yaml` on **E2_HIGHCPU_8** (cargo-chef + buildx, registry cache `:buildcache`), triggered by `release.yml` `publish-ar` via WIF SA `gh-actions-cloudbuild@` | `noetl/server-rust` | **REAL, path of record**. 23/23 recent releases SUCCESS in 16–29 min; with the toolchain fix ([server#586](https://github.com/noetl/server/pull/586)) 17m47s cold |
+| worker | **releases (path of record): GitHub Actions** builds `ghcr.io/noetl/worker`, then `cloudbuild-copy.yaml` gcrane-copies it to AR (about 10 s, digest checked). **On demand: native GCB** `cloudbuild.yaml` on E2_HIGHCPU_8, 3600 s timeout | `noetl/noetl-worker-rust` | **REAL both ways**. Native GCB was TIMEOUT before the toolchain fix ([worker#404](https://github.com/noetl/worker/pull/404)); after it, 34m26s cold, see below |
 | gateway | no `cloudbuild.yaml`; `gcloud builds submit --tag` (v3.20.0 took 242 s) / `gcb-build` | `noetl/noetl-gateway` | **REAL (manual)** |
 | ehdb | library, no image. `ci/cloudbuild-chain-cert-amd64.yaml` runs an amd64 test probe | — | n/a |
 
@@ -47,28 +47,44 @@ Prereqs: `gcloud` account with Cloud Build access on `shastaratech-noetl-prod`
 (the default gcloud config on the dev host has it). Builds bill to that
 project, at about $0.016 per build-minute on E2_HIGHCPU_8.
 
-**On-demand path, verified 2026-11-14:** `gcb-build` from a clean `origin/main`
-of noetl/server built and published
-`server-rust:v0.0.0-dev.765147ff@sha256:5c5ea52b0492796907cca0db30a3a4dcb8c33ac7894d7f4e25eca2feb3d55f5f`
-(build `c2c18ebc`, 25m51s, 1.7 MB upload); `:latest` was not moved. Worker dev build `d035b08a` (native compile, 3600 s timeout): running, result pending.
+**On-demand path, verified 2026-11-14 (all on E2_HIGHCPU_8):**
 
-**GCB runs one 8-vCPU build at a time in this project.** A second build waits
-in QUEUED (the worker dev build started 56 s after the server build finished)
-and **expires after 1 h in the queue** (`queueTtl 3600s`). Plan for about 25
-minutes per server build, run back to back. The likely cause is the default
-10-vCPU ongoing-build limit; the granted 64-vCPU value is on another
-dimension. Raising it is a quota request in the console (IAM & Admin > Quotas,
-`cloudbuild.googleapis.com`). That is optional and needs the user.
+| build | what | result |
+|---|---|---|
+| `c2c18ebc` us-central1 | server `origin/main` | SUCCESS 25m51s → `server-rust:v0.0.0-dev.765147ff@sha256:5c5ea52b…` (`:latest` untouched) |
+| `5811fb54` us-east1 | server + toolchain fix | SUCCESS **17m47s** → `:v0.0.0-dev.62bc2396`, the **same digest** `5c5ea52b…` (reproducible: the fix changes only the build) |
+| `d035b08a` us-central1 | worker `origin/main` | **TIMEOUT at 3600 s** (cook 27.6 min, then a full dependency recompile under the pinned toolchain) |
+| `42b4ce97` us-central1 | worker + toolchain fix | SUCCESS **34m26s** cold (cook 1450 s, app 337 s, push 210 s) → `noetl-worker-rust:v0.0.0-dev.b7cf7ee2@sha256:e5895090…` |
+| warm worker | source change, same `Cargo.lock` | SUCCESS **7m47s** (build `d6d19689`): cook layer from cache (37 s), app stage compiled only `noetl-worker` (314 s) → `:v0.0.0-dev.b7cf7ee2.dirty@sha256:c9148f35e0d7…` |
 
-**Blocked: needs the user.** `E2_HIGHCPU_32` is still refused
-("due to quota restrictions, Cloud Build cannot run builds of this machine type
-in this region"), **even though** the `Cloud Build CPUs` quota in us-central1
-is 64 (granted). That restriction is separate and only Google Cloud Support
-lifts it (support case on project `shastaratech-noetl-prod`). N1 types are not
-allowed in us-central1, and the private-pool quota is 4 vCPU. Until it is
-lifted, builds run on 8 vCPU. Once it lands, change `machineType` to
-`E2_HIGHCPU_32` in server/worker `cloudbuild.yaml` (a one-line change), and
-worker releases can compile natively again.
+**Root cause of the slow and timed-out builds (fixed in server#586 and worker#404):** both
+Dockerfiles ran `cargo chef cook` with the base image's Rust 1.91.1. `COPY . .` then
+brought in `rust-toolchain.toml` (1.99.0), so the app stage recompiled every dependency
+and the cached cook layer never helped. The fix copies the pin before `cook`. Other
+tuning was not needed: cargo already uses all 8 vCPUs, and neither release profile
+sets LTO or codegen-units. sccache is not worth the setup now that the cook layer
+caches; revisit only if `Cargo.lock` churn makes cold builds common.
+
+**Concurrency: one 8-vCPU build at a time per region.** A second build in the
+same region waits in QUEUED and **expires after 1 h** (`queueTtl 3600s`). Other
+regions run in parallel (the us-east1 build above ran alongside a us-central1
+build) and still push to the us-central1 AR:
+
+    GCB_REGION=us-east1 gcb-build        # second build while us-central1 is busy
+
+**Machine types (probed 2026-11-14, project `shastaratech-noetl-prod`, default pool):**
+
+| type | us-central1 | us-east1 | us-west1 |
+|---|---|---|---|
+| E2_HIGHCPU_8 | **provisions** | **provisions** | **provisions** |
+| E2_HIGHCPU_32 | refused ("quota restrictions") | refused | refused |
+| N1_HIGHCPU_32 | not allowed ("use E2 variants") | — | — |
+| E2_HIGHCPU_16, E2_STANDARD_16, N2_HIGHCPU_16, C3_HIGHCPU_22 | not a default-pool type (gcloud rejects the config) | same | same |
+| private pool (any type) | quota 4 vCPU | | |
+
+So **E2_HIGHCPU_8 is the machine type**; switching region does not help.
+Lifting the E2_HIGHCPU_32 restriction needs a Google Cloud Support case. That
+is optional, and nothing waits on it.
 
 ## Part 2 — local build queue (on-box compiles only)
 

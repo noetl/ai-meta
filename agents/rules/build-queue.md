@@ -10,14 +10,22 @@ On 2026-11-13 it hung and needed a forced reset after several sessions ran
 `cargo build`/`cargo test` at the same time. Full runbook, measurements and
 the current Cloud Build state: `playbooks/dev-host-build-queue.md`.
 
-## 1. Release and container-image builds → Google Cloud Build
+## 1. Release and container-image builds → off the Mac (Cloud Build / GitHub Actions)
 
 - Every image (server, worker, gateway), for prod, for Artifact Registry, or
-  just to check that the image builds, is compiled on **Google Cloud Build**
-  (`shastaratech-noetl-prod`, us-central1) and lands in
+  just to check that the image builds, is compiled **off the Mac**: on Google
+  Cloud Build (`shastaratech-noetl-prod`), or on GitHub Actions for worker
+  releases. It lands in
   `us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/<image>`.
-- Release tags: the repo's `release.yml` `publish-ar` job does it on merge.
-  Do not build release images by hand.
+- Release tags: the repo's `release.yml` does it on merge. Do not build
+  release images by hand. **server**: compiled on Cloud Build. **worker**:
+  compiled on GitHub Actions (GHCR), then gcrane-copied to AR. That split is
+  the path of record. A native Cloud Build worker build also works since
+  worker#404 (E2_HIGHCPU_8: about 34 min cold, about 8 min warm when `Cargo.lock` is unchanged; 3600 s timeout).
+- Machine type: **E2_HIGHCPU_8** is the largest that provisions. E2_HIGHCPU_32
+  is refused in every region tried; do not wait on it. One build runs at a
+  time per region, and queued builds expire after 1 h. For a parallel build,
+  use `GCB_REGION=us-east1 gcb-build`.
 - On demand from a session: `cd repos/<server|worker|gateway> && gcb-build`
   pushes a dev tag `v0.0.0-dev.<sha>[.dirty]` and prints the digest. It never
   moves `:latest`.
