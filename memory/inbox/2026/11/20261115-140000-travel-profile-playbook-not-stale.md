@@ -49,3 +49,17 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
   - **every other path returns the same 200 page**;
   - Cloudflare 403s Python's default User-Agent (gateway too); set one.
 - Posted adiona/frontend#59 comment 6900248693 with all references + setup/debug/deploy commands.
+
+## travel#183 merged + registration permission (2026-11-15)
+
+- **noetl/travel#183 merged** `afc002febd16816b23bb0245dd09350076f25470` (2026-11-15T19:48:41Z):
+  - skill `.claude/skills/noetl-travel-playbooks/` on main;
+  - the `.skill` downloaded from main extracts, frontmatter valid, bundled scripts run, SKILL.md byte-identical to the repo copy.
+- adiona/frontend#59 comment 6900248693 **edited to point at main**: all 6 links 200.
+- **Registration needs the `admin` role.** Gateway proxy authorization (noetl/gateway `src/authorization.rs`, since v3.15.0) is always on in prod (live env has GATEWAY_USER_PLAYBOOKS).
+  - Non-admin sessions may only start the allowlisted travel playbooks, and GET/cancel their **own** executions.
+  - `catalog get`/`catalog/register` are admin-only. There is no narrower deployer role: admin = full proxy surface.
+  - The operator CLI session has admin (its `catalog get` worked).
+- Grant mechanism: noetl/ops `automation/setup/provision_auth.yaml` action `grant_admin` (INSERT auth.user_roles … WHERE u.email = $EMAIL AND role 'admin'). User must `noetl --context gke-prod auth login` once first (creates the auth.users row). Its workload defaults target a demo DB, so prod namespace/deployment/db must be confirmed.
+  - ⚠ The grant matches by **email**, so every auth.users row with that email gets admin.
+  - ⚠ Login copies roles to same-email accounts without an `email_verified` check (GHSA-qxw3-x3fw-qp2c item 7). Fix that before granting admin by email, or have an operator register on Darya's behalf.
