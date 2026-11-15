@@ -52,8 +52,10 @@ the local kind cluster (Cloud Build is amd64-only).
   no `-j` above 2, no `CARGO_BUILD_JOBS`, unless the user approves an emergency.
 - Prefer `cargo check` and `cargo test -p <crate>` while iterating, and group
   verification into one test run.
-- If `which cargo` is not `~/.cargo-queue/bin/cargo`, your shell predates the
-  install: start a new session or call `~/.cargo-queue/bin/cargo`.
+- Check `which cargo` → `~/.cargo-queue/bin/cargo`. A SessionStart hook
+  (`~/.claude/settings.json`) puts it on PATH in every Claude Code session. If it is
+  missing, run `. ~/.cargo-queue/env.sh` in the command, or call `~/.cargo-queue/bin/cargo`,
+  and report it. Never fall back to `~/.cargo/bin/cargo`.
 - Change N (`~/.cargo-queue/slots`) only with the user's agreement. The sizing
   limit is N × 3.2 GiB (worst-case build at jobs=2) on top of about 22 GiB baseline.
 

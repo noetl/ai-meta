@@ -100,7 +100,7 @@ Source: `scripts/dev-host/cargo-queue/` in ai-meta (`cargo`, `gcb-build`, `env.s
 |---|---|---|
 | rustc parallelism cap | `/Volumes/X10/dev/cargo/config.toml` **and** `~/.cargo/config.toml`: `[build] jobs = 2` | each cargo runs at most 2 rustc/linker jobs (two files because interactive shells set `CARGO_HOME=/Volumes/X10/dev/cargo`) |
 | queue wrapper | `~/.cargo-queue/bin/cargo` (Python 3.9 stdlib only, `/usr/bin/python3`) | heavy subcommands wait for 1 of N global slots |
-| PATH hook | `~/.cargo-queue/env.sh`, sourced from `~/.zshenv`, the end of `~/.zshrc`, `~/.bashrc` and `~/.profile` | puts the wrapper ahead of the rustup `cargo` in every new shell |
+| PATH hook | `~/.cargo-queue/env.sh`, sourced from `~/.zshenv`, the end of `~/.zshrc`, `~/.bashrc` and `~/.profile` | puts the wrapper ahead of the rustup `cargo` in every new shell |\n| Claude Code hook | SessionStart hook `~/.cargo-queue/claude-session-start.sh` → `$CLAUDE_ENV_FILE` | needed because Claude Code's shell snapshot overrides the profile PATH |
 | slot count | `~/.cargo-queue/slots` (one integer, read on every call) | default N |
 | locks | `~/.cargo-queue/locks/slot-K.lock`, `turnstile.lock`, `waiting/` | `fcntl.flock`; the kernel drops a lock when its holder dies, so no lock goes stale |
 
@@ -128,10 +128,20 @@ retry a waiting build.** It is in line. Keep editing meanwhile.
     cargo queue-status            # same
 
 - Do not pass `-j 8` or set `CARGO_BUILD_JOBS` to raise parallelism; that brings back the OOM.
-- A shell started **before** the install has the old PATH. Claude Code sessions
-  keep a shell snapshot, so start a new session, or call
-  `~/.cargo-queue/bin/cargo ...` explicitly. The `jobs = 2` cap applies right
-  away even in old shells.
+- **Claude Code does not get PATH from the profile files.** Each session's shell
+  snapshot re-exports the PATH of the Claude app process (here launched 09:12,
+  before the 09:20 install), and that runs *after* `~/.zshenv`. So the profile
+  hook alone left agents on `~/.cargo/bin/cargo` (seen 2026-11-15: a session's
+  `cargo test` bypassed the queue). Two fixes, both installed by `install.sh`:
+  - a user-level **SessionStart hook** in `~/.claude/settings.json`
+    (`~/.cargo-queue/claude-session-start.sh`) appends the `env.sh` line to
+    `$CLAUDE_ENV_FILE`, which Claude Code sources before every Bash command, after
+    the snapshot. This covers every new session, whatever PATH the app has.
+  - for sessions already running, the same line is appended to
+    `~/.claude/shell-snapshots/snapshot-*.sh`. Each Bash call re-sources its snapshot,
+    so the change applies on that session's next command.
+- Check it inside any agent: `which cargo` must print `~/.cargo-queue/bin/cargo`.
+  The `jobs = 2` cap applies even in shells where it doesn't.
 
 ### Tuning
 
