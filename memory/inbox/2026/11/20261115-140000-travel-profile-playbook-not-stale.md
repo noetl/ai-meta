@@ -160,3 +160,20 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
   - #146 alone would not help her: her stored doc has no coordinates to fall back on.
   - "No suggestions" is expected behaviour, not a stale deploy.
 - adiona/frontend#59: my comments there never claimed suggestions were undeployed (the 2026-10-06 comment shows `suggest_pois|skip` on both routes), so there is nothing to retract. A clarifying note for Darya is optional.
+
+## Second operator admin GRANTED + #59 note + #146 held (2026-11-15 ~23:15Z)
+
+- **Grant:** the owner confirmed all four same-email rows are theirs.
+  - Apply exec `380493646308319232` (operator session user 207, admin confirmed by `catalog get` output): `grant` **affected_rows 4**.
+  - Re-preview `380493931760066560`: users **174, 267, 275, 297** all `roles = admin`.
+  - No other account touched.
+  - Rollback: delete those four `auth.user_roles` admin rows.
+- **adiona/frontend#59 note** (comment 6902943231): v7 = main; suggestions have been live since late September. A read never suggests: the decision uses only the request's coordinates, and login sends `profile: {}`. Darya's stored profile has no coordinates or interests. Path forward: save coordinates, then #146.
+- **noetl/travel#146: NOT merged, NOT registered.**
+  - Rebased cleanly onto main (`ff97351`, force-with-lease from `577d7b6b`).
+  - Files: `playbooks/profile.yaml` + its guard `scripts/profile_suggestions_plan_test.py`.
+  - Schema valid; all guards pass locally except one.
+  - CI `playbook-tests` **fails** on `scripts/hotelbeds_content_cache_test.py` (`KeyError '12345'`, "one Firestore batchGet for the search's hotel codes").
+  - This failure is **pre-existing and date-dependent**: it also fails at `eca516a`, the last commit where playbook-tests passed (2026-10-24). playbook-tests has not run on main since (path-filtered), so main's green badge is stale.
+  - Needs a separate fix to that test's date fixtures; then merge #146, pin v7, register, and verify a read_only run shows begin_read + plan_suggestions.
+  - Note: #147 is stacked on #146's branch, so after the rebase its diff shows the old #146 commit until #147 is rebased too.
