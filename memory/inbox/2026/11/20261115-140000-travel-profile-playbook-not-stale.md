@@ -63,3 +63,31 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
 - Grant mechanism: noetl/ops `automation/setup/provision_auth.yaml` action `grant_admin` (INSERT auth.user_roles … WHERE u.email = $EMAIL AND role 'admin'). User must `noetl --context gke-prod auth login` once first (creates the auth.users row). Its workload defaults target a demo DB, so prod namespace/deployment/db must be confirmed.
   - ⚠ The grant matches by **email**, so every auth.users row with that email gets admin.
   - ⚠ Login copies roles to same-email accounts without an `email_verified` check (GHSA-qxw3-x3fw-qp2c item 7). Fix that before granting admin by email, or have an operator register on Darya's behalf.
+
+## Adiona team admin account: prerequisites (2026-11-15, HOLDING: no user row yet)
+
+- **Correction to the previous section.** The login role-copy **is** gated on `email_verified` in prod:
+  - The fix is noetl/server `30862dfc` ("copy same-email roles only for a verified email"), released in v3.144.1.
+  - Prod server image `server-rust@sha256:c280c2c5…` = **v3.163.1**.
+  - The gateway has `NOETL_AUTH_SYNC=true`, so every login goes through the server's gated `/api/auth/login` and returns early, with no playbook fallback.
+- **Residual gaps** (rollback/ops hazards; no exploit detail here, see the advisory):
+  - The e2e `api_integration/auth0/auth0_login` playbook CTE is still ungated. It is only reached if `NOETL_AUTH_SYNC` is turned off, so treat that flag as **not safe to roll back** until the playbook gets the same `email_verified` gate.
+  - Both grant tools match by **email** with no verification check. A grant must therefore be preceded by a plan-only read showing exactly one row, with a verified-by-construction identity.
+- **Prod auth DB (confirmed from live manifests, read-only):**
+  - Cloud SQL `shastaratech-noetl-prod:us-central1:noetl-shared-pg` (private IP), reached through `pgbouncer.postgres.svc.cluster.local:5432` (pgbouncer + cloud-sql-proxy).
+  - The `auth` schema is accessed via the NoETL credential **`pg_auth`** (gateway `session_db_credential` default; the same credential the server's login uses).
+  - There is **no `deploy/postgres`** in the prod `postgres` namespace, so noetl/ops `provision_auth.yaml grant_admin` (`kubectl exec deploy/postgres`, demo defaults) **does not apply to prod**.
+- **Prod-native grant path:** catalog `shastaranch/ops/grant_role` v1 (catalog_id 743065752273420438).
+  - Runs as a postgres step with `auth: pg_auth`; plan-only by default; `apply: true` grants; admin-only (not on any allowlist).
+- **Plan-only run for the team address:** exec `380479142270869504`.
+  - Trace: `start` RAN, `grant` **skipped**, `show` RAN → **0 rows**.
+  - The account has **never logged in** to the prod gateway, so there is nothing to grant to yet.
+- **Auth0 (shastara tenant, CLI client), from the public client info:**
+  - Connections are Username-Password (sign-up open), msr-passwords, passwordless `email`, and `google-oauth2`.
+  - adiona.org mail is Google Workspace (MX aspmx.l.google.com). The team should log in with **Google** (→ `google-oauth2|…`) or **email code** (→ `email|…`); both have a provider-verified email. They should not use password sign-up.
+  - `email_verified` could not be read directly: there is no Auth0 Management access from this session.
+- **Next (team, then operator):**
+  1. Whoever controls the mailbox runs a one-time `noetl --context gke-prod auth login --browser-pkce --pkce-port 8765`.
+  2. The operator re-runs plan-only.
+  3. Apply only if exactly one row is returned and it has a google-oauth2 or email prefix.
+  4. Then plan-only again to confirm roles=admin, and the team runs `catalog get` to confirm.
