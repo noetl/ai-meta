@@ -102,3 +102,10 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
 - **Not applied yet.** `grant_role` (preview and apply) needs an admin session, and the CLI context now holds the team's non-admin session.
   - Next: operator re-login on a separate context so the two sessions don't overwrite each other.
   - Then preview (expect exactly 1 row, `google-oauth2|`/`email|` id), apply, re-preview (roles=admin), and team `catalog get` → 200.
+
+## Adiona team admin: still BLOCKED, wrong identity on gke-prod (2026-11-15 ~22:45Z)
+
+- The 22:42:20Z re-login on the gke-prod context created a **new** gateway user **297** (gmail). It is **not** the admin identity used all day, which is gateway user **207** (a different gmail account).
+- User 297 holds no admin: `POST catalog/resource` and `POST execute` were both refused ("proxy route refused", 22:42:54Z).
+- The CLI exits 0 on 403, so a `catalog get … >/dev/null && echo ok` check is a false positive. Read the output instead.
+- Nothing applied; no account or role touched. Next: log in on gke-prod with the identity behind user 207 (it worked as admin earlier today), then preview, apply, verify.
