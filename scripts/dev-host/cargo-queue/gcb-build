@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# gcb-build — compile + publish a NoETL Rust image on Google Cloud Build
+# instead of on the Mac (dev host). Builds and pushes to Artifact Registry
+# ONLY; it never deploys or rolls anything (prod rollout stays gated).
+#
+#   gcb-build [--version X.Y.Z] [--latest] [--timeout SECS] [--dry-run] [REPO_DIR]
+#
+# REPO_DIR defaults to the current directory. Supported repos (by origin URL):
+#   noetl/server  -> cloudbuild.yaml   -> AR noetl/server-rust
+#   noetl/worker  -> cloudbuild.yaml   -> AR noetl/noetl-worker-rust (timeout raised to 3600 s)
+#   noetl/gateway -> docker build      -> AR noetl/noetl-gateway
+#
+# Without --version the image is a DEV build tagged v0.0.0-dev.<sha>[.dirty]
+# and :latest is never moved. Releases are published by each repo's
+# release.yml (publish-ar job) on merge; use --version only to re-publish
+# a release whose CI publish failed, and only from that release's tag.
+#
+# Source = `git archive` of the tracked tree (including uncommitted edits to
+# tracked files via `git stash create`). Untracked files and target*/ dirs are
+# never uploaded, so a dev checkout cannot ship a GB of build cache.
+set -euo pipefail
+
+PROJECT="${GCB_PROJECT:-shastaratech-noetl-prod}"
+REGION="${GCB_REGION:-us-central1}"
+AR="us-central1-docker.pkg.dev/${PROJECT}/noetl"
+version=""; latest=false; timeout=""; dry=false; dir="."
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --version) version="${2#v}"; shift 2;;
+    --latest) latest=true; shift;;
+    --timeout) timeout="$2"; shift 2;;
+    --dry-run) dry=true; shift;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0;;
+    *) dir="$1"; shift;;
+  esac
+done
+
+root="$(git -C "$dir" rev-parse --show-toplevel)"
+name="$(basename "$(git -C "$root" remote get-url origin)" .git)"
+case "$name" in
+  server)  image=server-rust;       config=cloudbuild.yaml;;
+  worker)  image=noetl-worker-rust; config=cloudbuild.yaml; timeout="${timeout:-3600}";;
+  gateway) image=noetl-gateway;     config="";;
+  *) echo "gcb-build: no Cloud Build recipe for repo '$name' (server|worker|gateway)" >&2; exit 2;;
+esac
+
+sha="$(git -C "$root" rev-parse --short=8 HEAD)"
+commit="$(git -C "$root" stash create 2>/dev/null || true)"
+suffix=""
+if [ -n "$commit" ]; then suffix=".dirty"; else commit=HEAD; fi
+if [ -z "$version" ]; then
+  version="0.0.0-dev.${sha}${suffix}"
+  $latest && { echo "gcb-build: --latest is only allowed with --version" >&2; exit 2; }
+fi
+
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/gcb-build.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+# Exclude build output even when it is (wrongly) tracked: noetl/server main
+# carries ~1.2 GB of target-kind/ and .g?/ binaries since 749f5900.
+git -C "$root" archive --format=tar.gz -o "$tmp/src.tgz" "$commit" -- . \
+  ':(exclude,glob)target*/**' ':(exclude,glob)**/target/**' ':(exclude,glob).g?/**'
+
+subs=""
+if [ -n "$config" ]; then
+  cp "$root/$config" "$tmp/cloudbuild.yaml"
+  subs="_VERSION=${version},_PUSH_LATEST=${latest}"
+else
+  cat > "$tmp/cloudbuild.yaml" <<EOF
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "--platform", "linux/amd64", "-t", "${AR}/${image}:v${version}", "."]
+images: ["${AR}/${image}:v${version}"]
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+timeout: 2400s
+EOF
+fi
+if [ -n "$timeout" ]; then
+  sed -i.bak -E "s/^timeout:.*/timeout: ${timeout}s/" "$tmp/cloudbuild.yaml"
+fi
+
+echo "gcb-build: repo=$name commit=$sha${suffix} -> ${AR}/${image}:v${version}  (src $(du -h "$tmp/src.tgz" | cut -f1), $(grep -E '^timeout:' "$tmp/cloudbuild.yaml"))"
+cmd=(gcloud builds submit "$tmp/src.tgz" --project="$PROJECT" --region="$REGION"
+     --config="$tmp/cloudbuild.yaml" --gcs-source-staging-dir="gs://${PROJECT}_cloudbuild/source")
+[ -n "$subs" ] && cmd+=(--substitutions="$subs")
+if $dry; then printf '%q ' "${cmd[@]}"; echo; exit 0; fi
+"${cmd[@]}"
+digest="$(gcloud artifacts docker images describe "${AR}/${image}:v${version}" --format='value(image_summary.digest)' 2>/dev/null || true)"
+echo "gcb-build: DONE ${AR}/${image}:v${version}${digest:+@${digest}}"

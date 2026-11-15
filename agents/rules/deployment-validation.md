@@ -16,6 +16,9 @@ on the **local kind cluster** before rolling out to GKE.
 6. Only then: Cloud Build + GKE Helm     (production rollout)
 ```
 
+On the Mac dev host, wrap step 2 as `cargo-queue run podman build ...`; the
+amd64 prod image comes from Cloud Build, never a local build. See `build-queue.md`.
+
 GKE is the production path; kind catches the bulk of regressions
 cheaply — wrong configmap key, missing env var, broken liveness
 probe, removed file referenced by a Dockerfile COPY, etc.
