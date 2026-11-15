@@ -33,3 +33,19 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
 - **Registered `muno/playbooks/profile` = v7, catalog_id 736128634880000113, created 2026-10-12T15:56:11Z, sha256 201bcee08206391d… — byte-identical to noetl/travel main (#145); read_only arc → begin_read.** Prod was NOT stale. **Nothing re-registered** (would be an identical v8). Rollback pin: v7.
 - Verify: `noetl --context gke-prod exec catalog://muno/playbooks/profile --payload '{"uid":…,"profile":{},"read_only":true}'` → exec 380438259395731456 COMPLETED: validate_input RAN, begin_read RAN, save_profile skipped, load_profile RAN (get_doc only, users/google-oauth2|…726381 = operator, uid bound by gateway), build_response/end RAN. Firestore: no doc created, all profile updateTimes unchanged.
 - Posted adiona/frontend#59 comment 6899983346; asked bazilevsd for the execution id her agent analysed + gateway URL (no profile execs for her uid on this prod since Oct 15).
+
+## Local-runtime reproduction + agent guide (2026-11-15)
+
+- **Local runtime cannot run profile.yaml** (python steps), measured with the SPA's exact payloads, creds isolated:
+  - **CLI 2.17.0** (first on the operator PATH): python steps silently skipped ("Tool not supported in local execution mode"); `noetl_executor::condition::evaluate_condition` treats the unresolved `{{ validate_input.ok and validate_input.read_only }}` as truthy, so **reads and saves both route to begin_read**; then `load_profile` errors "Failed to read playbook file" (the child `automation/agents/mcp/firestore` is resolved as a local path). Zero Firestore access, so "no data".
+  - **CLI 6.4.1** (latest): refuses up front ("uses tool kinds the local runtime cannot run … python" → "--runtime distributed").
+  - Neither reproduces "save_profile on read". Fix = (b): profile must be tested via the gateway, now documented.
+- **noetl/travel#183** (docs/scaffolding only, CI green):
+  - docs/playbooks/AGENT-GUIDE.md; AGENTS.md section; skill `.claude/skills/noetl-travel-playbooks/` + `docs/playbooks/noetl-travel-playbooks.skill`.
+  - spec-kit 1.4.0 (`specify init --here --integration claude --script sh`, same layout as noetl/book); constitution v1.0.0; specs/001-travel-playbooks.
+  - scripts: validate_playbook_schema.py (noetl.ai schema; neg-tested), trace_execution.py (gateway GET /noetl/executions/{id}), profile_doc_read.py (read-only).
+- noetl.ai facts:
+  - real artifacts: `/`, `/llms.txt`, `/schema/v2/playbook.schema.json`, `/dsl/{manifest,resource-model,source}.json`;
+  - **every other path returns the same 200 page**;
+  - Cloudflare 403s Python's default User-Agent (gateway too); set one.
+- Posted adiona/frontend#59 comment 6900248693 with all references + setup/debug/deploy commands.
