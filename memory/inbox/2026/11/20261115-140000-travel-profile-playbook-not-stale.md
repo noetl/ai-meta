@@ -177,3 +177,23 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
   - This failure is **pre-existing and date-dependent**: it also fails at `eca516a`, the last commit where playbook-tests passed (2026-10-24). playbook-tests has not run on main since (path-filtered), so main's green badge is stale.
   - Needs a separate fix to that test's date fixtures; then merge #146, pin v7, register, and verify a read_only run shows begin_read + plan_suggestions.
   - Note: #147 is stacked on #146's branch, so after the rebase its diff shows the old #146 commit until #147 is rebased too.
+
+## CI time bomb fixed, #146 landed, profile v8 LIVE (2026-11-15 ~23:20Z)
+
+- **noetl/travel#184** `fix(test)` merged `217085b8` (23:13:05Z).
+  - Root cause: `call_hotelbeds_hotels` refuses `check_in < date.today()`, and `hotelbeds_content_cache_test.py` hard-coded `check_in 2026-11-03`. From 11-04 the search returned a validation error → no hotels → `KeyError '12345'`.
+  - Fix (test-only): the stay is derived from today (+30 d, 4 nights). playbook-tests green on main `217085b`.
+- **noetl/travel#146** rebased onto `217085b` (`7bee35d`), CI green, merged `26712739` (23:15:21Z). Branch kept, because #147 was based on it.
+- **Pin (rollback):** v7 catalog_id 736128634880000113, sha256 `201bcee08206391dcdb14e31be23b5b1beff5d704bd56403c96d1a1db1a20729`. The content is saved at `noetl/catalog-backups/muno-playbooks-profile.v7.20261115.yaml` (local).
+  - Rollback = `noetl --context gke-prod register playbook --file <that file>` (→ v9 = v7 content).
+- **Registered:** `muno/playbooks/profile` **v8**, catalog_id **760992158890328510**, sha256 **`1de1f216d96b444ffa2d827bf6695d53aa041ac509399caef0d1c6f8aba64175`** = main `playbooks/profile.yaml` (read back via `catalog get`). Schema OK.
+- **Verify, live read_only** exec `380496207232901120` on catalog 760992158890328510, COMPLETED:
+  - start, validate_input, **begin_read RAN**, **save_profile skipped**, load_profile, **plan_suggestions RAN**, suggest_pois skipped, skip_suggestions, build_response.
+  - Operator's session-bound doc is still **NOT FOUND** afterwards → no write.
+  - `plan_suggestions` → `has_coords false, coords_source null`, correct because that doc doesn't exist.
+- **Verify, stored-coordinate fallback** (offline, v8's exact `plan_suggestions` code; no prod write needed):
+  - Fed the real `get_doc` found-envelope shape (ops firestore MCP `_plain_doc` → `document.data`, decoded values) with an empty request profile: `has_coords true, coords_source "stored"`, the stored lat/lng, `included_type` = first interest.
+  - When the request carries coordinates, they win (`coords_source "input"`).
+- **#147** rebased onto main (single commit `0c452b5`, old #146 commit dropped), base retargeted to `main`, CI green, **not merged** (advisory hold).
+- adiona/frontend#59 comment 6902943231 **edited**: v8 live; reads now use stored coordinates; Darya still needs coordinates saved once.
+- Follow-up: travel `specs/001-travel-playbooks/spec.md` and the AGENT-GUIDE still cite prod v7. Update them in a docs PR.
