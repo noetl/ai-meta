@@ -91,3 +91,14 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
   2. The operator re-runs plan-only.
   3. Apply only if exactly one row is returned and it has a google-oauth2 or email prefix.
   4. Then plan-only again to confirm roles=admin, and the team runs `catalog get` to confirm.
+
+## Adiona team admin: login seen, grant BLOCKED on operator session (2026-11-15 ~22:40Z)
+
+- Preview `380486027468349440` (22:35:41Z, operator session): **0 rows**. This ran *before* the team login.
+- Gateway logs (read-only, identities hashed):
+  - 22:37:24Z: operator re-login (gateway user 207).
+  - **22:38:15Z: team-account login succeeded** (shastara, gateway user **296**, @adiona.org). It was done on the operator machine and **replaced the CLI's single gke-prod session**.
+- Baseline under the team session (pre-grant, as expected): `catalog get muno/playbooks/profile` → **403 not authorized**; `run shastaranch/ops/grant_role` → **403 not authorized**. The gateway also refuses it reads of the operator's executions ("execution not owned by caller").
+- **Not applied yet.** `grant_role` (preview and apply) needs an admin session, and the CLI context now holds the team's non-admin session.
+  - Next: operator re-login on a separate context so the two sessions don't overwrite each other.
+  - Then preview (expect exactly 1 row, `google-oauth2|`/`email|` id), apply, re-preview (roles=admin), and team `catalog get` → 200.
