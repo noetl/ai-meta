@@ -109,3 +109,23 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
 - User 297 holds no admin: `POST catalog/resource` and `POST execute` were both refused ("proxy route refused", 22:42:54Z).
 - The CLI exits 0 on 403, so a `catalog get … >/dev/null && echo ok` check is a false positive. Read the output instead.
 - Nothing applied; no account or role touched. Next: log in on gke-prod with the identity behind user 207 (it worked as admin earlier today), then preview, apply, verify.
+
+## Adiona team admin: GRANTED (2026-11-15 ~23:00Z)
+
+- **Session check:**
+  - The operator re-login at 22:55:10Z put the gke-prod session back on gateway user **207** (the admin used all day).
+  - `catalog get muno/playbooks/profile` returned content (catalog_id 736128634880000113), and the gateway logged the caller as 207.
+  - (The 22:46Z attempt was still 297 / 403. The output was read, not the exit code.)
+- **Preview** `380491107408027648` (`grant` skipped, `show` RAN):
+  - **1 row**: user_id **296**, team address, roles empty, `role_exists` true.
+  - `auth0_id` is **not observable**: server result sanitization redacts any `auth0_id` key as `[REDACTED]`, and the registered SQL can't alias it.
+  - The single row is the one created by the 22:38:15Z team login; no other row carries that email, so the email-matched grant could reach nothing else.
+- **Apply** `380491290690723840`: `grant` RAN, **affected_rows 1**.
+  - `show` was skipped in that run: it is an exclusive-arc sibling of `grant` under `start`, and the runtime skips losing siblings. So the in-run post-check never fires. Minor bug in `shastaranch/ops/grant_role`.
+- **Re-preview** `380491604160421888`: **1 row, user_id 296, roles = `admin`**.
+- **Authorization path:**
+  - Gateway roles come from session validation (server `get_user_roles` over non-expired `auth.user_roles`; gateway session cache TTL 300 s).
+  - `authorization.rs` treats the `admin` role as the full proxy surface (catalog get/register included).
+  - The team's next login (or its cached session after ≤5 min) carries `admin`.
+  - A **live** team-side `catalog get` was not run: there is no team context on the operator machine (its session was overwritten at 22:42Z).
+- **Rollback:** `DELETE FROM auth.user_roles WHERE user_id = 296 AND role_id = (SELECT role_id FROM auth.roles WHERE role_name = 'admin');` (via a pg_auth step). No other account or role touched.
