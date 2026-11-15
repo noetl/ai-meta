@@ -129,3 +129,34 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
   - The team's next login (or its cached session after ≤5 min) carries `admin`.
   - A **live** team-side `catalog get` was not run: there is no team context on the operator machine (its session was overwritten at 22:42Z).
 - **Rollback:** `DELETE FROM auth.user_roles WHERE user_id = 296 AND role_id = (SELECT role_id FROM auth.roles WHERE role_name = 'admin');` (via a pg_auth step). No other account or role touched.
+
+## Second operator admin: STOPPED (2026-11-15 ~23:05Z)
+
+- Requested: grant `admin` to the operator's second gmail account (expected gateway user 297).
+- Preview `380492633962717184` (operator session = user 207, admin confirmed by `catalog get` output): **4 rows** for that email (users **174, 267, 275, 297**), all with no roles.
+- `grant_role` grants to every row with the email, so I **did not apply**. Nothing changed.
+- Options:
+  - (a) Confirm all four are the operator's own accounts (e.g. several Auth0 connections or tenants), then apply.
+  - (b) Grant by `user_id = 297` only, which needs a user_id-scoped grant step that doesn't exist yet.
+
+## Correction / reconciliation: suggestions ARE live in prod (2026-11-15 ~23:05Z)
+
+- Full registered content of `muno/playbooks/profile` (v7, catalog_id 736128634880000113, registered 2026-10-12T15:56:11Z) was re-dumped and compared:
+  - registered v7 sha256 `201bcee08206391dcdb14e31be23b5b1beff5d704bd56403c96d1a1db1a20729`;
+  - noetl/travel `main` `playbooks/profile.yaml`: the **same sha256, byte-identical**. The earlier claim stands.
+  - #146 head `577d7b6b` (`feat/profile-suggestions-from-stored`): `1de1f216…`, differs.
+- **What was misleading:** shorthand like "#146 (suggestions) unmerged" implied suggestions weren't deployed.
+  - The suggestions logic (`suggest_pois`, `poi_limit: 12`, `poi_radius_m: 5000`, and `build_response` merging into `{profile, suggestions, suggestions_error}`) has been on main since `b0ea549` (2026-09-20) and `1610b43` (2026-09-22). It **is in v7 and live**.
+  - #146 only adds `plan_suggestions`, which takes coordinates and interests from the request, **else from the stored document**.
+- **v7 routes:**
+  - `read_only: true`: validate_input → begin_read → load_profile → (`suggest_pois` if `validate_input.has_coords`, else `skip_suggestions`) → build_response.
+  - `read_only: false`: validate_input → save_profile → load_profile → same guard → build_response.
+  - `has_coords` is computed from the **request's** `profile.home_lat/home_lng` only.
+  - The SPA login read sends `profile: {}`, so on v7 a read **never** suggests and returns `suggestions: []`, `suggestions_error: "profile has no home_lat/home_lng; suggestions skipped"`.
+  - Live proof: exec `380438259395731456` (read_only): suggest_pois **skipped**, skip_suggestions **RAN**.
+  - A save gets suggestions only when the request profile carries numeric `home_lat`/`home_lng`. The first `interests` entry becomes the Places type.
+- **Darya's doc** (GET-only, field shapes only): 13 fields. **No `home_lat`, `home_lng` or `interests`; `home_city` empty.**
+  - So she gets no suggestions on read (by design on v7) and none on save either, unless the save request carries coordinates.
+  - #146 alone would not help her: her stored doc has no coordinates to fall back on.
+  - "No suggestions" is expected behaviour, not a stale deploy.
+- adiona/frontend#59: my comments there never claimed suggestions were undeployed (the 2026-10-06 comment shows `suggest_pois|skip` on both routes), so there is nothing to retract. A clarifying note for Darya is optional.
