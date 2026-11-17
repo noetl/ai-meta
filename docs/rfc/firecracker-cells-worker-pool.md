@@ -9,6 +9,12 @@ Written 2026-11-16 against `main` of server `ebd3f30d` (v3.165.0), worker `cdb73
 Owner prompt, verbatim: *"how to enhance noetl worker pool handing by introducing firecracker microvm and some concept
 of distributed operating system especially Intercommunicating Cells."*
 
+**Companion RFC:** [`interstate-runtime-bus.md`](interstate-runtime-bus.md) (ai-meta#586, PR #587). It uses the
+cell and mailbox model defined here (§5.3) one level up: a *runtime* has an identity and mailboxes, and messages
+cross between runtimes. A sender addresses another runtime's capability mailbox, never its cells; the receiving
+server routes onto this RFC's subjects (interstate §3.3, §4). ⚠ Until both PRs merge, the cross-links resolve only
+on their branches.
+
 Related:
 - `bot-fleets-vs-shared-account-vm.md` §7.1 (ai-meta PR #556; ⚠ not yet on `main`, read it on branch
   `docs/rfc-bot-fleets-vs-shared-vm`): isolation tiers
@@ -356,6 +362,10 @@ foca gossip for host liveness, both as already decided. Individual cells are not
 seconds to minutes, and their host is the authority. A cell becomes visible in events (§5.5), which is what replay and
 audit need. Registration goes host → server API, never guest → anything.
 
+Cross-runtime addressing (cluster ↔ daemon ↔ CLI) is defined in the companion
+[`interstate-runtime-bus.md`](interstate-runtime-bus.md): `noetl://<ni>/cells/<cell_id>` is valid only inside `<ni>`, and
+another runtime reaches these cells only through that runtime's capability mailbox.
+
 **ehgraph** can render cell topology (host → cells → profile, principal) for operators and agents as a read model fed
 from D8 and events. It is not authoritative: it is a single-primary MVP, and a topology view that can disagree with the
 hosts is a representation (see `representation-drift.md`).
@@ -519,5 +529,7 @@ Each lands with its row on the worker / server / tools `deployment-specification
 ## 12. Linked issues
 
 - Tracking: [noetl/ai-meta#584](https://github.com/noetl/ai-meta/issues/584).
+- Companion: [noetl/ai-meta#586](https://github.com/noetl/ai-meta/issues/586) /
+  [`interstate-runtime-bus.md`](interstate-runtime-bus.md) (PR #587).
 - Composes with #554 (coroutines), #558–#562 (latency plan), #560 / PR #355 (EHDB substrate), #548 (catalog pinning),
   PR #556 (bot-fleets §7.1, §7.4).
