@@ -6,6 +6,10 @@ measurement, and everything else is in §12 as an open measurement.
 Written 2026-11-16 against `main` of server `ebd3f30d` (v3.165.0), worker `cdb737f7` (v6.19.0), tools `ad03a84`
 (v4.7.0), cli v6.4.1, ehdb `210531d` (v0.15.1).
 
+**Decided 2026-11-16 (owner): Q1.** Result references are qualified by runtime id, `noetl://<ni>/results/<tenant>/…`.
+Tenant names that could be read as a runtime id or a reserved authority are refused. §3.4 records the decision, the
+grammar, and the migration and back-compat path for references that carry no runtime id.
+
 **Companion RFC:** [`firecracker-cells-worker-pool.md`](firecracker-cells-worker-pool.md) (ai-meta#584, PR #585). That
 RFC defines the **cell** and its **mailbox** inside one runtime. This RFC does not redefine them; it adds the level
 above: a **runtime** has an identity and mailboxes, and messages cross from one runtime's mailbox to another's. The
@@ -105,9 +109,11 @@ representation that will drift. §5.1 assigns each one a scope.
 - An **execution context** that travels with a task: the pin, the principal, the trace, the deadline and the budget.
   Today item 9 sends a playbook ref and a payload, and §12 sends a digest and args.
 - **Idempotency.** A resubmitted item-9 task is a new task; nothing dedups a retry by the sender.
-- **References across runtimes.** The result URN `noetl://<tenant>/<project>/results/<eid>/…`
-  (`worker/src/result_locator.rs:110`) carries no runtime identity, so it cannot be resolved outside its own cluster,
-  and a CLI's results are local files.
+- **References across runtimes.** Neither result-reference form in use today carries a runtime identity. Both are
+  REAL: the legacy `noetl://execution/<eid>/result/<name>/<id>`, which the server mints as `reference.ref`, and the
+  logical `noetl://<tenant>/<project>/results/<eid>/…`, which the worker stamps as `reference.uri` (ai-meta#104). So a
+  reference cannot be resolved outside its own cluster, and a CLI's results are local files. §3.4 fixes this (Q1,
+  decided).
 - **Waiting that does not hold a slot** across runtimes (§12's 2 s poll holds the parent step).
 - **Cancel across runtimes** (§12.5 TARGET).
 
@@ -162,11 +168,12 @@ One grammar, extending the `noetl://` forms that already exist:
 | `noetl://<ni>/mbx/cap/<tier>/<profile>` | a capability mailbox: work needing those capabilities | TARGET |
 | `noetl://<ni>/mbx/reply/<execution_id>/<step>` | where responses for a parked step land | TARGET |
 | `noetl://<ni>/executions/<execution_id>` | an execution in that runtime | TARGET |
-| `noetl://<ni>/results/<tenant>/<project>/<eid>/…` | a result, globally resolvable | TARGET (instance-qualified form of the REAL result URN) |
+| `noetl://<ni>/results/<tenant>/<project>/<eid>/…` | a result, globally resolvable | TARGET, **decided (Q1)**: the instance-qualified form of the REAL logical result URN (§3.4) |
 | `noetl://<ni>/cells/<cell_id>` | a cell (cells RFC §5.3) | **local to `<ni>` only**; never accepted from another runtime |
 
 The authority segment is unambiguous: `is_instance_id` accepts exactly `ni-` plus 32 lowercase hex characters
-(`identity.rs`). A tenant segment matching that pattern must be refused at tenant creation (Q1).
+(`identity.rs`). Catalog references and result references now both carry a runtime id in that segment. Tenant names
+that could collide with it are refused (§3.4.3).
 
 ### 3.3 How it composes with cells
 
@@ -184,6 +191,107 @@ runtime  noetl://ni-A                          runtime  noetl://ni-B
 - Inside a runtime: the cells RFC's subjects and its lease-affine `cell.<cell_id>` hint, unchanged.
 - The receiving server translates one into the other. A sender cannot name a cell, a pool or a host of another
   runtime. This is the no-addressing rule from the cells RFC §5.2 applied to the level above.
+
+### 3.4 Result references carry a runtime id (Q1, decided 2026-11-16)
+
+**Decision (owner):** a result reference that leaves its runtime is qualified by the runtime id, matching catalog
+references. Tenant names that could be read as a runtime id or a reserved authority are forbidden. Both halves were
+the proposal in the first draft; this section makes them binding and spells out the migration.
+
+#### 3.4.1 What exists today (REAL)
+
+| Form | Example | Minted by | Parsed by |
+|---|---|---|---|
+| legacy execution ref | `noetl://execution/<eid>/result/<name>/<id>` | server, as `reference.ref`; `<id>` is a `noetl.result_store` row id | `server/src/services/result_store.rs` `parse_noetl_ref`; `noetl-locator` `parse_legacy_execution_ref` |
+| logical locator | `noetl://<tenant>/<project>/results/<eid>/<step>/<frame>/<row>/<attempt>` | worker, as `reference.uri` (ai-meta#104 Phase A) | `noetl-locator` `ResourceLocator::parse`; server `parse_result_ref`; worker `result_locator.rs` `coords_from_uri` |
+| catalog ref | `noetl://<ni>/<path>[@v][#sha256:…]`; `noetl://local/…` = this catalog | user / catalog | server `orchestrate-core` `split_noetl_uri` |
+| other `noetl://` authorities | `noetl://spool/<sub>/<seq>/<id>` (tools spool), `__context_ref__` values in the legacy form | tools, server | their own code |
+
+Facts that shape the migration:
+
+- **Every logical URI minted today is `noetl://default/default/results/…`.** The worker calls
+  `ResultCoordinates::new(None, None, …)` (`worker/src/executor/command.rs:3446`), which falls back to
+  `DEFAULT_TENANT` / `DEFAULT_PROJECT`. No tenant-naming path exists in the Rust server or gateway (grep, 2026-11-16).
+  So no stored tenant segment can collide yet; R0 below confirms this against data, not code.
+- **A silent misparse is waiting.** `parse_result_ref` routes `execution/…` to the legacy parser and parses *anything
+  else* as `<tenant>/<project>/<kind>/…`. Given `noetl://ni-…/results/t/p/…`, today's build returns `Canonical` with
+  tenant `ni-…`, project `results`, kind `t`. It counts the parse as success on
+  `noetl_result_uri_accept_total{outcome="canonical"}`. Nothing fails, which is why the reader change must ship
+  first and the sender must check the receiver's version (§3.4.4).
+- **The physical layout is keyed by `(tenant, project, affinity)`.** `shard_key` is pinned by the test
+  `shard_key_is_stable` in `noetl-locator`. The runtime id must not enter that hash: qualifying a reference changes its
+  name, never where its bytes are.
+- **Instance keys do not rotate today.** There is no rotation in `server/src/instances/`. A runtime id is the hash of
+  its public key, so baking it into every stored reference would make a future key rotation a data migration
+  (§3.4.2, rule 2).
+
+#### 3.4.2 The grammar and its rules
+
+```
+qualified   noetl://<ni>/<kind>/<tenant>/<project>/<logical_path>[@<version>]
+            noetl://<ni>/results/<tenant>/<project>/<eid>/<step>/<frame>/<row>/<attempt>
+unqualified noetl://<tenant>/<project>/<kind>/<logical_path>[@<version>]       (today's logical locator)
+legacy      noetl://execution/<eid>/result/<name>/<id>                         (today's server ref)
+```
+
+`<kind>` comes right after the authority so that `results/`, `mbx/`, `executions/`, `cells/` and `events/` are fixed
+namespaces under a runtime, as in §3.2. The two non-legacy forms convert losslessly given `<ni>`:
+`qualify(ni, noetl://t/p/k/x) = noetl://ni/k/t/p/x`, and `unqualify` is the inverse.
+
+1. **The authority names the runtime that serves the bytes.** For a CLI that is its home server after the upload in
+   §7.5, never the CLI's own id.
+2. **Qualify at the boundary, not at rest.** Storage inside a runtime keeps the unqualified forms: events, result
+   store rows, `reference.uri`. An unqualified reference means "the runtime that holds this record". The send path
+   qualifies every reference it puts in `input.refs` or a response, so the envelope's `causation` and `refs` always
+   carry an explicit authority. This keeps the runtime id out of the immutable log, so a future key rotation never
+   rewrites history (and `noetl.event` cannot be rewritten anyway).
+3. **An unqualified reference never crosses a runtime boundary.** A receiver refuses one in `input.refs` with
+   `nack {reason: unqualified_ref}`, because it cannot know whose it is.
+4. **A legacy reference is local-only.** It names a row id in one runtime's result store. To send one, the sender uses
+   the matching `reference.uri` and qualifies it. If only the legacy form exists, the payload goes inline under the cap
+   or the send is refused. The legacy form is never qualified.
+5. **Parsers route on the first segment, in this order:** a valid instance id → qualified; `execution` → legacy;
+   `local` → this catalog; `spool` → tools spool; anything else → unqualified locator. Under the catalog grammar,
+   `noetl://<ni>/results/…` is a result and `noetl://<ni>/a/b` is a playbook, so playbook paths whose first segment
+   is a reserved namespace are refused (§3.4.3).
+
+#### 3.4.3 Forbidden names
+
+- **Tenant and project names** must not match `ni-[0-9a-f]{32}` and must not equal a reserved authority: `execution`,
+  `local`, `spool`, or any future one added to this list in the same change set as the parser that routes it.
+  Enforced in two places: wherever a tenant name is first accepted (TARGET; no such path exists today), and in
+  `ResourceLocator::parse` itself, which refuses such a tenant so that no producer can mint a colliding URI.
+- **Catalog paths** under a runtime must not start with `results/`, `mbx/`, `executions/`, `cells/` or `events/`.
+  Enforced at registration in the catalog.
+- Changing either list is a grammar change: it lands in the parser and in this section together.
+
+#### 3.4.4 Migration and back-compat
+
+Nothing stored is rewritten. Every old form stays readable for as long as a record holding it exists, which under
+the immutable event log means forever. The steps follow the ai-meta#104 pattern (accept, then produce, then switch
+consumers), and the whole path sits inside phase I3.
+
+| Step | What | Ships in | Flag | Safe because |
+|---|---|---|---|---|
+| **R0** | Read-only audit. Count stored references by shape (legacy, unqualified, other) across `noetl.event`, the EHDB tier and `noetl.result_store`. List every distinct tenant and project segment. List catalog paths whose first segment is a reserved namespace. Print the denominators. | ai-meta playbook | none | reads only; NOT_YET_MEASURED until run (M8) |
+| **R1** | **Readers first.** `noetl-locator` gains the qualified form and the routing order in §3.4.2. `parse_result_ref` gets a `Qualified` arm, so the §3.4.1 misparse becomes impossible. A `qualified` outcome is added to `noetl_result_uri_accept_total`, pinned at 0. The forbidden-tenant guard goes into `ResourceLocator::parse`. Server, worker, tools and CLI all release. | tools, then server, worker, cli | none (additive parse) | nothing emits the form yet; R0 showed no colliding tenant before the guard ships |
+| **R2** | **Advertise.** Registration capabilities gain `interstate.refs: 1` (the strict `Capabilities` struct needs the field added; unknown fields are refused today). A runtime advertises it only on an R1 build. | server, cli | none | a capability that is only read by R3 |
+| **R3** | **Qualify at the boundary.** The send path qualifies `refs`; `context.fetch` accepts qualified references only; the CLI uploads, then sends its home server's id. A target that does not advertise `interstate.refs: 1` gets the payload inline under its cap or a local refusal, **never a qualified ref**, because its parser would misread it (§3.4.1). | server, worker, cli | `NOETL_INTERSTATE_REFS` | flag off: byte-identical; no stored value changes |
+| **R4** | **Receivers refuse unqualified refs** from another runtime (rule 3). Local resolution of unqualified and legacy forms is unchanged. | server | same flag | the only consumer of a cross-runtime ref is the R3 send path |
+
+Not in this path: retiring the legacy `reference.ref` producer. That belongs to ai-meta#104's own plan and has no
+effect here, because a legacy reference never crosses a runtime boundary.
+
+**Rollback.** Turning `NOETL_INTERSTATE_REFS` off stops qualification at the boundary. The R1 parsers stay: they are
+additive and accept every older form. A qualified reference already delivered still resolves on any R1+ build.
+
+**Mixed versions during a roll.** Senders on R3 check the target's advertised capability on every send, not once
+per registration, so a target that rolls back to a pre-R1 build stops receiving qualified references on its next
+lease refresh.
+
+**Rotation (open, not blocking).** If instance keys ever rotate, an in-flight qualified reference names the old id.
+Rule 2 keeps this out of storage. In-flight references need a successor record in the registry, which is open
+question Q1a.
 
 ---
 
@@ -353,8 +461,8 @@ the same. Both pollers remain behind their current flags until the bus replaces 
 ### 7.5 Large payloads: by reference
 
 - Inline only up to the target's `max_inline_bytes`; the default stays at today's 128 KiB. Above that, `input.refs`.
-- A reference is `noetl://<ni>/results/…` plus `sha256` and size. The receiver verifies the digest after fetching and
-  refuses on mismatch.
+- A reference is `noetl://<ni>/results/…` plus `sha256` and size. It is always qualified on the wire, under the rules
+  and migration in §3.4. The receiver verifies the digest after fetching and refuses on mismatch.
 - **Resolution** in order:
   1. a shared object store both sides can read (`gs://`, `s3://`, …; the catalog RFC's ambient-identity rule);
   2. a signed `context.fetch` to the origin runtime, served only for references listed in a message addressed to the
@@ -464,7 +572,7 @@ is the test bed for every phase. Nothing reaches prod without the owner.
 | **I0** | Measure today's handoff (M1, M2) on the two-runtime rig; write the `RuntimeKind` scope table into each repo's wiki | ai-meta, wikis | none | — | numbers with denominators and dates |
 | **I1** | Emit `interstate.*` events for today's item-9 and §12 handoffs, on both sides, with no transport change | server | `NOETL_INTERSTATE_EVENTS` | — | every handoff on the rig has events 1–8; flag off: no new events |
 | **I2** | `interstate/v1` envelope on item-9 submit: context block, `idempotency_key`, `causation`, budgets; receiver dedup as an event | server, cli | `NOETL_INTERSTATE_ENVELOPE` | I1 | duplicate submit → one execution; `hops_left = 0` refused |
-| **I3** | Instance-qualified result URNs; signed `context.fetch`; CLI uploads before send | server, worker, cli | `NOETL_INTERSTATE_REFS` | I2 | 100 MiB input by reference; digest mismatch refused; unscoped fetch refused |
+| **I3** | Instance-qualified result URNs via §3.4.4 R0–R4 (audit; readers first; advertise; qualify at the boundary; refuse unqualified); signed `context.fetch`; CLI uploads before send | tools, server, worker, cli | `NOETL_INTERSTATE_REFS` (R1, R2 unflagged and additive) | I2 | 100 MiB input by reference; digest mismatch refused; unscoped fetch refused; a pre-R1 target receives no qualified ref; `outcome="qualified"` counts on the receiver; every pre-I3 stored reference still resolves locally |
 | **I4** | Mailboxes as EHDB subjects; the board becomes a projection cache; migrate from server#567's table | server, ehdb | `NOETL_INTERSTATE_MAILBOX_STORE=ehdb` | I1; Q2 | restart the server with queued messages: nothing lost; projection rebuilt equals the pre-restart board |
 | **I5** | `request` shape parks the sender (#559 2b) with a reply mailbox; §12 delegate and item-9 polling switched to it; `kind: playbook` `runtime:` target | server, tools, worker | `NOETL_INTERSTATE_REPLY_PARK` | I4; #559 2b | a parent awaiting a remote child holds no slot; no 2 s poll term in M2 |
 | **I6** | CLI: real execution ids, ephemeral registration, local events mirrored as `interstate.relayed` on the home server | cli, server | CLI `--interstate` | I2 | a laptop run hands off to the rig and its record appears on both sides |
@@ -488,6 +596,7 @@ is the test bed for every phase. Nothing reaches prod without the owner.
 | R7 | **Clock skew** between a laptop and a cluster breaks `ts` checks and deadlines. | Skew bound is REAL in the gate; deadlines are compared on the receiver's clock and reported back. |
 | R8 | **Replay of A re-sending** because event 1 was lost between the append and the send. | Event 1 is appended before the send; the send is retried from the event, under the same `idempotency_key`. |
 | R9 | **A quiet failure mode**: a refused or expired message that nobody looks at. | `nack`, `interstate.expired` and `interstate.duplicate` are events with counters pinned at 0 (representation-drift rule on absent series). |
+| R10 | **Silent misparse of a qualified ref** by a pre-R1 build, which reads the runtime id as a tenant and counts success (§3.4.1). | R1 ships to every reader before R3 produces anything; R3 sends a qualified ref only to targets advertising `interstate.refs: 1`. |
 
 ---
 
@@ -495,8 +604,12 @@ is the test bed for every phase. Nothing reaches prod without the owner.
 
 ### 12.1 Decisions for the owner
 
-- **Q1.** Result URN grammar: instance-qualify (`noetl://<ni>/results/<tenant>/…`, proposed) or keep the tenant-first
-  form and add a resolver hint? Either way, forbid tenant names that match the instance-id pattern.
+- ~~**Q1.** Result URN grammar: instance-qualify or keep the tenant-first form with a resolver hint?~~ **DECIDED
+  2026-11-16 (owner):** instance-qualify, `noetl://<ni>/results/<tenant>/…`, and forbid tenant names that match the
+  instance-id pattern or a reserved authority. Grammar, rules and migration are in §3.4.
+- **Q1a** (follow-on, not blocking I3). If instance keys ever rotate, does the registry keep a successor record
+  (old id → new id) so that qualified references already in flight still resolve? Stored references are unaffected
+  (§3.4.2, rule 2).
 - **Q2.** Is server#567's Postgres inbox the interim store (proposed) or the permanent one?
 - **Q3.** Default tier on the receiving side for work from an external runtime (T1 proposed for CLIs).
 - **Q4.** Can an exited CLI reattach and collect replies (`noetl run --resume`), or are late replies audit-only?
@@ -519,6 +632,7 @@ is the test bed for every phase. Nothing reaches prod without the owner.
 | M5 | cancel → remote work stopped, across one hop | rig |
 | M6 | revocation → a revoked runtime's next accepted message refused | rig |
 | M7 | 100 MiB by-reference handoff: fetch time by each resolution path in §7.5 | rig |
+| M8 | R0 audit: stored result references by shape, distinct tenant/project segments, catalog paths under reserved namespaces | prod (read-only) and the kind rig |
 
 ---
 
