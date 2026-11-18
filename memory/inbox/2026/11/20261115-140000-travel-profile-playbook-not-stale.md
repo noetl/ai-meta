@@ -197,3 +197,21 @@ Report: "Darya doesn't see profile data — old `muno/playbooks/profile` registe
 - **#147** rebased onto main (single commit `0c452b5`, old #146 commit dropped), base retargeted to `main`, CI green, **not merged** (advisory hold).
 - adiona/frontend#59 comment 6902943231 **edited**: v8 live; reads now use stored coordinates; Darya still needs coordinates saved once.
 - Follow-up: travel `specs/001-travel-playbooks/spec.md` and the AGENT-GUIDE still cite prod v7. Update them in a docs PR.
+
+## 2026-11-18: noetl/travel#185, suggest_pois error rule (phases 1–4)
+
+- **Bug.** `suggest_pois` carried `spec.policy do: continue` on a SINGLE `kind: playbook` tool. Only `task_sequence` (tool lists) evaluates policy, so a failed Places child (FAILED, timeout or no result) failed the whole run: on a save after the write, and on a read with stored coordinates (no profile returned). Reproduced on kind (A1/A1r). A Places *API* error was never affected, because the child catches it.
+- **Darya (frontend#59):** not the cause. Her doc has no coordinates, so Places is never called.
+- **Phase 1:** travel#187 removed the dead rule, corrected the header, and added the guard `scripts/single_tool_policy_rule_test.py`. Also travel#186: a stale firestore-rules test had kept main red.
+- **Phase 2:**
+  - tools#121 → **noetl-tools 4.7.1**: task_sequence sub-tasks drop `command_id`, so they never ask to park.
+  - worker#407 → **worker 6.19.1** (AR `sha256:f40e4a20…`).
+  - ⚠ Correction: server v3.165.1 already refuses list-sub-task parks (`refused_step_shape`), so this is defense-in-depth, not a prerequisite.
+- **Phase 3:** travel#188 made `suggest_pois` a one-item list `places` with the rule; `build_response` reads `suggest_pois.places`. main `profile.yaml` sha256 `8a68eb7a…` is the file proven on kind.
+- **Phase 4, kind** (isolated cluster `t185`; server 3.165.1, system pool 6.11.9, user pool 6.19.0 then 6.19.1; park and wait ON; Firestore emulator; fault-injecting Places stand-in): with the list, forced child failure, timeout, error envelope and read-only all COMPLETE with the stored profile and `suggestions_error`. Normal runs return suggestions, a read leaves `updateTime` unchanged, and top-level park is intact. Details in travel#185.
+- **Prod:**
+  - profile registration pending the operator sign-in;
+  - worker roll handed off to the prod deploy owner (ai-meta#588), because that session couldn't be reached;
+  - **the auth pool is still on 6.18.0.**
+- **Impact:** 30 days of prod Cloud Logging shows 13 logged `Failed steps:` lines and 0 on `suggest_pois`. That is a log-based lower bound, not a catalog count.
+- **Side finding:** tools#122. A parked top-level call gets a 180 s deadline even with `timeout: 60`.
