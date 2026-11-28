@@ -3,7 +3,9 @@
 # instead of on the Mac (dev host). Builds and pushes to Artifact Registry
 # ONLY; it never deploys or rolls anything (prod rollout stays gated).
 #
-#   gcb-build [--version X.Y.Z] [--latest] [--timeout SECS] [--dry-run] [REPO_DIR]
+#   gcb-build --owner-approved [--version X.Y.Z] [--latest] [--timeout SECS] [--dry-run] [REPO_DIR]
+#
+# ⚠ Since 2026-11-27 Cloud Build needs the owner's explicit OK (build-placement.md).
 #
 # REPO_DIR defaults to the current directory. Supported repos (by origin URL):
 #   noetl/server  -> cloudbuild.yaml   -> AR noetl/server-rust
@@ -23,17 +25,29 @@ set -euo pipefail
 PROJECT="${GCB_PROJECT:-shastaratech-noetl-prod}"
 REGION="${GCB_REGION:-us-central1}"
 AR="us-central1-docker.pkg.dev/${PROJECT}/noetl"
-version=""; latest=false; timeout=""; dry=false; dir="."
+version=""; latest=false; timeout=""; dry=false; dir="."; approved=false
+[ "${GCB_OWNER_APPROVED:-}" = 1 ] && approved=true
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) version="${2#v}"; shift 2;;
     --latest) latest=true; shift;;
     --timeout) timeout="$2"; shift 2;;
     --dry-run) dry=true; shift;;
+    --owner-approved) approved=true; shift;;
     -h|--help) sed -n '2,22p' "$0"; exit 0;;
     *) dir="$1"; shift;;
   esac
 done
+
+# Build placement policy (ai-meta agents/rules/build-placement.md, 2026-11-27):
+# Linux/amd64 builds run on the AMD box, not on Cloud Build. Cloud Build only
+# with the owner's explicit OK -> pass --owner-approved (or GCB_OWNER_APPROVED=1).
+if ! $approved && ! $dry; then
+  echo "gcb-build: refused. Cloud Build needs the owner's explicit OK (agents/rules/build-placement.md)." >&2
+  echo "  Build on the AMD box instead: repos/ops/scripts/local-build/noetl-local-build.sh --image --remote amd" >&2
+  echo "  With the owner's OK: gcb-build --owner-approved ..." >&2
+  exit 3
+fi
 
 root="$(git -C "$dir" rev-parse --show-toplevel)"
 name="$(basename "$(git -C "$root" remote get-url origin)" .git)"

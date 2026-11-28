@@ -1,5 +1,11 @@
 # Rust build policy for the dev host (Mac Studio M1 Max, 32 GB)
 
+> ⚠ **Superseded in part, 2026-11-27.** Release/image builds no longer go to Google
+> Cloud Build by default. Linux/amd64 builds run on the AMD box, Apple Silicon builds on
+> this Mac. Cloud Build only with the owner's OK. See
+> [`agents/rules/build-placement.md`](../agents/rules/build-placement.md). Part 2 (the
+> local queue) is unchanged.
+
 **Why:** on 2026-11-13 the Mac hung and needed a forced reset after several
 agent sessions ran `cargo build`/`cargo test` at once with default parallelism
 (10 rustc jobs each). That filled RAM and the 12 GB swap. Two rules apply from now on:
