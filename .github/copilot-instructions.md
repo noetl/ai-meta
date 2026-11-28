@@ -45,3 +45,9 @@ Read the SKILL.md in each directory under `agents/skills/`:
 - Add memory: `./scripts/memory_add.sh "<title>" "<summary>" "<tags>"`
 - Compact memory: `./scripts/memory_compact.sh`
 - Submodule status: `git submodule status --recursive`
+
+## Build placement (mandatory)
+
+Linux/amd64 builds run on the AMD box (`kadyapam@10.50.0.89`), Apple Silicon builds on the Mac Studio
+(through `~/.cargo-queue`). GitHub Actions only for lightweight checks; no Cloud Build / Cloud Run without the
+owner's OK. Details and commands: `agents/rules/build-placement.md`.

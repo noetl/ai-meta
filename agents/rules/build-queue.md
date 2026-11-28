@@ -3,36 +3,24 @@ paths:
   - "**"
 ---
 
-# Rust build policy: images on Cloud Build, on-box compiles through the queue
+# Rust build policy on the Mac: on-box compiles through the queue
 
 The Mac Studio dev host (M1 Max, 32 GB) runs many agent sessions at once.
 On 2026-11-13 it hung and needed a forced reset after several sessions ran
 `cargo build`/`cargo test` at the same time. Full runbook, measurements and
 the current Cloud Build state: `playbooks/dev-host-build-queue.md`.
 
-## 1. Release and container-image builds → off the Mac (Cloud Build / GitHub Actions)
+## 1. Release and container-image builds → AMD box / Mac (not Cloud Build)
 
-- Every image (server, worker, gateway), for prod, for Artifact Registry, or
-  just to check that the image builds, is compiled **off the Mac**: on Google
-  Cloud Build (`shastaratech-noetl-prod`), or on GitHub Actions for worker
-  releases. It lands in
-  `us-central1-docker.pkg.dev/shastaratech-noetl-prod/noetl/<image>`.
-- Release tags: the repo's `release.yml` does it on merge. Do not build
-  release images by hand. **server**: compiled on Cloud Build. **worker**:
-  compiled on GitHub Actions (GHCR), then gcrane-copied to AR. That split is
-  the path of record. A native Cloud Build worker build also works since
-  worker#404 (E2_HIGHCPU_8: about 34 min cold, about 8 min warm when `Cargo.lock` is unchanged; 3600 s timeout).
-- Machine type: **E2_HIGHCPU_8** is the largest that provisions. E2_HIGHCPU_32
-  is refused in every region tried; do not wait on it. One build runs at a
-  time per region, and queued builds expire after 1 h. For a parallel build,
-  use `GCB_REGION=us-east1 gcb-build`.
-- On demand from a session: `cd repos/<server|worker|gateway> && gcb-build`
-  pushes a dev tag `v0.0.0-dev.<sha>[.dirty]` and prints the digest. It never
-  moves `:latest`.
-- Do **not** run `cargo build --release` of a whole service, or `docker/podman
-  build` of an amd64 image, on the Mac to produce an image.
-- Cloud Build only builds and publishes. Rolling an image to GKE stays gated
-  as before (`deployment-validation.md`: kind first, prod only with approval).
+**Superseded 2026-11-27 by [`build-placement.md`](build-placement.md)** (owner decision):
+Linux/amd64 binaries and images are built on the AMD box (`kadyapam@10.50.0.89`),
+Apple Silicon binaries and arm64 kind images on this Mac (through the queue below).
+GitHub Actions runs lightweight checks only. Cloud Build (`gcb-build`, `gcloud builds
+submit`) and Cloud Run need the owner's explicit OK; `gcb-build` refuses to run
+without `--owner-approved`. On the Mac, build only Apple Silicon targets
+(`aarch64-apple-darwin` release binaries, `linux/arm64` kind images), always through
+the queue. Never build Linux/amd64 binaries or images on the Mac: run them on the AMD
+box with `repos/ops/scripts/local-build/noetl-local-build.sh --remote amd`.
 
 ## 2. On-box compiles → the capped local queue
 

@@ -78,6 +78,15 @@ implementation.
   3. update submodule pointer here
   4. commit pointer bump with summary
 
+## Build placement (AMD box for Linux, Mac Studio for Apple Silicon)
+
+Mandatory, owner decision 2026-11-27: [`agents/rules/build-placement.md`](agents/rules/build-placement.md).
+
+- Linux/amd64 binaries, images and `.deb` packages are built on the **AMD box** (`ssh kadyapam@10.50.0.89`).
+- Apple Silicon binaries and arm64 kind images are built on the **Mac Studio**, through `~/.cargo-queue`.
+- GitHub Actions is for lightweight checks only. No Cloud Build or Cloud Run builds/deploys without the owner's OK.
+- Script: `repos/ops/scripts/local-build/noetl-local-build.sh` (`--image`, `--kind-load noetl`, `--remote amd`).
+
 ## NoETL image build/deploy workflow (local dev)
 
 **Validation order is kind → GKE.** Any change that ships in a

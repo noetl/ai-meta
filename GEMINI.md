@@ -56,3 +56,9 @@ repos/                           # Git submodules (the actual codebases)
 5. Keep ai-task issues and wiki pages aligned when work touches those surfaces.
 6. Follow all rules in `AGENTS.md` and `agents/rules/*.md`.
 7. Use `scripts/memory_add.sh` to record significant decisions or progress.
+
+## Build placement (mandatory)
+
+Linux/amd64 builds run on the AMD box (`kadyapam@10.50.0.89`), Apple Silicon builds on the Mac Studio
+(through `~/.cargo-queue`). GitHub Actions only for lightweight checks; no Cloud Build / Cloud Run without the
+owner's OK. Details and commands: `agents/rules/build-placement.md`.
