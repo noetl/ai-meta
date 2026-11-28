@@ -79,3 +79,17 @@ repository variables the owner sets (nothing changes until then):
 - server `SERVER_AR_SOURCE=cloudbuild` restores the old second compile on Cloud
   Build. The default after server's CI PR is a gcrane copy GHCR → Artifact
   Registry, the same as the worker since ai-meta#515.
+
+## Apple Silicon / macOS release artifacts: built on the Mac Studio (owner decision 2026-11-28)
+
+"Сборки под мак на мак": what GitHub used to build on paid macOS and arm64 runners is built on the Mac Studio with
+`repos/ops/scripts/local-build/noetl-publish-mac.sh` (Apple Silicon only; it refuses to run elsewhere):
+
+- **cli** `darwin-arm64` tarball: `--repo cli --version X.Y.Z --upload` (attaches `noetl-vX.Y.Z-darwin-arm64.tar.gz` and a `.sha256` to the GitHub release).
+- **server / worker** `linux/arm64` image: `--repo server|worker --version X.Y.Z --push` pushes `ghcr.io/noetl/<repo>:X.Y.Z-arm64`
+  and dispatches that repo's `assemble-multiarch-manifest.yml` (metadata only) to join it with the `-amd64` image.
+- Nothing leaves the Mac without `--upload` / `--push`. `--push` needs `podman login ghcr.io` (token with `write:packages`).
+- The release workflows skip these jobs unless the repo variable `MACOS_BUILDS_ON_GITHUB` (cli) / `ARM_BUILDS_ON_GITHUB` (server, worker)
+  is `true`; that is the rollback switch. `:latest` of the images moves only when both architectures exist.
+- Still on GitHub: cli `linux-aarch64` tarball and the arm64 `.deb` (the apt index needs it, ai-meta#390), gateway/tools/catalog arm64 images.
+- Homebrew needs no binary: the tap formula builds from the source tarball (`cargo install`).
